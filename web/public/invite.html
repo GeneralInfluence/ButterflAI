@@ -283,16 +283,34 @@
   <div class="step" id="step-success-contact">
     <span class="success-icon">🎉</span>
     <div class="success-msg">
-      <h2>You're all set!</h2>
-      <p>Their ButterflAI will reach out on Telegram to coordinate plans. Expect something friendly — no spam, just scheduling.</p>
+      <h2>One last step</h2>
+      <p style="margin-bottom:20px">Open Telegram to activate — takes 5 seconds.</p>
+      <a id="tg-link-contact" href="#" target="_blank"
+         style="display:inline-block;background:linear-gradient(135deg,#2481cc,#1a73b8);
+                color:#fff;padding:14px 28px;border-radius:12px;text-decoration:none;
+                font-weight:600;font-size:15px">
+        Open Telegram →
+      </a>
+      <p style="margin-top:16px;font-size:13px;color:#555">
+        Can't click? Search <strong>@butterflai_bot</strong> on Telegram.
+      </p>
     </div>
   </div>
 
   <div class="step" id="step-success-signup">
     <span class="success-icon">🦋</span>
     <div class="success-msg">
-      <h2>Welcome to ButterflAI!</h2>
-      <p>Check your Telegram — your agent will introduce itself and walk you through setup. Your social life is about to get a lot easier.</p>
+      <h2>One last step</h2>
+      <p style="margin-bottom:20px">Open Telegram to meet your ButterflAI.</p>
+      <a id="tg-link-signup" href="#" target="_blank"
+         style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#a855f7);
+                color:#fff;padding:14px 28px;border-radius:12px;text-decoration:none;
+                font-weight:600;font-size:15px">
+        Meet my ButterflAI →
+      </a>
+      <p style="margin-top:16px;font-size:13px;color:#555">
+        Can't click? Search <strong>@butterflai_bot</strong> on Telegram.
+      </p>
     </div>
   </div>
 
@@ -365,6 +383,10 @@
       body: JSON.stringify(body),
     });
     if (res.ok) {
+      const data = await res.json();
+      if (data.deepLink) {
+        document.getElementById('tg-link-contact').href = data.deepLink;
+      }
       goTo('step-success-contact');
     } else {
       const err = await res.json();
@@ -387,6 +409,10 @@
       body: JSON.stringify(body),
     });
     if (res.ok) {
+      const data = await res.json();
+      if (data.deepLink) {
+        document.getElementById('tg-link-signup').href = data.deepLink;
+      }
       goTo('step-success-signup');
     } else {
       const err = await res.json();

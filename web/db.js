@@ -79,4 +79,87 @@ module.exports = {
       ORDER BY created_at DESC
     `).all(userId);
   },
+
+  // ── Telegram linking ───────────────────────────────────────────────────────
+  getContact(id) {
+    return db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
+  },
+
+  getContactByTelegramId(telegramId) {
+    return db.prepare('SELECT * FROM contacts WHERE telegram_id = ?').get(telegramId);
+  },
+
+  getUserByTelegramId(telegramId) {
+    return db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(telegramId);
+  },
+
+  setContactTelegramId(contactId, telegramId, chatId) {
+    return db.prepare(`
+      UPDATE contacts
+      SET telegram_id = ?, telegram_chat_id = ?, updated_at = strftime('%s','now')
+      WHERE id = ?
+    `).run(telegramId, String(chatId), contactId);
+  },
+
+  setUserTelegramChatId(userId, telegramId, chatId) {
+    return db.prepare(`
+      UPDATE users
+      SET telegram_id = ?, telegram_chat_id = ?, updated_at = strftime('%s','now')
+      WHERE id = ?
+    `).run(telegramId, String(chatId), userId);
+  },
+
+  // ── Activities ─────────────────────────────────────────────────────────────
+  getActivity(id) {
+    return db.prepare('SELECT * FROM activities WHERE id = ?').get(id);
+  },
+
+  getActivityOrganiser(activityId) {
+    return db.prepare(`
+      SELECT u.* FROM activities a
+      JOIN cadences c ON a.cadence_id = c.id
+      JOIN relationships r ON c.relationship_id = r.id
+      JOIN users u ON r.user_id = u.id
+      WHERE a.id = ?
+    `).get(activityId);
+  },
+
+  updateActivityResponse(activityId, telegramId, response) {
+    // Store per-participant responses in metadata JSON
+    const activity = db.prepare('SELECT * FROM activities WHERE id = ?').get(activityId);
+    if (!activity) return;
+    const responses = JSON.parse(activity.responses || '{}');
+    responses[telegramId] = response;
+    return db.prepare(`
+      UPDATE activities SET responses = ?, updated_at = strftime('%s','now') WHERE id = ?
+    `).run(JSON.stringify(responses), activityId);
+  },
+
+  setActivityTimeChoice(activityId, telegramId, slotIndex) {
+    const activity = db.prepare('SELECT * FROM activities WHERE id = ?').get(activityId);
+    if (!activity) return;
+    const choices = JSON.parse(activity.time_choices || '{}');
+    choices[telegramId] = slotIndex;
+    return db.prepare(`
+      UPDATE activities SET time_choices = ?, updated_at = strftime('%s','now') WHERE id = ?
+    `).run(JSON.stringify(choices), activityId);
+  },
+
+  // ── Inbound messages (agent queue) ─────────────────────────────────────────
+  storeInboundMessage({ from_telegram_id, from_type, from_id, text, chat_id }) {
+    return db.prepare(`
+      INSERT INTO inbound_messages (id, from_telegram_id, from_type, from_id, text, chat_id)
+      VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?)
+    `).run(from_telegram_id, from_type, from_id, text, String(chat_id));
+  },
+
+  getPendingInboundMessages() {
+    return db.prepare(`
+      SELECT * FROM inbound_messages WHERE processed = 0 ORDER BY created_at ASC
+    `).all();
+  },
+
+  markMessageProcessed(id) {
+    return db.prepare(`UPDATE inbound_messages SET processed = 1 WHERE id = ?`).run(id);
+  },
 };

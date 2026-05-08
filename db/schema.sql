@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT NOT NULL,
     telegram_id TEXT UNIQUE,
     telegram_username TEXT,
+    telegram_chat_id TEXT,             -- needed to send messages (different from telegram_id)
     clawbank_pubkey TEXT UNIQUE,       -- ClawBank wallet pubkey (agent identity)
     agent_endpoint TEXT,               -- Where their agent can be reached
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS contacts (
     name TEXT NOT NULL,
     telegram_id TEXT,
     telegram_username TEXT,
+    telegram_chat_id TEXT,             -- needed to send messages
     phone TEXT,                        -- future SMS support
     tier INTEGER NOT NULL DEFAULT 0,  -- 0=opted out, 1=contact mode, 2=full user
     opted_out_at INTEGER,
@@ -84,12 +86,28 @@ CREATE TABLE IF NOT EXISTS activities (
     activity_type TEXT NOT NULL,
     venue_name TEXT,
     venue_address TEXT,
+    proposed_slots TEXT,               -- JSON array of datetime strings
     scheduled_at INTEGER,
     cost_actual REAL,
     fun_score REAL,                    -- 0.0–1.0, derived from post-activity dialogue
+    responses TEXT DEFAULT '{}',       -- JSON: { telegram_id: 'accepted'|'declined' }
+    time_choices TEXT DEFAULT '{}',    -- JSON: { telegram_id: slotIndex }
     notes TEXT,
     status TEXT DEFAULT 'proposed'
         CHECK (status IN ('proposed', 'confirmed', 'completed', 'cancelled')),
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+-- Inbound messages from contacts (agent processes these)
+CREATE TABLE IF NOT EXISTS inbound_messages (
+    id TEXT PRIMARY KEY,
+    from_telegram_id TEXT NOT NULL,
+    from_type TEXT NOT NULL CHECK (from_type IN ('contact', 'user')),
+    from_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    processed INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 

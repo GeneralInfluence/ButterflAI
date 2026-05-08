@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const db = require('./db');
 const telegram = require('./telegram');
+const { bot } = process.env.TELEGRAM_BOT_TOKEN ? require('./bot') : { bot: null };
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -109,13 +110,18 @@ app.post('/api/invite/:token/contact', (req, res) => {
 
   // Notify inviter's agent
   const inviter = db.getUser(invite.created_by_user_id);
-  if (inviter?.telegram_id) {
-    telegram.notifyUser(inviter.telegram_id,
-      `🎉 ${name} accepted your ButterflAI invite! They're happy to be contacted for plans. I'll reach out to them via Telegram when coordinating.`
+  if (inviter?.telegram_chat_id) {
+    telegram.notifyUser(inviter.telegram_chat_id,
+      `⏳ ${name} accepted your invite! Waiting for them to activate on Telegram...`
     );
   }
 
-  res.json({ ok: true, tier: 1 });
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+  const deepLink = botUsername
+    ? `https://t.me/${botUsername}?start=contact_${contactId}`
+    : null;
+
+  res.json({ ok: true, tier: 1, deepLink, contactId });
 });
 
 // ── Tier 2: Full ButterflAI signup ───────────────────────────────────────────
@@ -167,8 +173,19 @@ app.post('/api/invite/:token/signup', (req, res) => {
     );
   }
 
-  // TODO: send new user a Telegram message with setup link
-  res.json({ ok: true, tier: 2, userId });
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+  const deepLink = botUsername
+    ? `https://t.me/${botUsername}?start=user_${userId}`
+    : null;
+
+  res.json({ ok: true, tier: 2, userId, deepLink });
+});
+
+// ── Telegram webhook (production) ────────────────────────────────────────────
+
+app.post(`/webhook/telegram/${process.env.WEBHOOK_SECRET || 'butterflai-secret'}`, (req, res) => {
+  if (bot) bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
 
 // ── Generate invite (internal agent API) ─────────────────────────────────────
