@@ -1,0 +1,27 @@
+# fly.toml — ButterflAI web app
+app = "butterflai"
+primary_region = "ewr"  # Newark, US East — change to match your users
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false   # keep always-on for agent coordination
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+# Persistent volume for SQLite
+[[mounts]]
+  source = "butterflai_data"
+  destination = "/data"
