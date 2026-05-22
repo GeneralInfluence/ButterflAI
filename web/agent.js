@@ -28,6 +28,8 @@ const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./db');
 const sms = require('./sms');
 const { readUserPrivateData } = require('./crypto');
+const calendar = require('./calendar');
+const contactsImport = require('./contacts-import');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -114,6 +116,82 @@ const TOOL_DEFINITIONS = [
     description: 'Get the list of pending invites the user has sent.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'get_importable_contacts',
+    description: 'Get the list of contacts the user has added/imported but not yet invited (Tier 0). These are people the user could invite to coordinate via ButterflAI.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'send_contact_invite',
+    description: 'Send an invite SMS to a specific Tier 0 contact. This is Gate 2 of the two-gate rule — only call this when the user has explicitly asked to invite this person. Includes mandatory self-identify + STOP.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_id: { type: 'string' },
+        context: { type: 'string', description: 'Brief context e.g. "quarterly lunch"' },
+      },
+      required: ['contact_id', 'context'],
+    },
+  },
+  {
+    name: 'check_calendar_availability',
+    description: 'Check whether the user is free during proposed time slots. Returns free/busy for each slot.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        slots: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              start: { type: 'string', description: 'ISO 8601 datetime' },
+              end:   { type: 'string', description: 'ISO 8601 datetime' },
+            },
+            required: ['start', 'end'],
+          },
+        },
+      },
+      required: ['slots'],
+    },
+  },
+  {
+    name: 'find_free_slots',
+    description: 'Find upcoming free time slots on the user\'s calendar. Use when suggesting times to a contact.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        duration_mins: { type: 'number', description: 'Duration needed in minutes (default 90)' },
+        count: { type: 'number', description: 'Number of options to return (default 3)' },
+        preferred_time: {
+          type: 'string',
+          enum: ['morning', 'lunch', 'afternoon', 'evening'],
+          description: 'Preferred time of day (optional)',
+        },
+        search_days: { type: 'number', description: 'Days ahead to search (default 21)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'create_calendar_event',
+    description: 'Create an event on the user\'s Google Calendar. Call this after a time is agreed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title:       { type: 'string' },
+        start:       { type: 'string', description: 'ISO 8601 datetime' },
+        end:         { type: 'string', description: 'ISO 8601 datetime' },
+        description: { type: 'string' },
+        location:    { type: 'string' },
+      },
+      required: ['title', 'start', 'end'],
+    },
+  },
+  {
+    name: 'get_calendar_connect_url',
+    description: 'Get a URL the user can open to connect their Google Calendar. Send this when the user asks about calendar or when calendar is needed but not connected.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 // ── Tool execution (all scoped to userId) ─────────────────────────────────────
@@ -186,6 +264,45 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     case 'get_pending_invites': {
       const invites = db.getPendingInvitesByUser(userId);
       return { invites };
+    }
+
+    case 'get_importable_contacts': {
+      return { contacts: contactsImport.getImportableContacts(userId) };
+    }
+
+    case 'send_contact_invite': {
+      const result = await contactsImport.sendInvite(userId, toolInput.contact_id, toolInput.context);
+      return { sent: true, ...result };
+    }
+
+    case 'check_calendar_availability': {
+      const results = await calendar.checkAvailability(userId, toolInput.slots);
+      return { availability: results };
+    }
+
+    case 'find_free_slots': {
+      return calendar.findFreeSlots(userId, {
+        duration_mins: toolInput.duration_mins,
+        count: toolInput.count,
+        preferred_time: toolInput.preferred_time,
+        search_days: toolInput.search_days,
+      });
+    }
+
+    case 'create_calendar_event': {
+      const eventId = await calendar.createEvent(userId, toolInput);
+      return { created: true, eventId };
+    }
+
+    case 'get_calendar_connect_url': {
+      const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+      const connected = calendar.hasCalendarConnected(userId);
+      if (connected) return { connected: true, message: 'Calendar already connected.' };
+      return {
+        connected: false,
+        url: `${baseUrl}/auth/google/calendar?userId=${userId}`,
+        message: 'User needs to open this URL to connect their Google Calendar.',
+      };
     }
 
     default:

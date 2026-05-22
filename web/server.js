@@ -27,6 +27,9 @@ const db = require('./db');
 const sms = require('./sms');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
+const { startNudgeLoop } = require('./cadence');
+const calendar = require('./calendar');
+const contactsImport = require('./contacts-import');
 
 // Telegram bot — optional, retained for future use
 let telegramBot = null;
@@ -407,7 +410,126 @@ function escapeXml(str) {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
+// ── Google OAuth callbacks ────────────────────────────────────────────────────
+
+// Initiate Google Calendar OAuth for a user (linked from SMS: "Connect your calendar: <url>")
+app.get('/auth/google/calendar', (req, res) => {
+  const { userId } = req.query;
+  if (!userId || !db.getUser(userId)) return res.status(400).send('Invalid userId');
+  const url = calendar.getAuthUrl(userId);
+  res.redirect(url);
+});
+
+// Initiate Google Contacts OAuth
+app.get('/auth/google/contacts', (req, res) => {
+  const { userId } = req.query;
+  if (!userId || !db.getUser(userId)) return res.status(400).send('Invalid userId');
+  const url = contactsImport.getGoogleContactsAuthUrl(userId);
+  res.redirect(url);
+});
+
+// Shared OAuth callback (handles both calendar and contacts based on state prefix)
+app.get('/auth/google/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    console.warn('[oauth] user denied:', error);
+    return res.send('Authorization cancelled. You can close this window.');
+  }
+
+  try {
+    if (state?.startsWith('contacts:')) {
+      // Google Contacts
+      const userId = state.replace('contacts:', '');
+      const user = db.getUser(userId);
+      if (!user) return res.status(400).send('Unknown user');
+
+      // Exchange code for tokens inline using the Google client
+      const { google: goog } = require('googleapis');
+      const client = new goog.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_REDIRECT_URI || `${process.env.BASE_URL}/auth/google/callback`
+      );
+      const { tokens } = await client.getToken(code);
+      const result = await contactsImport.importFromGoogle(userId, tokens);
+
+      // Notify user via SMS
+      if (user.phone) {
+        await sms.notifyUser(user.phone,
+          `📱 Imported ${result.imported} contact${result.imported !== 1 ? 's' : ''} from Google. ` +
+          `Reply "show contacts" to see who you could invite.`
+        ).catch(() => {});
+      }
+      res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px">
+        <h2>✅ ${result.imported} contacts imported</h2>
+        <p>You'll get a text shortly. You can close this window.</p></body></html>`);
+
+    } else {
+      // Google Calendar (state = userId)
+      const userId = state;
+      const user = db.getUser(userId);
+      if (!user) return res.status(400).send('Unknown user');
+
+      await calendar.handleOAuthCallback(code, userId);
+
+      if (user.phone) {
+        await sms.notifyUser(user.phone,
+          `📅 Your Google Calendar is connected! I can now check your real availability when coordinating plans.`
+        ).catch(() => {});
+      }
+      res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px">
+        <h2>📅 Calendar connected!</h2>
+        <p>Your ButterflAI can now check your real availability. You can close this window.</p></body></html>`);
+    }
+  } catch (err) {
+    console.error('[oauth] callback error:', err.message);
+    res.status(500).send('Something went wrong. Please try again.');
+  }
+});
+
+// ── Contact import API ────────────────────────────────────────────────────────
+
+// Add a contact manually (user's "people I could invite" list)
+app.post('/api/contacts/add', (req, res) => {
+  const { userId, name, phone } = req.body;
+  if (!userId || !name) return res.status(400).json({ error: 'userId and name required' });
+  try {
+    const contactId = contactsImport.addManualContact(userId, { name, phone });
+    res.json({ ok: true, contactId });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Get importable (Tier 0) contacts
+app.get('/api/contacts/importable/:userId', (req, res) => {
+  const contacts = contactsImport.getImportableContacts(req.params.userId);
+  res.json({ contacts });
+});
+
+// Get active (Tier 1+) contacts
+app.get('/api/contacts/active/:userId', (req, res) => {
+  const contacts = contactsImport.getActiveContacts(req.params.userId);
+  res.json({ contacts });
+});
+
+// Send an invite to a specific Tier 0 contact (Gate 2)
+app.post('/api/contacts/invite', async (req, res) => {
+  const { userId, contactId, context } = req.body;
+  if (!userId || !contactId) return res.status(400).json({ error: 'userId and contactId required' });
+  try {
+    const result = await contactsImport.sendInvite(userId, contactId, context || 'keeping in touch');
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+
 app.listen(PORT, () => {
   console.log(`ButterflAI web running on :${PORT}`);
   startAgentLoop();
+  startNudgeLoop();
 });
