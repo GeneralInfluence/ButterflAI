@@ -376,6 +376,33 @@ module.exports = {
     db.prepare('UPDATE inbound_messages SET processed = 1 WHERE id = ?').run(id);
   },
 
+  // ── Pending actions (stateful SMS conversations) ──────────────────────────
+
+  createPendingAction({ id, user_id, action_type, payload, ttl_secs }) {
+    const expires_at = Math.floor(Date.now() / 1000) + (ttl_secs || 86400);
+    return db.prepare(`
+      INSERT INTO pending_actions (id, user_id, action_type, payload, expires_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, user_id, action_type, JSON.stringify(payload || {}), expires_at);
+  },
+
+  getPendingAction(userId) {
+    // Get the most recent non-expired pending action for a user
+    return db.prepare(`
+      SELECT * FROM pending_actions
+      WHERE user_id = ? AND expires_at > strftime('%s','now')
+      ORDER BY created_at DESC LIMIT 1
+    `).get(userId);
+  },
+
+  deletePendingAction(id) {
+    db.prepare('DELETE FROM pending_actions WHERE id = ?').run(id);
+  },
+
+  clearExpiredPendingActions() {
+    db.prepare(`DELETE FROM pending_actions WHERE expires_at <= strftime('%s','now')`).run();
+  },
+
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
 
   getWallet(userId) {

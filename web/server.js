@@ -30,6 +30,8 @@ const { startAgentLoop } = require('./agent');
 const { startNudgeLoop } = require('./cadence');
 const calendar = require('./calendar');
 const contactsImport = require('./contacts-import');
+const venues = require('./venues');
+const multiparty = require('./multiparty');
 
 // Telegram bot — optional, retained for future use
 let telegramBot = null;
@@ -79,6 +81,23 @@ app.post('/sms', sms.validateTwilioRequest, async (req, res) => {
     return res.type('text/xml').send(twiml.toString());
   }
 
+  // 4a. Check if this is a CONTACT (not a user) — handle RSVP replies
+  const existingContact = db.getContactByPhone(from);
+  if (existingContact && !db.getUserByPhone(from)) {
+    // This phone belongs to a contact, not a full user
+    const rsvpReply = await multiparty.handleRsvpReply(from, body).catch(() => null);
+    if (rsvpReply) {
+      twiml.push(rsvpReply);
+    } else {
+      // Queue for agent to handle (contact sent a free-text message)
+      db.storeInboundMessage({
+        from_phone: from, from_type: 'contact', from_id: existingContact.id, channel: 'sms', text: body,
+      });
+      twiml.push(`Got it! I'll pass that along. 👍`);
+    }
+    return res.type('text/xml').send(twiml.toString());
+  }
+
   // 4. Route: onboarding vs. established user
   const user = db.getUserByPhone(from);
   const isOnboarding = !user || user.onboarding_state !== 'complete';
@@ -89,16 +108,21 @@ app.post('/sms', sms.validateTwilioRequest, async (req, res) => {
     if (isOnboarding) {
       reply = await handleOnboarding(from, body, db);
     } else {
-      // Established user: queue message for agent processing
-      db.storeInboundMessage({
-        from_phone: from,
-        from_type: 'user',
-        from_id: user.id,
-        channel: 'sms',
-        text: body,
-      });
-      // Simple ack — the agent will follow up asynchronously
-      reply = `Got it! I'll take care of that. 🦋`;
+      // Check for a pending action (nudge confirmation, message approval, etc.)
+      const pending = db.getPendingAction(user.id);
+      if (pending) {
+        reply = await handlePendingAction(user, body, pending);
+      } else {
+        // Generic: queue for agent processing
+        db.storeInboundMessage({
+          from_phone: from,
+          from_type: 'user',
+          from_id: user.id,
+          channel: 'sms',
+          text: body,
+        });
+        reply = `Got it! 🦋`;
+      }
     }
 
     if (reply) twiml.push(reply);
@@ -387,6 +411,95 @@ app.get('/api/user/:userId/audit', (req, res) => {
   res.json({ audit: rows });
 });
 
+// ── Pending action handler ────────────────────────────────────────────────────
+
+async function handlePendingAction(user, body, pending) {
+  const payload = JSON.parse(pending.payload || '{}');
+  const lower = body.toLowerCase().trim();
+  const isYes = /^y(es|ep|eah)?[.!]?$/i.test(lower) || lower === 'sure' || lower === 'ok' || lower === 'yep';
+  const isNo  = /^n(o|ope)?[.!]?$/i.test(lower) || lower === 'nah' || lower === 'not now' || lower === 'skip';
+
+  if (pending.action_type === 'nudge_confirm') {
+    db.deletePendingAction(pending.id);
+
+    if (isYes) {
+      // Queue a rich message for the agent loop — it has full tool access
+      db.storeInboundMessage({
+        from_phone: user.phone,
+        from_type: 'user',
+        from_id: user.id,
+        channel: 'sms',
+        text: `Please set up a ${payload.frequency} ${payload.activity_type || 'hangout'} with ${payload.contact_name}. Cadence ID: ${payload.cadence_id}. Check my calendar for free slots, then reach out to them.`,
+      });
+      return `On it — I'll check your calendar and reach out to ${payload.contact_name}. 🦋`;
+    }
+
+    if (isNo) {
+      return `No problem, I'll remind you again later. 👍`;
+    }
+
+    // Ambiguous — re-queue as generic message so agent can figure it out
+    db.storeInboundMessage({
+      from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'sms', text: body,
+    });
+    return `Got it — I'll look into that. 🦋`;
+  }
+
+  if (pending.action_type === 'approve_message') {
+    db.deletePendingAction(pending.id);
+
+    if (isYes) {
+      // Send the approved draft
+      const contact = db.getContact(payload.contact_id);
+      if (contact?.phone && !db.isOptedOut(contact.phone)) {
+        await sms.send(contact.phone, payload.draft_text);
+        return `Sent to ${payload.contact_name || contact.name}. ✅`;
+      }
+      return `Couldn't send — ${payload.contact_name} may not have a phone number on file.`;
+    }
+
+    if (isNo) {
+      return `No problem, I won't send it. Want me to revise the message?`;
+    }
+
+    // Treat as edited version of the message
+    const contact = db.getContact(payload.contact_id);
+    if (contact?.phone && !db.isOptedOut(contact.phone)) {
+      await sms.send(contact.phone, body);
+      return `Sent your version to ${contact.name}. ✅`;
+    }
+    return `Got it — but I couldn't find a number for that contact.`;
+  }
+
+  if (pending.action_type === 'confirm_booking') {
+    db.deletePendingAction(pending.id);
+
+    if (isYes) {
+      db.storeInboundMessage({
+        from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'sms',
+        text: `Confirm the booking: ${JSON.stringify(payload)}`,
+      });
+      return `Booking it now! 🎉`;
+    }
+
+    if (isNo) {
+      return `Ok, I'll suggest other options. What would you prefer?`;
+    }
+
+    db.storeInboundMessage({
+      from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'sms', text: body,
+    });
+    return `Got it. 🦋`;
+  }
+
+  // Unknown action type — fall through to generic
+  db.deletePendingAction(pending.id);
+  db.storeInboundMessage({
+    from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'sms', text: body,
+  });
+  return `Got it! 🦋`;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function buildTwiml() {
@@ -409,6 +522,51 @@ function escapeXml(str) {
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
+
+// ── Venue API ─────────────────────────────────────────────────────────────────
+
+app.get('/api/venues/favorites/:userId', (req, res) => {
+  res.json({ favorites: venues.getFavorites(req.params.userId) });
+});
+
+app.post('/api/venues/favorites', (req, res) => {
+  const { userId, ...venue } = req.body;
+  if (!userId || !venue.name) return res.status(400).json({ error: 'userId and name required' });
+  const id = venues.addFavorite(userId, venue);
+  res.json({ ok: true, id });
+});
+
+app.delete('/api/venues/favorites/:userId/:venueId', (req, res) => {
+  venues.removeFavorite(req.params.userId, req.params.venueId);
+  res.json({ ok: true });
+});
+
+// ── Events API ────────────────────────────────────────────────────────────────
+
+app.post('/api/events', async (req, res) => {
+  const { userId, contactIds, ...eventData } = req.body;
+  if (!userId || !eventData.title) return res.status(400).json({ error: 'userId and title required' });
+  try {
+    const eventId = multiparty.createEvent(userId, eventData);
+    let inviteResult = { sent: 0, skipped: 0 };
+    if (contactIds?.length) {
+      inviteResult = await multiparty.inviteContacts(eventId, contactIds);
+    }
+    res.json({ ok: true, eventId, ...inviteResult });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/events/:userId', (req, res) => {
+  res.json({ events: multiparty.getEventsByHost(req.params.userId) });
+});
+
+app.get('/api/events/:userId/:eventId', (req, res) => {
+  const event = multiparty.getEvent(req.params.eventId);
+  if (!event || event.host_user_id !== req.params.userId) return res.status(404).json({ error: 'Not found' });
+  res.json({ event, rsvp: multiparty.getRsvpSummary(req.params.eventId) });
+});
 
 // ── Google OAuth callbacks ────────────────────────────────────────────────────
 

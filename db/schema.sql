@@ -207,3 +207,19 @@ CREATE INDEX IF NOT EXISTS idx_activities_cadence   ON activities(cadence_id);
 CREATE INDEX IF NOT EXISTS idx_agent_messages_to    ON agent_messages(to_pubkey, processed);
 CREATE INDEX IF NOT EXISTS idx_access_audit_user    ON access_audit(user_id, accessed_at);
 CREATE INDEX IF NOT EXISTS idx_inbound_unprocessed  ON inbound_messages(processed, created_at);
+
+-- Pending actions (stores context for stateful SMS conversations)
+-- When the agent sends a question and awaits user reply, it stores a pending_action.
+-- The next inbound SMS from that user is checked against pending actions first.
+CREATE TABLE IF NOT EXISTS pending_actions (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id),
+    action_type TEXT NOT NULL,
+      -- 'nudge_confirm'   → user replied yes/no to a cadence nudge
+      -- 'approve_message' → user needs to approve a drafted expressive message
+      -- 'confirm_booking' → user needs to confirm a venue/time
+    payload     TEXT NOT NULL DEFAULT '{}',  -- JSON context
+    expires_at  INTEGER NOT NULL,            -- auto-expire so stale actions don't linger
+    created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_pending_actions_user ON pending_actions(user_id, expires_at);

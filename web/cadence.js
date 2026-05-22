@@ -23,6 +23,7 @@
 
 'use strict';
 
+const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 const sms = require('./sms');
 
@@ -135,10 +136,27 @@ async function nudgeUser(user) {
 
     try {
       await sms.notifyUser(user.phone, nudgeText);
-      // Record that we sent a nudge
+
+      // Record nudge timestamp
       db._raw()
         .prepare(`UPDATE cadences SET last_nudge_sent_at = ? WHERE id = ?`)
         .run(Math.floor(Date.now() / 1000), cadence.id);
+
+      // Store pending action so the agent knows what "yes" refers to
+      db.createPendingAction({
+        id: uuidv4(),
+        user_id: user.id,
+        action_type: 'nudge_confirm',
+        payload: {
+          cadence_id: cadence.id,
+          contact_id: rel.contact_id,
+          contact_name: contactName,
+          activity_type: cadence.activity_type,
+          frequency: cadence.frequency,
+        },
+        ttl_secs: 48 * 3600,  // expires in 48h
+      });
+
       console.log(`[cadence] nudged user=${user.id} cadence=${cadence.id} contact=${contactName}`);
     } catch (err) {
       console.error(`[cadence] nudge failed user=${user.id}:`, err.message);

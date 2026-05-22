@@ -30,6 +30,8 @@ const sms = require('./sms');
 const { readUserPrivateData } = require('./crypto');
 const calendar = require('./calendar');
 const contactsImport = require('./contacts-import');
+const venues = require('./venues');
+const multiparty = require('./multiparty');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -192,6 +194,80 @@ const TOOL_DEFINITIONS = [
     description: 'Get a URL the user can open to connect their Google Calendar. Send this when the user asks about calendar or when calendar is needed but not connected.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'suggest_venues',
+    description: 'Suggest venue options for a planned activity. Returns up to 3 options (favorites + new discoveries).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        activity_type: { type: 'string', description: 'e.g. "lunch", "dinner", "drinks"' },
+        neighborhood:  { type: 'string', description: 'Preferred area (optional)' },
+        dietary:       { type: 'array', items: { type: 'string' }, description: 'Dietary restrictions (optional)' },
+        price_level:   { type: 'number', description: 'Max price level 1-4 (optional)' },
+      },
+      required: ['activity_type'],
+    },
+  },
+  {
+    name: 'get_venue_favorites',
+    description: "Get the user's saved favorite venues.",
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'add_venue_favorite',
+    description: "Save a venue to the user's favorites.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        name:    { type: 'string' },
+        address: { type: 'string' },
+        cuisine: { type: 'string' },
+        notes:   { type: 'string', description: 'Personal notes e.g. "great for dates"' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'create_social_event',
+    description: 'Create a social event and optionally invite specific contacts. Host sets the plan; contacts are soft-RSVPed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title:         { type: 'string', description: 'e.g. "Dinner at Carbone"' },
+        activity_type: { type: 'string' },
+        venue_name:    { type: 'string' },
+        venue_address: { type: 'string' },
+        scheduled_at:  { type: 'string', description: 'ISO 8601 datetime' },
+        duration_mins: { type: 'number' },
+        notes:         { type: 'string' },
+        contact_ids:   { type: 'array', items: { type: 'string' }, description: 'Contacts to invite (must be Tier 1+)' },
+      },
+      required: ['title', 'activity_type', 'scheduled_at'],
+    },
+  },
+  {
+    name: 'get_event_rsvp_status',
+    description: "Get the current RSVP status for a social event.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        event_id: { type: 'string' },
+      },
+      required: ['event_id'],
+    },
+  },
+  {
+    name: 'store_pending_confirm',
+    description: 'Store a booking/venue confirmation that needs user approval before proceeding. The next SMS from the user (yes/no) will resolve it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        summary:  { type: 'string', description: 'What the user is approving' },
+        payload:  { type: 'object', description: 'Structured data to act on when approved' },
+      },
+      required: ['summary', 'payload'],
+    },
+  },
 ];
 
 // ── Tool execution (all scoped to userId) ─────────────────────────────────────
@@ -225,15 +301,31 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'draft_contact_message': {
-      // Always returns draft — actual send is handled separately with approval gate
+      const contact = db.getContact(toolInput.contact_id);
+      if (toolInput.message_type === 'expressive') {
+        // Store pending approval so the next SMS from the user resolves it
+        const { v4: uuidv4 } = require('uuid');
+        db.createPendingAction({
+          id: uuidv4(),
+          user_id: userId,
+          action_type: 'approve_message',
+          payload: {
+            contact_id: toolInput.contact_id,
+            contact_name: contact?.name || 'your contact',
+            draft_text: toolInput.message,
+          },
+          ttl_secs: 24 * 3600,
+        });
+      }
       return {
         draft: toolInput.message,
         contact_id: toolInput.contact_id,
+        contact_name: contact?.name,
         message_type: toolInput.message_type,
         requires_approval: toolInput.message_type === 'expressive',
         note: toolInput.message_type === 'expressive'
-          ? 'This is a draft. It will be sent to the user for approval before going to the contact.'
-          : 'Logistics message — can be sent without approval.',
+          ? 'Draft stored. The next SMS from the user (yes/no/edited text) will resolve it.'
+          : 'Logistics message — can be sent directly via send_logistics_sms.',
       };
     }
 
@@ -303,6 +395,55 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         url: `${baseUrl}/auth/google/calendar?userId=${userId}`,
         message: 'User needs to open this URL to connect their Google Calendar.',
       };
+    }
+
+    case 'suggest_venues': {
+      const result = await venues.suggestVenues(userId, toolInput);
+      return {
+        ...result,
+        formatted: venues.formatOptionsForSMS(result.options),
+      };
+    }
+
+    case 'get_venue_favorites': {
+      return { favorites: venues.getFavorites(userId) };
+    }
+
+    case 'add_venue_favorite': {
+      const id = venues.addFavorite(userId, toolInput);
+      return { added: true, id };
+    }
+
+    case 'create_social_event': {
+      const { contact_ids, ...eventData } = toolInput;
+      const eventId = multiparty.createEvent(userId, eventData);
+      let inviteResult = { sent: 0, skipped: 0 };
+      if (contact_ids?.length) {
+        inviteResult = await multiparty.inviteContacts(eventId, contact_ids);
+      }
+      return { created: true, eventId, ...inviteResult };
+    }
+
+    case 'get_event_rsvp_status': {
+      const event = multiparty.getEvent(toolInput.event_id);
+      if (!event) return { error: 'Event not found' };
+      return {
+        event: { title: event.title, scheduled_at: event.scheduled_at, status: event.status },
+        rsvp: multiparty.getRsvpSummary(toolInput.event_id),
+        invitations: event.invitations,
+      };
+    }
+
+    case 'store_pending_confirm': {
+      const { v4: uuidv4 } = require('uuid');
+      db.createPendingAction({
+        id: uuidv4(),
+        user_id: userId,
+        action_type: 'confirm_booking',
+        payload: { summary: toolInput.summary, ...toolInput.payload },
+        ttl_secs: 24 * 3600,
+      });
+      return { stored: true, note: `Confirmation request stored. Tell the user: "${toolInput.summary} — reply yes to confirm."` };
     }
 
     default:
