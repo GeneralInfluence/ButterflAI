@@ -42,6 +42,10 @@ if (fs.existsSync(migrationsDir)) {
 
 module.exports = {
 
+  // Escape hatch for one-off queries (cadence engine, migrations, etc.)
+  // Use sparingly — prefer named methods above.
+  _raw() { return db; },
+
   // ── Users ──────────────────────────────────────────────────────────────────
 
   getUser(id) {

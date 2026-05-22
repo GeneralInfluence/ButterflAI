@@ -58,13 +58,15 @@ async function send(to, body) {
  * @param {string} userName     - The user who owns this agent
  * @param {string} context      - Short context e.g. "quarterly lunch"
  * @param {string} ctaText      - Optional call-to-action e.g. "Set up your own ButterflAI: https://…"
+ * @param {string} portalUrl    - Optional link for contact to view/edit/erase their data
  */
-async function sendContactInvite(to, contactName, userName, context, ctaText) {
+async function sendContactInvite(to, contactName, userName, context, ctaText, portalUrl) {
   const lines = [
     `Hi ${contactName}! This is ${userName}'s ButterflAI assistant.`,
     `${userName} wants to stay connected with you (${context}).`,
   ];
   if (ctaText) lines.push(ctaText);
+  if (portalUrl) lines.push(`View or erase your data anytime: ${portalUrl}`);
   lines.push(`Reply STOP and I won't message you again.`);
 
   return send(to, lines.join('\n'));
