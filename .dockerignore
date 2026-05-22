@@ -1,0 +1,14 @@
+# Don't send these to Docker build context
+.git
+.gitignore
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+web/.env
+web/node_modules
+*.md
+MEMORY.md
+IMPLEMENTATION.md
+.DS_Store

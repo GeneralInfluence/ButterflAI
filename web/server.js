@@ -523,6 +523,18 @@ function escapeXml(str) {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
+// ── Health check ─────────────────────────────────────────────────────────────
+
+app.get('/health', (req, res) => {
+  // Verify DB is reachable
+  try {
+    db._raw().prepare('SELECT 1').get();
+    res.json({ ok: true, ts: Date.now() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ── Venue API ─────────────────────────────────────────────────────────────────
 
 app.get('/api/venues/favorites/:userId', (req, res) => {

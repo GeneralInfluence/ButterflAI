@@ -1,27 +1,50 @@
-# fly.toml — ButterflAI web app
-app = "butterflai"
-primary_region = "ewr"  # Newark, US East — change to match your users
+# fly.toml — ButterflAI
+# Deploy: fly deploy
+# Secrets: see scripts/set-secrets.sh
+
+app            = "butterflai"
+primary_region = "ewr"   # Newark / US East — move to "lax" or "ord" to follow your users
 
 [build]
   dockerfile = "Dockerfile"
 
 [env]
-  PORT = "3000"
-  NODE_ENV = "production"
+  PORT       = "3000"
+  NODE_ENV   = "production"
+  KMS_PROVIDER = "local"   # swap to "aws" before public launch
+
+# All secrets are set via `fly secrets set` — never in this file.
+# See scripts/set-secrets.sh for the full list.
 
 [http_service]
   internal_port = 3000
-  force_https = true
-  auto_stop_machines = false   # keep always-on for agent coordination
+  force_https   = true
+
+  # Keep at least one machine running at all times — the agent polling
+  # loop and cadence nudge loop must not sleep.
+  auto_stop_machines  = false
   auto_start_machines = true
   min_machines_running = 1
 
-[[vm]]
-  memory = "512mb"
-  cpu_kind = "shared"
-  cpus = 1
+  [http_service.concurrency]
+    type       = "requests"
+    hard_limit = 200
+    soft_limit = 150
 
-# Persistent volume for SQLite
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval     = "30s"
+    method       = "GET"
+    path         = "/health"
+    timeout      = "5s"
+
+[[vm]]
+  memory   = "512mb"
+  cpu_kind = "shared"
+  cpus     = 1
+
+# Persistent volume for SQLite.
+# Create once: fly volumes create butterflai_data --size 3 --region ewr
 [[mounts]]
-  source = "butterflai_data"
+  source      = "butterflai_data"
   destination = "/data"

@@ -5,3 +5,6 @@ data/
 *.sqlite-wal
 *.sqlite-shm
 .DS_Store
+
+# Never commit real secrets
+scripts/set-secrets.sh.local
