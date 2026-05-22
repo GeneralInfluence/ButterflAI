@@ -28,42 +28,19 @@
     }
 
     .emoji { font-size: 48px; margin-bottom: 16px; display: block; text-align: center; }
-
-    h1 {
-      font-size: 22px;
-      font-weight: 700;
-      text-align: center;
-      color: #fff;
-      margin-bottom: 8px;
-    }
-
-    .subtitle {
-      font-size: 15px;
-      color: #888;
-      text-align: center;
-      line-height: 1.5;
-      margin-bottom: 32px;
-    }
-
+    h1 { font-size: 22px; font-weight: 700; text-align: center; color: #fff; margin-bottom: 8px; }
+    .subtitle { font-size: 15px; color: #888; text-align: center; line-height: 1.5; margin-bottom: 32px; }
     .inviter-name { color: #c084fc; font-weight: 600; }
 
-    /* Step cards */
     .step { display: none; }
     .step.active { display: block; }
 
-    /* Choice buttons */
     .choices { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
 
     .choice-btn {
-      background: #25253a;
-      border: 1px solid #3a3a55;
-      border-radius: 14px;
-      padding: 18px 20px;
-      cursor: pointer;
-      text-align: left;
-      transition: border-color 0.15s, background 0.15s;
-      color: inherit;
-      width: 100%;
+      background: #25253a; border: 1px solid #3a3a55; border-radius: 14px;
+      padding: 18px 20px; cursor: pointer; text-align: left;
+      transition: border-color 0.15s, background 0.15s; color: inherit; width: 100%;
     }
     .choice-btn:hover { border-color: #c084fc; background: #2d2d45; }
     .choice-btn .choice-icon { font-size: 24px; margin-bottom: 6px; display: block; }
@@ -71,70 +48,50 @@
     .choice-btn .choice-desc { font-size: 13px; color: #888; line-height: 1.4; }
 
     .optout-link {
-      display: block;
-      text-align: center;
-      font-size: 13px;
-      color: #555;
-      cursor: pointer;
-      text-decoration: underline;
-      margin-top: 8px;
+      display: block; text-align: center; font-size: 13px;
+      color: #555; cursor: pointer; text-decoration: underline; margin-top: 8px;
     }
     .optout-link:hover { color: #888; }
 
-    /* Form */
     .form-group { margin-bottom: 18px; }
     label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; font-weight: 500; }
-    input, textarea, select {
-      width: 100%;
-      background: #0f0f18;
-      border: 1px solid #2e2e3e;
-      border-radius: 10px;
-      padding: 12px 14px;
-      color: #f0f0f0;
-      font-size: 15px;
-      outline: none;
-      transition: border-color 0.15s;
-      font-family: inherit;
+
+    input, textarea {
+      width: 100%; background: #0f0f18; border: 1px solid #2e2e3e;
+      border-radius: 10px; padding: 12px 14px; color: #f0f0f0; font-size: 15px;
+      outline: none; transition: border-color 0.15s; font-family: inherit;
     }
     input:focus, textarea:focus { border-color: #c084fc; }
     textarea { resize: vertical; min-height: 72px; }
 
+    .phone-hint { font-size: 12px; color: #555; margin-top: 4px; }
+
     .tag-input-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .tag {
-      background: #2e2e4a;
-      border: 1px solid #4a4a70;
-      border-radius: 20px;
-      padding: 4px 12px;
-      font-size: 13px;
-      cursor: pointer;
-      transition: background 0.12s, border-color 0.12s;
-      user-select: none;
+      background: #2e2e4a; border: 1px solid #4a4a70; border-radius: 20px;
+      padding: 4px 12px; font-size: 13px; cursor: pointer;
+      transition: background 0.12s, border-color 0.12s; user-select: none;
     }
     .tag.selected { background: #6d28d9; border-color: #a855f7; color: #fff; }
 
+    .privacy-note {
+      background: #12121c; border: 1px solid #2a2a3a; border-radius: 10px;
+      padding: 12px 14px; font-size: 12px; color: #666; line-height: 1.5;
+      margin-bottom: 18px;
+    }
+    .privacy-note a { color: #888; }
+
     .submit-btn {
-      width: 100%;
-      background: linear-gradient(135deg, #7c3aed, #a855f7);
-      border: none;
-      border-radius: 12px;
-      padding: 14px;
-      color: #fff;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.15s;
+      width: 100%; background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border: none; border-radius: 12px; padding: 14px; color: #fff;
+      font-size: 16px; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
     }
     .submit-btn:hover { opacity: 0.9; }
     .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .back-link {
-      display: block;
-      text-align: center;
-      font-size: 13px;
-      color: #555;
-      cursor: pointer;
-      margin-top: 14px;
-      text-decoration: underline;
+      display: block; text-align: center; font-size: 13px;
+      color: #555; cursor: pointer; margin-top: 14px; text-decoration: underline;
     }
     .back-link:hover { color: #888; }
 
@@ -155,47 +112,48 @@
     <p class="loading">🦋</p>
   </div>
 
-  <!-- Step 0: Landing / choice -->
+  <!-- Step 0: Choice -->
   <div class="step" id="step-choice">
     <span class="emoji">🦋</span>
     <h1 id="headline">You're invited</h1>
-    <p class="subtitle" id="subtext">Loading...</p>
+    <p class="subtitle" id="subtext">Loading…</p>
 
     <div class="choices">
       <button class="choice-btn" onclick="goTo('step-contact')">
         <span class="choice-icon">💬</span>
         <div class="choice-title">Let ButterflAI coordinate with me</div>
-        <div class="choice-desc">Share your Telegram and rough availability. Their agent handles the scheduling — you just show up.</div>
+        <div class="choice-desc">Share your number and rough availability. Their agent handles scheduling — you just show up.</div>
       </button>
 
       <button class="choice-btn" onclick="goTo('step-signup')">
         <span class="choice-icon">🦋</span>
         <div class="choice-title">Get my own ButterflAI</div>
-        <div class="choice-desc">Your own social agent. Manages your whole social life — not just this one friendship.</div>
+        <div class="choice-desc">Your own social agent. Manages your whole social life, not just this one friendship.</div>
       </button>
     </div>
 
     <a class="optout-link" onclick="goTo('step-optout')">No thanks, opt out</a>
   </div>
 
-  <!-- Step: Contact mode form -->
+  <!-- Step: Contact mode (Tier 1) -->
   <div class="step" id="step-contact">
     <span class="emoji">💬</span>
     <h1>Quick setup</h1>
-    <p class="subtitle">Takes about a minute. Their agent will reach out to coordinate plans.</p>
+    <p class="subtitle">Takes about a minute. You'll hear from their agent over SMS when plans are being made.</p>
 
-    <form id="form-contact">
+    <form id="form-contact" autocomplete="on">
       <div class="form-group">
         <label>Your name</label>
-        <input type="text" name="name" id="contact-name" required placeholder="Jamie" />
+        <input type="text" name="name" id="contact-name" required placeholder="Jamie" autocomplete="given-name" />
       </div>
       <div class="form-group">
-        <label>Your Telegram username</label>
-        <input type="text" name="telegram_username" required placeholder="@jamie" />
+        <label>Your mobile number</label>
+        <input type="tel" name="phone" required placeholder="+1 555 000 0000" autocomplete="tel" />
+        <p class="phone-hint">Used only for scheduling coordination. You can reply STOP anytime.</p>
       </div>
       <div class="form-group">
         <label>General availability <span style="color:#555">(optional)</span></label>
-        <textarea name="availability" placeholder="e.g. weekday lunches, weekend evenings after 6pm..."></textarea>
+        <textarea name="availability" placeholder="e.g. weekday lunches, weekend evenings after 6pm…"></textarea>
       </div>
       <div class="form-group">
         <label>Neighbourhoods you like <span style="color:#555">(optional)</span></label>
@@ -213,6 +171,10 @@
         </div>
       </div>
 
+      <div class="privacy-note">
+        ButterflAI will contact you over SMS on <span id="contact-inviter-name">your friend</span>'s behalf. You can reply STOP at any time and won't be contacted again. <a href="#" onclick="return false">Learn more about how your data is used →</a>
+      </div>
+
       <button type="submit" class="submit-btn">I'm in →</button>
       <p class="error-msg" id="contact-error"></p>
     </form>
@@ -220,24 +182,25 @@
     <a class="back-link" onclick="goTo('step-choice')">← Back</a>
   </div>
 
-  <!-- Step: Full signup form -->
+  <!-- Step: Full signup (Tier 2) -->
   <div class="step" id="step-signup">
     <span class="emoji">🦋</span>
     <h1>Get your ButterflAI</h1>
-    <p class="subtitle">Your own social agent. We'll set up your agent after this.</p>
+    <p class="subtitle">Your own social agent — text it like a friend who handles all the logistics.</p>
 
-    <form id="form-signup">
+    <form id="form-signup" autocomplete="on">
       <div class="form-group">
         <label>Your name</label>
-        <input type="text" name="name" id="signup-name" required placeholder="Jamie" />
+        <input type="text" name="name" id="signup-name" required placeholder="Jamie" autocomplete="given-name" />
       </div>
       <div class="form-group">
-        <label>Your Telegram username</label>
-        <input type="text" name="telegram_username" required placeholder="@jamie" />
+        <label>Your mobile number</label>
+        <input type="tel" name="phone" required placeholder="+1 555 000 0000" autocomplete="tel" />
+        <p class="phone-hint">Your agent will reach you here. Reply STOP anytime to pause.</p>
       </div>
       <div class="form-group">
         <label>General availability <span style="color:#555">(optional)</span></label>
-        <textarea name="availability" placeholder="e.g. weekday lunches, weekend evenings after 6pm..."></textarea>
+        <textarea name="availability" placeholder="e.g. weekday lunches, weekend evenings after 6pm…"></textarea>
       </div>
       <div class="form-group">
         <label>Neighbourhoods you like <span style="color:#555">(optional)</span></label>
@@ -255,6 +218,10 @@
         </div>
       </div>
 
+      <div class="privacy-note">
+        ButterflAI stores your number and preferences securely to coordinate plans on your behalf. You own your data — you can edit or erase it at any time.
+      </div>
+
       <button type="submit" class="submit-btn">Create my ButterflAI →</button>
       <p class="error-msg" id="signup-error"></p>
     </form>
@@ -262,16 +229,20 @@
     <a class="back-link" onclick="goTo('step-choice')">← Back</a>
   </div>
 
-  <!-- Step: Opt-out confirmation -->
+  <!-- Step: Opt-out -->
   <div class="step" id="step-optout">
     <span class="emoji">👋</span>
     <h1>That's totally fine</h1>
-    <p class="subtitle">Just confirm your name so <span class="inviter-name" id="optout-inviter">they</span> knows you saw this and don't need a reminder.</p>
+    <p class="subtitle">Just confirm your name so <span class="inviter-name" id="optout-inviter">they</span> know you saw this and don't need a reminder.</p>
 
     <form id="form-optout">
       <div class="form-group">
         <label>Your name <span style="color:#555">(optional)</span></label>
         <input type="text" name="name" id="optout-name" placeholder="Jamie" />
+      </div>
+      <div class="form-group">
+        <label>Your mobile number <span style="color:#555">(optional — to make sure we have the right number)</span></label>
+        <input type="tel" name="phone" placeholder="+1 555 000 0000" />
       </div>
       <button type="submit" class="submit-btn" style="background: #374151;">Opt out →</button>
     </form>
@@ -279,46 +250,37 @@
     <a class="back-link" onclick="goTo('step-choice')">← Actually, go back</a>
   </div>
 
-  <!-- Success states -->
+  <!-- Success: contact -->
   <div class="step" id="step-success-contact">
-    <span class="success-icon">🎉</span>
+    <span class="success-icon">✅</span>
     <div class="success-msg">
-      <h2>One last step</h2>
-      <p style="margin-bottom:20px">Open Telegram to activate — takes 5 seconds.</p>
-      <a id="tg-link-contact" href="#" target="_blank"
-         style="display:inline-block;background:linear-gradient(135deg,#2481cc,#1a73b8);
-                color:#fff;padding:14px 28px;border-radius:12px;text-decoration:none;
-                font-weight:600;font-size:15px">
-        Open Telegram →
-      </a>
-      <p style="margin-top:16px;font-size:13px;color:#555">
-        Can't click? Search <strong>@butterflai_bot</strong> on Telegram.
+      <h2>You're all set!</h2>
+      <p id="success-contact-msg">
+        You'll get a text when <strong id="success-inviter-name">they</strong> want to make plans.
+        Just reply to coordinate — no app needed.<br><br>
+        Reply <strong>STOP</strong> to that number at any time to opt out.
       </p>
     </div>
   </div>
 
+  <!-- Success: full signup -->
   <div class="step" id="step-success-signup">
     <span class="success-icon">🦋</span>
     <div class="success-msg">
-      <h2>One last step</h2>
-      <p style="margin-bottom:20px">Open Telegram to meet your ButterflAI.</p>
-      <a id="tg-link-signup" href="#" target="_blank"
-         style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#a855f7);
-                color:#fff;padding:14px 28px;border-radius:12px;text-decoration:none;
-                font-weight:600;font-size:15px">
-        Meet my ButterflAI →
-      </a>
-      <p style="margin-top:16px;font-size:13px;color:#555">
-        Can't click? Search <strong>@butterflai_bot</strong> on Telegram.
+      <h2>Welcome to ButterflAI!</h2>
+      <p>
+        Your agent is ready. Text it at any time to manage your social life.<br><br>
+        Check your phone — your ButterflAI is introducing itself now.
       </p>
     </div>
   </div>
 
+  <!-- Success: opt-out -->
   <div class="step" id="step-success-optout">
     <span class="success-icon">👍</span>
     <div class="success-msg">
       <h2>Got it</h2>
-      <p>You won't hear from ButterflAI again. <span id="optout-inviter-name">They</span>'ll know you opted out.</p>
+      <p>You won't hear from ButterflAI. <span id="optout-inviter-final">They</span>'ll know you opted out.</p>
     </div>
   </div>
 
@@ -338,13 +300,19 @@
       document.getElementById('headline').textContent =
         `${data.inviterName} wants to keep in touch`;
       document.getElementById('subtext').innerHTML =
-        `<span class="inviter-name">${data.inviterName}</span> uses ButterflAI to stay on top of their social life. They'd like their agent to help coordinate plans with you — no endless back-and-forth texts.`;
+        `<span class="inviter-name">${esc(data.inviterName)}</span> uses ButterflAI to stay meaningfully connected with people they care about. ` +
+        `They'd like to coordinate plans with you — no endless back-and-forth.`;
       document.getElementById('optout-inviter').textContent = data.inviterName;
-      document.getElementById('optout-inviter-name').textContent = data.inviterName;
+      document.getElementById('optout-inviter-final').textContent = data.inviterName;
+      document.getElementById('contact-inviter-name').textContent = data.inviterName;
+      document.getElementById('success-inviter-name').textContent = data.inviterName;
+
+      // Pre-fill name if hint provided
       if (data.contactName) {
-        document.getElementById('contact-name').value = data.contactName;
-        document.getElementById('signup-name').value = data.contactName;
-        document.getElementById('optout-name').value = data.contactName;
+        ['contact-name', 'signup-name', 'optout-name'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = data.contactName;
+        });
       }
       goTo('step-choice');
     })
@@ -353,6 +321,18 @@
   function goTo(stepId) {
     document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
     document.getElementById(stepId).classList.add('active');
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Normalise phone to E.164-ish (basic client-side cleanup)
+  function normalisePhone(raw) {
+    let s = raw.replace(/[\s\-\(\)]/g, '');
+    if (!s.startsWith('+')) s = '+1' + s; // default to US if no country code
+    return s;
   }
 
   // Dietary tag toggles
@@ -369,67 +349,72 @@
   setupTags('dietary-tags', selectedDietary);
   setupTags('signup-dietary-tags', selectedSignupDietary);
 
-  // Contact form
+  // ── Contact form ────────────────────────────────────────────────────────────
   document.getElementById('form-contact').addEventListener('submit', async e => {
     e.preventDefault();
-    const btn = e.target.querySelector('button[type=submit]');
+    const btn = e.target.querySelector('[type=submit]');
     btn.disabled = true;
     const fd = new FormData(e.target);
     const body = Object.fromEntries(fd);
+    body.phone = normalisePhone(body.phone || '');
     body.dietary = selectedDietary;
-    body.neighborhoods = body.neighborhoods ? body.neighborhoods.split(',').map(s => s.trim()) : [];
+    body.neighborhoods = body.neighborhoods
+      ? body.neighborhoods.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+
     const res = await fetch(`/api/invite/${token}/contact`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (res.ok) {
-      const data = await res.json();
-      if (data.deepLink) {
-        document.getElementById('tg-link-contact').href = data.deepLink;
-      }
       goTo('step-success-contact');
     } else {
-      const err = await res.json();
-      document.getElementById('contact-error').textContent = err.error || 'Something went wrong';
+      const err = await res.json().catch(() => ({}));
+      document.getElementById('contact-error').textContent = err.error || 'Something went wrong. Please try again.';
       btn.disabled = false;
     }
   });
 
-  // Signup form
+  // ── Signup form ─────────────────────────────────────────────────────────────
   document.getElementById('form-signup').addEventListener('submit', async e => {
     e.preventDefault();
-    const btn = e.target.querySelector('button[type=submit]');
+    const btn = e.target.querySelector('[type=submit]');
     btn.disabled = true;
     const fd = new FormData(e.target);
     const body = Object.fromEntries(fd);
+    body.phone = normalisePhone(body.phone || '');
     body.dietary = selectedSignupDietary;
-    body.neighborhoods = body.neighborhoods ? body.neighborhoods.split(',').map(s => s.trim()) : [];
+    body.neighborhoods = body.neighborhoods
+      ? body.neighborhoods.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+
     const res = await fetch(`/api/invite/${token}/signup`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (res.ok) {
-      const data = await res.json();
-      if (data.deepLink) {
-        document.getElementById('tg-link-signup').href = data.deepLink;
-      }
       goTo('step-success-signup');
     } else {
-      const err = await res.json();
-      document.getElementById('signup-error').textContent = err.error || 'Something went wrong';
+      const err = await res.json().catch(() => ({}));
+      document.getElementById('signup-error').textContent = err.error || 'Something went wrong. Please try again.';
       btn.disabled = false;
     }
   });
 
-  // Opt-out form
+  // ── Opt-out form ────────────────────────────────────────────────────────────
   document.getElementById('form-optout').addEventListener('submit', async e => {
     e.preventDefault();
-    const btn = e.target.querySelector('button[type=submit]');
+    const btn = e.target.querySelector('[type=submit]');
     btn.disabled = true;
     const fd = new FormData(e.target);
     const body = Object.fromEntries(fd);
+    if (body.phone) body.phone = normalisePhone(body.phone);
+
     const res = await fetch(`/api/invite/${token}/optout`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (res.ok) goTo('step-success-optout');

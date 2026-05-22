@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your data — ButterflAI</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f0f13;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #1a1a24;
+      border: 1px solid #2e2e3e;
+      border-radius: 20px;
+      max-width: 520px;
+      width: 100%;
+      padding: 40px 36px;
+    }
+
+    .emoji { font-size: 40px; margin-bottom: 12px; display: block; text-align: center; }
+    h1 { font-size: 20px; font-weight: 700; text-align: center; color: #fff; margin-bottom: 6px; }
+    .subtitle { font-size: 14px; color: #777; text-align: center; line-height: 1.5; margin-bottom: 28px; }
+
+    .step { display: none; }
+    .step.active { display: block; }
+
+    .section-label {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: #555; margin-bottom: 12px; margin-top: 24px;
+    }
+    .section-label:first-child { margin-top: 0; }
+
+    .data-row {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 10px 0; border-bottom: 1px solid #1e1e2a;
+      font-size: 14px;
+    }
+    .data-row:last-child { border-bottom: none; }
+    .data-key { color: #888; min-width: 140px; }
+    .data-val { color: #f0f0f0; text-align: right; word-break: break-word; }
+    .data-val.empty { color: #444; font-style: italic; }
+
+    .tag-list { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
+    .tag-pill {
+      background: #2e2e4a; border: 1px solid #4a4a70; border-radius: 20px;
+      padding: 3px 10px; font-size: 12px; color: #c4b5fd;
+    }
+
+    .action-row { margin-top: 28px; display: flex; flex-direction: column; gap: 10px; }
+
+    .btn {
+      width: 100%; border: none; border-radius: 12px; padding: 13px;
+      font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: linear-gradient(135deg, #7c3aed, #a855f7); color: #fff; }
+    .btn-secondary { background: #25253a; border: 1px solid #3a3a55; color: #ccc; }
+    .btn-danger { background: #7f1d1d; color: #fca5a5; }
+
+    /* Edit form */
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; font-weight: 500; }
+    input, textarea {
+      width: 100%; background: #0f0f18; border: 1px solid #2e2e3e;
+      border-radius: 10px; padding: 11px 13px; color: #f0f0f0; font-size: 14px;
+      outline: none; transition: border-color 0.15s; font-family: inherit;
+    }
+    input:focus, textarea:focus { border-color: #c084fc; }
+    textarea { resize: vertical; min-height: 64px; }
+
+    .tag-input-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .tag {
+      background: #2e2e4a; border: 1px solid #4a4a70; border-radius: 20px;
+      padding: 4px 12px; font-size: 13px; cursor: pointer;
+      transition: background 0.12s, border-color 0.12s; user-select: none;
+    }
+    .tag.selected { background: #6d28d9; border-color: #a855f7; color: #fff; }
+
+    .delete-confirm {
+      background: #12121c; border: 1px solid #4a1818; border-radius: 12px;
+      padding: 16px; margin-bottom: 16px;
+    }
+    .delete-confirm p { font-size: 13px; color: #f87171; line-height: 1.6; }
+    .delete-confirm p strong { color: #fca5a5; }
+
+    .success-icon { font-size: 48px; text-align: center; display: block; margin-bottom: 14px; }
+    .success-msg { text-align: center; }
+    .success-msg h2 { font-size: 20px; color: #fff; margin-bottom: 8px; }
+    .success-msg p { font-size: 14px; color: #888; line-height: 1.6; }
+
+    .error-msg { color: #f87171; font-size: 13px; text-align: center; margin-top: 10px; }
+    .loading { text-align: center; color: #888; padding: 40px; }
+  </style>
+</head>
+<body>
+<div class="card">
+
+  <!-- Loading -->
+  <div class="step active" id="step-loading">
+    <p class="loading">🦋</p>
+  </div>
+
+  <!-- View data -->
+  <div class="step" id="step-view">
+    <span class="emoji">🦋</span>
+    <h1>Your data in ButterflAI</h1>
+    <p class="subtitle">Here's everything stored about you. You can edit or erase it at any time.</p>
+
+    <div class="section-label">Basic info</div>
+    <div class="data-row">
+      <span class="data-key">Name</span>
+      <span class="data-val" id="view-name">—</span>
+    </div>
+    <div class="data-row">
+      <span class="data-key">Mobile number</span>
+      <span class="data-val" id="view-phone">—</span>
+    </div>
+    <div class="data-row">
+      <span class="data-key">Tier</span>
+      <span class="data-val" id="view-tier">—</span>
+    </div>
+
+    <div class="section-label">Preferences</div>
+    <div class="data-row">
+      <span class="data-key">Availability</span>
+      <span class="data-val" id="view-availability">—</span>
+    </div>
+    <div class="data-row">
+      <span class="data-key">Neighbourhoods</span>
+      <span class="data-val" id="view-neighborhoods">—</span>
+    </div>
+    <div class="data-row">
+      <span class="data-key">Dietary</span>
+      <span class="data-val" id="view-dietary">—</span>
+    </div>
+    <div class="data-row">
+      <span class="data-key">Contact via</span>
+      <span class="data-val" id="view-comm">—</span>
+    </div>
+
+    <div class="action-row">
+      <button class="btn btn-primary" onclick="goTo('step-edit')">Edit my info</button>
+      <button class="btn btn-danger" onclick="goTo('step-delete')">Erase my data &amp; opt out</button>
+    </div>
+  </div>
+
+  <!-- Edit form -->
+  <div class="step" id="step-edit">
+    <span class="emoji">✏️</span>
+    <h1>Edit your info</h1>
+    <p class="subtitle">Your changes are applied immediately. If you correct something about yourself, your version always wins.</p>
+
+    <form id="form-edit">
+      <div class="form-group">
+        <label>Your name</label>
+        <input type="text" name="name" id="edit-name" required />
+      </div>
+      <div class="form-group">
+        <label>General availability</label>
+        <textarea name="availability" id="edit-availability" placeholder="e.g. weekday lunches, weekend evenings…"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Neighbourhoods you like</label>
+        <input type="text" name="neighborhoods" id="edit-neighborhoods" placeholder="e.g. SoHo, Williamsburg" />
+      </div>
+      <div class="form-group">
+        <label>Dietary notes</label>
+        <div class="tag-input-wrap" id="edit-dietary-tags">
+          <span class="tag" data-val="vegetarian">🥦 Vegetarian</span>
+          <span class="tag" data-val="vegan">🌱 Vegan</span>
+          <span class="tag" data-val="gluten_free">🌾 Gluten-free</span>
+          <span class="tag" data-val="no_nuts">🥜 No nuts</span>
+          <span class="tag" data-val="halal">☪️ Halal</span>
+          <span class="tag" data-val="kosher">✡️ Kosher</span>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Save changes</button>
+      <p class="error-msg" id="edit-error"></p>
+    </form>
+
+    <button class="btn btn-secondary" style="margin-top:10px" onclick="goTo('step-view')">← Cancel</button>
+  </div>
+
+  <!-- Delete confirmation -->
+  <div class="step" id="step-delete">
+    <span class="emoji">🗑️</span>
+    <h1>Erase your data</h1>
+
+    <div class="delete-confirm">
+      <p>
+        This will <strong>permanently delete</strong> all information ButterflAI holds about you:
+        your name, number, availability, and preferences.<br><br>
+        You'll be opted out and won't receive any further messages.<br><br>
+        Note: backup copies are purged within 30 days of the deletion request.
+      </p>
+    </div>
+
+    <p class="subtitle" style="margin-bottom:20px">This can't be undone. Are you sure?</p>
+
+    <div class="action-row">
+      <button class="btn btn-danger" id="btn-confirm-delete">Yes, erase everything</button>
+      <button class="btn btn-secondary" onclick="goTo('step-view')">Cancel</button>
+    </div>
+    <p class="error-msg" id="delete-error"></p>
+  </div>
+
+  <!-- Success: saved -->
+  <div class="step" id="step-success-edit">
+    <span class="success-icon">✅</span>
+    <div class="success-msg">
+      <h2>Changes saved</h2>
+      <p>Your information has been updated. Your version always wins — if you corrected something about yourself, that's now the record.</p>
+      <button class="btn btn-secondary" style="margin-top:24px" onclick="goTo('step-view')">Back to my data</button>
+    </div>
+  </div>
+
+  <!-- Success: deleted -->
+  <div class="step" id="step-success-delete">
+    <span class="success-icon">👍</span>
+    <div class="success-msg">
+      <h2>All done</h2>
+      <p>Your data has been erased and you're opted out. You won't hear from ButterflAI again.<br><br>Backup copies will be purged within 30 days.</p>
+    </div>
+  </div>
+
+  <!-- Error: token invalid -->
+  <div class="step" id="step-error">
+    <span class="success-icon">🤔</span>
+    <div class="success-msg">
+      <h2>Link not found</h2>
+      <p>This link may have expired or already been used. If you think something's wrong, reply to the message you received and we'll sort it out.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Token comes from query string: /contact-portal.html?token=abc
+  // or from path if served as /contact/:token
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token') || location.pathname.split('/contact/')[1];
+
+  let currentData = {};
+  let selectedDietary = [];
+
+  function goTo(stepId) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById(stepId).classList.add('active');
+  }
+
+  function esc(str) {
+    return String(str || '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function tierLabel(t) {
+    if (t === 0) return 'Opted out';
+    if (t === 1) return 'Contact mode (receives scheduling messages)';
+    if (t === 2) return 'Full ButterflAI user';
+    return 'Unknown';
+  }
+
+  function renderVal(el, val, fallback) {
+    if (!val || (Array.isArray(val) && val.length === 0)) {
+      el.textContent = fallback || 'Not set';
+      el.className = 'data-val empty';
+    } else if (Array.isArray(val)) {
+      el.innerHTML = '';
+      el.className = 'data-val';
+      const wrap = document.createElement('div');
+      wrap.className = 'tag-list';
+      val.forEach(v => {
+        const pill = document.createElement('span');
+        pill.className = 'tag-pill';
+        pill.textContent = v.replace(/_/g, ' ');
+        wrap.appendChild(pill);
+      });
+      el.appendChild(wrap);
+    } else {
+      el.textContent = val;
+      el.className = 'data-val';
+    }
+  }
+
+  // Load data
+  if (!token) {
+    goTo('step-error');
+  } else {
+    fetch(`/api/contact/${token}/data`)
+      .then(r => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      })
+      .then(data => {
+        currentData = data;
+        renderView(data);
+        goTo('step-view');
+      })
+      .catch(() => goTo('step-error'));
+  }
+
+  function renderView(data) {
+    renderVal(document.getElementById('view-name'), data.name);
+    renderVal(document.getElementById('view-phone'), data.phone);
+    document.getElementById('view-tier').textContent = tierLabel(data.tier);
+    renderVal(document.getElementById('view-availability'), data.availability_notes);
+    renderVal(document.getElementById('view-neighborhoods'),
+      Array.isArray(data.neighborhoods) && data.neighborhoods.length ? data.neighborhoods.join(', ') : null);
+    renderVal(document.getElementById('view-dietary'), data.dietary);
+    renderVal(document.getElementById('view-comm'),
+      data.comm_preference === 'sms' ? 'SMS' : data.comm_preference || 'SMS');
+  }
+
+  function populateEditForm(data) {
+    document.getElementById('edit-name').value = data.name || '';
+    document.getElementById('edit-availability').value = data.availability_notes || '';
+    document.getElementById('edit-neighborhoods').value =
+      Array.isArray(data.neighborhoods) ? data.neighborhoods.join(', ') : (data.neighborhoods || '');
+
+    // Pre-select dietary tags
+    selectedDietary = Array.isArray(data.dietary) ? [...data.dietary] : [];
+    document.querySelectorAll('#edit-dietary-tags .tag').forEach(tag => {
+      tag.classList.toggle('selected', selectedDietary.includes(tag.dataset.val));
+    });
+  }
+
+  // Show edit form pre-filled
+  const origGoTo = goTo;
+  window.goTo = function(stepId) {
+    if (stepId === 'step-edit') populateEditForm(currentData);
+    origGoTo(stepId);
+  };
+
+  // Dietary tag toggles
+  document.querySelectorAll('#edit-dietary-tags .tag').forEach(tag => {
+    tag.addEventListener('click', () => {
+      tag.classList.toggle('selected');
+      const val = tag.dataset.val;
+      const i = selectedDietary.indexOf(val);
+      if (i >= 0) selectedDietary.splice(i, 1); else selectedDietary.push(val);
+    });
+  });
+
+  // Edit form submit
+  document.getElementById('form-edit').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = e.target.querySelector('[type=submit]');
+    btn.disabled = true;
+    const fd = new FormData(e.target);
+    const body = Object.fromEntries(fd);
+    body.dietary = selectedDietary;
+    body.neighborhoods = body.neighborhoods
+      ? body.neighborhoods.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+
+    const res = await fetch(`/api/contact/${token}/edit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      // Refresh local data
+      currentData = { ...currentData, name: body.name,
+        availability_notes: body.availability,
+        neighborhoods: body.neighborhoods,
+        dietary: body.dietary };
+      renderView(currentData);
+      goTo('step-success-edit');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      document.getElementById('edit-error').textContent = err.error || 'Something went wrong.';
+    }
+    btn.disabled = false;
+  });
+
+  // Delete confirm
+  document.getElementById('btn-confirm-delete').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-confirm-delete');
+    btn.disabled = true;
+
+    const res = await fetch(`/api/contact/${token}/edit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'erase' }),
+    });
+    if (res.ok) {
+      goTo('step-success-delete');
+    } else {
+      document.getElementById('delete-error').textContent = 'Something went wrong. Please try again.';
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

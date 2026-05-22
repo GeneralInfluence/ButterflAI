@@ -26,6 +26,7 @@ const rateLimit = require('express-rate-limit');
 const db = require('./db');
 const sms = require('./sms');
 const { handleOnboarding } = require('./onboarding');
+const { startAgentLoop } = require('./agent');
 
 // Telegram bot — optional, retained for future use
 let telegramBot = null;
@@ -276,7 +277,16 @@ app.post('/api/invite/:token/signup', async (req, res) => {
   res.json({ ok: true, tier: 2, userId });
 });
 
-// ── Contact self-service portal (§7) ─────────────────────────────────────────
+// ── Contact self-service portal (§7) — HTML entry point ──────────────────────
+
+app.get('/contact/:token', (req, res) => {
+  const invite = db.getInvite(req.params.token);
+  if (!invite || !invite.contact_id) return res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
+  // Redirect to portal with token as query param so the client JS can read it
+  res.redirect(`/contact-portal.html?token=${encodeURIComponent(req.params.token)}`);
+});
+
+// ── Contact self-service portal (§7) — API ───────────────────────────────────
 // Contacts can view + edit the data stored about them, and opt out — without
 // going through the user. Reached via a link in the invite SMS.
 
@@ -397,4 +407,7 @@ function escapeXml(str) {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => console.log(`ButterflAI web running on :${PORT}`));
+app.listen(PORT, () => {
+  console.log(`ButterflAI web running on :${PORT}`);
+  startAgentLoop();
+});
