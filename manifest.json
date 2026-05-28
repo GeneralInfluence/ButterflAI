@@ -1,0 +1,46 @@
+{
+  "$schema": "https://agents.pinata.cloud/schemas/manifest.v1.json",
+  "version": 1,
+  "engine": "openclaw",
+  "agent": {
+    "name": "Social ButterflAI",
+    "description": "Your personal social butterfly, maximizing your happiness per dollar spent.",
+    "vibe": null,
+    "emoji": "🤖"
+  },
+  "skills": [
+    {
+      "cid": "bafybeieb5c7qgmtoilbmljw5hkbxwtmch4m7ggnko4j5ui4gxyv2w6b2uy",
+      "name": "@pinata/platform"
+    },
+    {
+      "cid": "bafybeigum5juaj7faldszh7fpc6j2w23susjajvtzh6nh7vgi2eoiyvzf4",
+      "name": "@pinata/erc-8004"
+    },
+    {
+      "cid": "bafybeifav7f7oaaispwrim74jseeyc6hlwoz6wtnn4fhkepayfedg6qj64",
+      "name": "pinata-sqlite-sync"
+    },
+    {
+      "cid": "bafybeigfukjsrtuuuwbshp5nr5qme5ndvc7t7e54dixuzeobxyyaycwifu",
+      "name": "memory-salience"
+    }
+  ],
+  "secrets": [
+    {
+      "name": "ANTHROPIC_API_KEY"
+    },
+    {
+      "name": "BUTTERFLAI_GIT"
+    },
+    {
+      "name": "PINATA_GATEWAY_URL"
+    },
+    {
+      "name": "PINATA_JWT"
+    },
+    {
+      "name": "PRIVATE_KEY"
+    }
+  ]
+}
