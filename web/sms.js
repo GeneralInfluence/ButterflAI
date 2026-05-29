@@ -94,7 +94,7 @@ function validateTwilioRequest(req, res, next) {
 
   const valid = twilio.validateRequest(AUTH_TOKEN, twilioSignature, url, params);
   if (!valid) {
-    console.warn('[SMS] Invalid Twilio signature — rejected request');
+    console.warn(`[SMS] Invalid Twilio signature — rejected. BASE_URL="${process.env.BASE_URL}" reconstructed_url="${url}"`);
     return res.status(403).send('Forbidden');
   }
   next();
