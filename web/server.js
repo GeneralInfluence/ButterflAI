@@ -67,12 +67,16 @@ app.post('/sms', sms.validateTwilioRequest, async (req, res) => {
     return res.type('text/xml').send(twiml.toString());
   }
 
-  // 2. START — re-subscribe
+  // 2. START — re-subscribe (existing users only; new users fall through to onboarding)
   if (/^start$/i.test(body)) {
-    // Remove from opt-out registry (contacts.tier is updated separately when they re-engage)
-    db.prepare && db.removeOptOut && db.removeOptOut(from); // graceful — may not exist yet
-    twiml.push(`Welcome back! You're re-subscribed. Text us anytime.`);
-    return res.type('text/xml').send(twiml.toString());
+    const existingUser = db.getUserByPhone(from);
+    if (existingUser && existingUser.onboarding_state === 'complete') {
+      db.removeOptOut && db.removeOptOut(from);
+      twiml.push(`Welcome back! You're re-subscribed to ButterflAI. Text me anytime. 🦋`);
+      return res.type('text/xml').send(twiml.toString());
+    }
+    // New user or mid-onboarding: remove from opt-out if present, then fall through to onboarding
+    db.removeOptOut && db.removeOptOut(from);
   }
 
   // 3. Check opt-out status before doing anything
