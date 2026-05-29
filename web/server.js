@@ -57,6 +57,8 @@ app.post('/sms', sms.validateTwilioRequest, async (req, res) => {
   const body   = (req.body.Body  || '').trim();
   const from   = (req.body.From  || '').trim();   // E.164 caller phone
 
+  console.log(`[SMS] inbound from=${from} body="${body.slice(0, 40)}"`);
+
   const twiml = buildTwiml();
 
   // 1. STOP — highest priority, handled before anything else
