@@ -22,12 +22,12 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 // Apply schema (idempotent — all statements use IF NOT EXISTS)
-const schema = fs.readFileSync(path.join(__dirname, '..', 'db', 'schema.sql'), 'utf8');
+const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
 db.exec(schema);
 
 // Apply any pending migrations that aren't yet in the live schema
 // (safe to run multiple times — they'll throw on column-already-exists and we catch)
-const migrationsDir = path.join(__dirname, '..', 'db', 'migrations');
+const migrationsDir = path.join(__dirname, 'db', 'migrations');
 if (fs.existsSync(migrationsDir)) {
   const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
   for (const file of files) {
