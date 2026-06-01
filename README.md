@@ -64,16 +64,16 @@ Edit `scripts/set-secrets.sh` with real values, then:
 | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com) |
 | `GOOGLE_CLIENT_ID` | Google Cloud Console → APIs & Services → Credentials |
 | `GOOGLE_CLIENT_SECRET` | Google Cloud Console |
-| `GOOGLE_REDIRECT_URI` | `https://butterflai.fly.dev/auth/google/callback` |
+| `GOOGLE_REDIRECT_URI` | `https://butterflai.social/auth/google/callback` |
 | `GOOGLE_PLACES_API_KEY` | Google Cloud Console (enable "Places API (New)") |
-| `BASE_URL` | `https://butterflai.fly.dev` |
+| `BASE_URL` | `https://butterflai.social` |
 | `WEBHOOK_SECRET` | Any random string |
 
 ### 4. Configure Google Cloud
 In [Google Cloud Console](https://console.cloud.google.com):
 - Enable: **Google Calendar API**, **People API**, **Places API (New)**
 - OAuth consent screen: add scopes `calendar.readonly`, `calendar.events`, `contacts.readonly`
-- Authorised redirect URI: `https://butterflai.fly.dev/auth/google/callback`
+- Authorised redirect URI: `https://butterflai.social/auth/google/callback`
 
 ### 5. Deploy
 ```sh
@@ -82,14 +82,14 @@ fly deploy
 
 ### 6. Configure Twilio webhook
 In [Twilio Console](https://console.twilio.com) → Phone Numbers → your number → Messaging:
-- **Webhook URL:** `https://butterflai.fly.dev/sms`
+- **Webhook URL:** `https://butterflai.social/sms`
 - **HTTP method:** POST
 - **Content type:** application/x-www-form-urlencoded
 
 ### 7. Verify
 ```sh
 fly logs                      # watch live logs
-curl https://butterflai.fly.dev/health   # should return {"ok":true,...}
+curl https://butterflai.social/health   # should return {"ok":true,...}
 ```
 
 ---

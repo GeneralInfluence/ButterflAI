@@ -31,13 +31,13 @@ fly secrets set --app "$APP" \
   # ── Google OAuth (Calendar + Contacts) ───────────────────────────────────
   GOOGLE_CLIENT_ID="your_client_id.apps.googleusercontent.com" \
   GOOGLE_CLIENT_SECRET="your_client_secret" \
-  GOOGLE_REDIRECT_URI="https://butterflai.fly.dev/auth/google/callback" \
+  GOOGLE_REDIRECT_URI="https://butterflai.social/auth/google/callback" \
   \
   # ── Google Places API ─────────────────────────────────────────────────────
   GOOGLE_PLACES_API_KEY="your_places_api_key" \
   \
   # ── App ───────────────────────────────────────────────────────────────────
-  BASE_URL="https://butterflai.fly.dev" \
+  BASE_URL="https://butterflai.social" \
   WEBHOOK_SECRET="$(openssl rand -hex 32)"
 
 echo "Secrets set for $APP"
