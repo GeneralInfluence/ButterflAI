@@ -26,8 +26,18 @@ const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
 const FROM_NUMBER = process.env.TWILIO_FROM_NUMBER;   // E.164 e.g. +15551234567
 
-// ── Typed error for missing consent ──────────────────────────────────────────
+// ── Typed errors ─────────────────────────────────────────────────────────────
 
+/** Thrown when the destination number has actively opted out (replied STOP). */
+class RecipientOptedOut extends Error {
+  constructor(to) {
+    super(`${to} has opted out — outbound SMS blocked`);
+    this.name = 'RecipientOptedOut';
+    this.to = to;
+  }
+}
+
+/** Thrown when no consent record exists for the destination number. */
 class ConsentRequired extends Error {
   constructor(to) {
     super(`No consent record for ${to} — outbound SMS blocked`);
@@ -91,8 +101,11 @@ function _setDb(mockDb) {
  * @throws {ConsentRequired} if no consent record exists for `to`
  */
 async function send(to, body) {
-  // ── CONSENT GATE ──────────────────────────────────────────────────────────
+  // ── GATE: opt-out checked first (explicit STOP always wins), then consent ─
   const db = _getDb();
+  if (db.isOptedOut(to)) {
+    throw new RecipientOptedOut(to);
+  }
   const consent = db.getConsent(to);
   if (!consent) {
     throw new ConsentRequired(to);
@@ -175,6 +188,7 @@ module.exports = {
   sendContactInvite,
   notifyUser,
   validateTwilioRequest,
+  RecipientOptedOut,
   ConsentRequired,
   _setClient,   // test injection only
   _setDb,       // test injection only

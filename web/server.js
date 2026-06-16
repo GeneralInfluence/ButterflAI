@@ -25,6 +25,7 @@ const rateLimit = require('express-rate-limit');
 
 const db = require('./db');
 const sms = require('./sms');
+const { ConsentRequired, RecipientOptedOut } = require('./sms');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
 const { startNudgeLoop } = require('./cadence');
@@ -461,13 +462,31 @@ async function handlePendingAction(user, body, pending) {
     db.deletePendingAction(pending.id);
 
     if (isYes) {
-      // Send the approved draft
+      // Send the approved draft — three outcomes handled explicitly.
       const contact = db.getContact(payload.contact_id);
-      if (contact?.phone && !db.isOptedOut(contact.phone)) {
-        await sms.send(contact.phone, payload.draft_text);
-        return `Sent to ${payload.contact_name || contact.name}. ✅`;
+      const contactName = payload.contact_name || contact?.name || 'that contact';
+
+      if (!contact?.phone) {
+        return `Couldn't send — ${contactName} has no phone number on file.`;
       }
-      return `Couldn't send — ${payload.contact_name} may not have a phone number on file.`;
+
+      try {
+        await sms.send(contact.phone, payload.draft_text);
+        return `Sent to ${contactName}. ✅`;
+      } catch (err) {
+        if (err instanceof RecipientOptedOut) {
+          return `${contactName} has opted out of ButterflAI, so I can't text them. ` +
+                 `You can still reach out from your own phone.`;
+        }
+        if (err instanceof ConsentRequired) {
+          // Contact hasn't opted in — hand the draft back for user to send themselves.
+          const encodedBody = encodeURIComponent(payload.draft_text);
+          const smsLink = `sms:${contact.phone}?body=${encodedBody}`;
+          return `${contactName} hasn't opted in to ButterflAI yet, so I can't send from ` +
+                 `our number. Send it yourself: ${smsLink}`;
+        }
+        throw err;
+      }
     }
 
     if (isNo) {
@@ -475,12 +494,24 @@ async function handlePendingAction(user, body, pending) {
     }
 
     // Treat as edited version of the message
-    const contact = db.getContact(payload.contact_id);
-    if (contact?.phone && !db.isOptedOut(contact.phone)) {
-      await sms.send(contact.phone, body);
-      return `Sent your version to ${contact.name}. ✅`;
+    const editContact = db.getContact(payload.contact_id);
+    const editName = payload.contact_name || editContact?.name || 'that contact';
+    if (!editContact?.phone) {
+      return `Got it — but I couldn't find a number for ${editName}.`;
     }
-    return `Got it — but I couldn't find a number for that contact.`;
+    try {
+      await sms.send(editContact.phone, body);
+      return `Sent your version to ${editName}. ✅`;
+    } catch (err) {
+      if (err instanceof RecipientOptedOut) {
+        return `${editName} has opted out — I can't text them from our number.`;
+      }
+      if (err instanceof ConsentRequired) {
+        const encodedBody = encodeURIComponent(body);
+        return `${editName} hasn't opted in yet. Send it yourself: sms:${editContact.phone}?body=${encodedBody}`;
+      }
+      throw err;
+    }
   }
 
   if (pending.action_type === 'confirm_booking') {

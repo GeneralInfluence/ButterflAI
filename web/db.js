@@ -13,6 +13,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const { toE164 } = require('./phoneUtils');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'butterflai.sqlite');
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -239,7 +240,7 @@ module.exports = {
   // ── SMS opt-outs ───────────────────────────────────────────────────────────
 
   isOptedOut(phone) {
-    return !!db.prepare('SELECT 1 FROM sms_optouts WHERE phone = ?').get(phone);
+    return !!db.prepare('SELECT 1 FROM sms_optouts WHERE phone = ?').get(toE164(phone));
   },
 
   recordOptOut(phone, source = 'stop_reply') {
@@ -415,17 +416,18 @@ module.exports = {
     return db.prepare(`
       INSERT INTO consent_records (phone, consent_source, disclosure_version)
       VALUES (?, ?, ?)
-    `).run(phone, source, disclosureVersion);
+    `).run(toE164(phone), source, disclosureVersion);
   },
 
   /**
    * Return the most recent consent record for a phone number, or undefined.
-   * @param {string} phone - E.164 phone number
+   * Phone is normalized to E.164 before lookup.
+   * @param {string} phone
    */
   getConsent(phone) {
     return db.prepare(`
       SELECT * FROM consent_records WHERE phone = ? ORDER BY consented_at DESC LIMIT 1
-    `).get(phone);
+    `).get(toE164(phone));
   },
 
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
