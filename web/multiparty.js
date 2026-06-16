@@ -24,6 +24,7 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 const sms = require('./sms');
+const { ConsentRequired } = require('./sms');
 
 // ── Table setup ───────────────────────────────────────────────────────────────
 
@@ -139,7 +140,11 @@ async function inviteContacts(eventId, contactIds) {
       sent++;
       console.log(`[multiparty] invite sent event=${eventId} contact=${contactId}`);
     } catch (err) {
-      console.error(`[multiparty] invite failed contact=${contactId}:`, err.message);
+      if (err instanceof ConsentRequired) {
+        console.log(`[multiparty] skipped contact=${contactId} — no consent record (not yet opted in)`);
+      } else {
+        console.error(`[multiparty] invite failed contact=${contactId}:`, err.message);
+      }
       skipped++;
     }
   }

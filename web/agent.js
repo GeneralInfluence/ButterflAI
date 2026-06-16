@@ -27,6 +27,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./db');
 const sms = require('./sms');
+const { ConsentRequired } = require('./sms');
 const { readUserPrivateData } = require('./crypto');
 const calendar = require('./calendar');
 const contactsImport = require('./contacts-import');
@@ -338,19 +339,43 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       let messageBody = toolInput.message;
       const user = db.getUser(userId);
 
-      // Mandatory self-identify on first contact (§4.2)
-      if (toolInput.is_first_contact) {
-        await sms.sendContactInvite(
-          contact.phone,
-          contact.name,
-          user.name,
-          'scheduling coordination',
-          messageBody
-        );
-      } else {
-        await sms.send(contact.phone, messageBody);
+      try {
+        // Mandatory self-identify on first contact (§4.2)
+        // NOTE: both paths go through send(), which enforces the consent gate.
+        // If the contact has not opted in, ConsentRequired is thrown and caught below.
+        if (toolInput.is_first_contact) {
+          await sms.sendContactInvite(
+            contact.phone,
+            contact.name,
+            user.name,
+            'scheduling coordination',
+            messageBody
+          );
+        } else {
+          await sms.send(contact.phone, messageBody);
+        }
+        return { sent: true, to: contact.phone };
+      } catch (err) {
+        if (err instanceof ConsentRequired) {
+          // Contact has not opted in — return an assisted-compose fallback.
+          // The user must send first-touch from their own device.
+          const encodedBody = encodeURIComponent(messageBody);
+          const smsLink = `sms:${contact.phone}?body=${encodedBody}`;
+          return {
+            sent: false,
+            reason: 'consent_required',
+            assisted_compose: true,
+            contact_name: contact.name,
+            contact_phone: contact.phone,
+            sms_link: smsLink,
+            draft: messageBody,
+            instruction: `${contact.name} hasn't opted in to receive messages from ButterflAI yet. ` +
+              `Send this first message from your own phone: tap the link or copy the draft. ` +
+              `Once they reply and opt in, I can handle coordination automatically.`,
+          };
+        }
+        throw err;
       }
-      return { sent: true, to: contact.phone };
     }
 
     case 'get_pending_invites': {

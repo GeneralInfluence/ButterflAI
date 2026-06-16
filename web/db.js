@@ -403,6 +403,31 @@ module.exports = {
     db.prepare(`DELETE FROM pending_actions WHERE expires_at <= strftime('%s','now')`).run();
   },
 
+  // ── Consent ledger ────────────────────────────────────────────────────────
+
+  /**
+   * Record an explicit opt-in event.
+   * @param {string} phone             - E.164 phone number
+   * @param {'SELF_START'|'INVITE_PAGE'} source
+   * @param {string} [disclosureVersion]
+   */
+  writeConsent(phone, source, disclosureVersion = '1.0') {
+    return db.prepare(`
+      INSERT INTO consent_records (phone, consent_source, disclosure_version)
+      VALUES (?, ?, ?)
+    `).run(phone, source, disclosureVersion);
+  },
+
+  /**
+   * Return the most recent consent record for a phone number, or undefined.
+   * @param {string} phone - E.164 phone number
+   */
+  getConsent(phone) {
+    return db.prepare(`
+      SELECT * FROM consent_records WHERE phone = ? ORDER BY consented_at DESC LIMIT 1
+    `).get(phone);
+  },
+
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
 
   getWallet(userId) {

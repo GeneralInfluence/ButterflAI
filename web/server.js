@@ -74,6 +74,8 @@ app.post('/sms', sms.validateTwilioRequest, async (req, res) => {
     const existingUser = db.getUserByPhone(from);
     if (existingUser && existingUser.onboarding_state === 'complete') {
       db.removeOptOut && db.removeOptOut(from);
+      // Record re-subscription consent
+      db.writeConsent(from, 'SELF_START');
       twiml.push(`Welcome back! You're re-subscribed to ButterflAI. Text me anytime. 🦋`);
       return res.type('text/xml').send(twiml.toString());
     }
@@ -238,6 +240,8 @@ app.post('/api/invite/:token/contact', async (req, res) => {
     dietary: dietary || null,
     comm_preference: 'sms',
   });
+  // Record INVITE_PAGE consent: contact personally opted in via the invite page
+  db.writeConsent(phone, 'INVITE_PAGE');
   db.resolveInvite(invite.token, 'accepted_contact', contactId);
 
   // Notify inviter
@@ -290,6 +294,8 @@ app.post('/api/invite/:token/signup', async (req, res) => {
     tier: 2,
   });
 
+  // Record INVITE_PAGE consent: new full user opted in via the invite page
+  db.writeConsent(phone, 'INVITE_PAGE');
   db.resolveInvite(invite.token, 'accepted_full', contactId);
 
   // Notify inviter

@@ -1,35 +1,105 @@
 /**
- * ButterflAI SMS layer — Twilio wrapper
+ * ButterflAI SMS layer — Twilio wrapper with per-recipient consent gate
  *
- * All outbound SMS goes through here.
- * Hard rules (§3 IMPLEMENTATION.md):
- *  - Every first-contact outbound MUST call sendContactInvite() which includes the self-identify header.
- *  - STOP is handled in server.js before anything else; never message an opted-out number.
- *  - Secrets (keys, recovery phrases) are NEVER sent via SMS.
+ * ALL outbound SMS goes through send(). No caller may reach
+ * client.messages.create directly.
+ *
+ * Gate rule (§3 MEMORY.md / Privacy Policy):
+ *   A message from our Twilio number may only go to a number that has a
+ *   logged consent record. If none exists, send() throws ConsentRequired
+ *   BEFORE touching the Twilio client. Callers must catch ConsentRequired
+ *   and return an assisted-compose fallback instead.
+ *
+ * Hard rules (§4 IMPLEMENTATION.md):
+ *  - Secrets are NEVER sent via SMS.
+ *  - sendContactInvite() is no longer used for first-touch to non-opted-in
+ *    contacts; the gate ensures that path is impossible. First-touch goes
+ *    from the USER's own device as an assisted-compose sms: link.
  */
 
 'use strict';
 
-const twilio = require('twilio');
+// twilio is required lazily (inside _initClient) so tests that inject a mock
+// client via _setClient never need the twilio package to be installed.
 
 const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
 const FROM_NUMBER = process.env.TWILIO_FROM_NUMBER;   // E.164 e.g. +15551234567
 
-let client;
-if (ACCOUNT_SID && AUTH_TOKEN) {
-  client = twilio(ACCOUNT_SID, AUTH_TOKEN);
-  console.log('Twilio SMS ready');
-} else {
-  console.warn('TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set — SMS disabled (dev mode)');
+// ── Typed error for missing consent ──────────────────────────────────────────
+
+class ConsentRequired extends Error {
+  constructor(to) {
+    super(`No consent record for ${to} — outbound SMS blocked`);
+    this.name = 'ConsentRequired';
+    this.to = to;
+  }
 }
+
+// ── Twilio client (injectable for tests) ─────────────────────────────────────
+
+let _clientOverride = null;
+let _defaultClient  = null;
+let _defaultClientInit = false;
+
+function _initDefaultClient() {
+  if (_defaultClientInit) return;
+  _defaultClientInit = true;
+  if (ACCOUNT_SID && AUTH_TOKEN) {
+    const twilio = require('twilio');
+    _defaultClient = twilio(ACCOUNT_SID, AUTH_TOKEN);
+    console.log('Twilio SMS ready');
+  } else {
+    console.warn('TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set — SMS disabled (dev mode)');
+  }
+}
+
+function _getClient() {
+  if (_clientOverride) return _clientOverride;
+  _initDefaultClient();
+  return _defaultClient;
+}
+
+/** For tests only — inject a mock Twilio client. Bypasses twilio require entirely. */
+function _setClient(mockClient) {
+  _clientOverride = mockClient;
+}
+
+// ── DB reference (injectable for tests) ──────────────────────────────────────
+
+let _dbOverride = null;
+
+function _getDb() {
+  return _dbOverride || require('./db');
+}
+
+/** For tests only — inject a mock db. */
+function _setDb(mockDb) {
+  _dbOverride = mockDb;
+}
+
+// ── Core send — THE ONLY PLACE client.messages.create is called ──────────────
 
 /**
  * Send a plain SMS message.
+ *
+ * Consent gate: throws ConsentRequired if the destination number has no
+ * consent record. This must be the ONLY call site for client.messages.create.
+ *
  * @param {string} to   - E.164 phone number
  * @param {string} body - Message text
+ * @throws {ConsentRequired} if no consent record exists for `to`
  */
 async function send(to, body) {
+  // ── CONSENT GATE ──────────────────────────────────────────────────────────
+  const db = _getDb();
+  const consent = db.getConsent(to);
+  if (!consent) {
+    throw new ConsentRequired(to);
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const client = _getClient();
   if (!client) {
     console.log(`[SMS dev] → ${to}: ${body}`);
     return;
@@ -46,18 +116,17 @@ async function send(to, body) {
 
 /**
  * Send the mandatory self-identify + STOP invite to a contact.
- * This MUST be used for every first outbound message to a non-consenting party.
  *
- * Shape (§4.2): "Hi {contactName}! This is {userName}'s ButterflAI assistant.
- *   {userName} wants to stay connected with you ({context}).
- *   {ctaText}
- *   Reply STOP and I won't message you again."
+ * NOTE: this function also goes through send(), so the consent gate applies.
+ * A contact who has not yet opted in will cause ConsentRequired to be thrown.
+ * Callers (agent.js send_logistics_sms) must catch that and return an
+ * assisted-compose fallback instead.
  *
  * @param {string} to           - Contact's phone (E.164)
  * @param {string} contactName  - Contact's first name
  * @param {string} userName     - The user who owns this agent
  * @param {string} context      - Short context e.g. "quarterly lunch"
- * @param {string} ctaText      - Optional call-to-action e.g. "Set up your own ButterflAI: https://…"
+ * @param {string} ctaText      - Optional call-to-action
  * @param {string} portalUrl    - Optional link for contact to view/edit/erase their data
  */
 async function sendContactInvite(to, contactName, userName, context, ctaText, portalUrl) {
@@ -76,6 +145,7 @@ async function sendContactInvite(to, contactName, userName, context, ctaText, po
  * Notify a user (owner) via SMS. Used for agent → owner updates.
  * @param {string} to   - User's phone (E.164)
  * @param {string} text - Notification text
+ * @throws {ConsentRequired} if no consent record exists for `to`
  */
 async function notifyUser(to, text) {
   return send(to, text);
@@ -92,7 +162,7 @@ function validateTwilioRequest(req, res, next) {
   const url = process.env.BASE_URL + req.originalUrl;
   const params = req.body;
 
-  const valid = twilio.validateRequest(AUTH_TOKEN, twilioSignature, url, params);
+  const valid = require('twilio').validateRequest(AUTH_TOKEN, twilioSignature, url, params);
   if (!valid) {
     console.warn(`[SMS] Invalid Twilio signature — rejected. BASE_URL="${process.env.BASE_URL}" reconstructed_url="${url}"`);
     return res.status(403).send('Forbidden');
@@ -100,4 +170,12 @@ function validateTwilioRequest(req, res, next) {
   next();
 }
 
-module.exports = { send, sendContactInvite, notifyUser, validateTwilioRequest };
+module.exports = {
+  send,
+  sendContactInvite,
+  notifyUser,
+  validateTwilioRequest,
+  ConsentRequired,
+  _setClient,   // test injection only
+  _setDb,       // test injection only
+};

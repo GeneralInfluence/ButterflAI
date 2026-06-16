@@ -30,10 +30,12 @@ const sms = require('./sms');
 async function handleOnboarding(phone, body, db) {
   let user = db.getUserByPhone(phone);
 
-  // Brand-new number: create a shell user and send greeting
+  // Brand-new number: create a shell user, record consent, and send greeting
   if (!user) {
     const userId = uuidv4();
     db.createUser({ id: userId, phone, name: 'unknown', onboarding_state: 'awaiting_name' });
+    // Record SELF_START consent: by texting our number the user opts in (Privacy Policy §SMS)
+    db.writeConsent(phone, 'SELF_START');
     user = db.getUserByPhone(phone);
     return (
       `Hi! I'm ButterflAI — I help you stay meaningfully connected with people you care about. ` +
