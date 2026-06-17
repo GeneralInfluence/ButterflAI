@@ -400,6 +400,55 @@ app.post('/api/contact/:token/edit', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Public web opt-in (/join page) ───────────────────────────────────────────
+// Standalone opt-in endpoint — no invite token required.
+// Consent source: INVITE_PAGE (same as the invite-page flow, distinct from SELF_START).
+
+app.post('/api/join', async (req, res) => {
+  const { name, phone } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Name is required.' });
+  }
+  if (!phone || !phone.trim()) {
+    return res.status(400).json({ error: 'Mobile number is required.' });
+  }
+
+  const normalizedPhone = phone.trim();
+
+  // Reject if previously opted out
+  if (db.isOptedOut(normalizedPhone)) {
+    return res.status(400).json({
+      error: 'This number has previously opted out. Text START to +12202721479 to re-subscribe.',
+    });
+  }
+
+  // Write consent record — source INVITE_PAGE (web-based opt-in)
+  db.writeConsent(normalizedPhone, 'INVITE_PAGE');
+
+  // Create user account (or update if already exists)
+  const existingUser = db.getUserByPhone(normalizedPhone);
+  if (!existingUser) {
+    const { v4: uuidv4 } = require('uuid');
+    db.createUser({
+      id: uuidv4(),
+      name: name.trim(),
+      phone: normalizedPhone,
+      onboarding_state: 'complete',
+    });
+  }
+
+  // Send welcome SMS
+  await sms.notifyUser(normalizedPhone,
+    `Welcome to ButterflAI, ${name.trim()}! 🦋\n\n` +
+    `I'm your personal social agent — I'll help you stay meaningfully connected ` +
+    `with the people who matter.\n\n` +
+    `Text me anytime. Reply STOP to opt out, HELP for help.`
+  ).catch(err => console.error('[join] welcome SMS failed:', err.message));
+
+  res.json({ ok: true });
+});
+
 // ── Internal agent API ────────────────────────────────────────────────────────
 
 app.post('/api/agent/invite/create', (req, res) => {

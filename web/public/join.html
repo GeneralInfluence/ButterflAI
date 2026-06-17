@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Opt in to ButterflAI — a service of General Influence LLC</title>
+  <meta name="description" content="Opt in to receive SMS messages from ButterflAI, a personal relationship assistant operated by General Influence LLC." />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f0f13;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #1a1a24;
+      border: 1px solid #2e2e3e;
+      border-radius: 20px;
+      max-width: 480px;
+      width: 100%;
+      padding: 44px 36px 40px;
+    }
+
+    .logo { font-size: 48px; text-align: center; display: block; margin-bottom: 18px; }
+
+    h1 {
+      font-size: 21px;
+      font-weight: 700;
+      text-align: center;
+      color: #fff;
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #888;
+      text-align: center;
+      line-height: 1.6;
+      margin-bottom: 32px;
+    }
+
+    /* ── Form ────────────────────────────────────────────────── */
+
+    .form-group { margin-bottom: 18px; }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: #aaa;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    input[type="text"],
+    input[type="tel"] {
+      width: 100%;
+      background: #0f0f18;
+      border: 1px solid #2e2e3e;
+      border-radius: 10px;
+      padding: 12px 14px;
+      color: #f0f0f0;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+    }
+    input[type="text"]:focus,
+    input[type="tel"]:focus { border-color: #c084fc; }
+
+    .phone-hint {
+      font-size: 12px;
+      color: #555;
+      margin-top: 5px;
+      line-height: 1.5;
+    }
+
+    /* ── Consent checkbox ────────────────────────────────────── */
+
+    .consent-block {
+      background: #12121c;
+      border: 1px solid #2a2a3a;
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 24px;
+    }
+
+    .consent-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      cursor: pointer;
+    }
+
+    .consent-label input[type="checkbox"] {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+      accent-color: #a855f7;
+      cursor: pointer;
+    }
+
+    .consent-text {
+      font-size: 13px;
+      color: #aaa;
+      line-height: 1.6;
+    }
+
+    .consent-text a {
+      color: #a855f7;
+      text-decoration: underline;
+    }
+    .consent-text a:hover { color: #c084fc; }
+
+    /* ── Submit ──────────────────────────────────────────────── */
+
+    .submit-btn {
+      width: 100%;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border: none;
+      border-radius: 12px;
+      padding: 14px;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      font-family: inherit;
+    }
+    .submit-btn:hover { opacity: 0.9; }
+    .submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .error-msg {
+      color: #f87171;
+      font-size: 13px;
+      text-align: center;
+      margin-top: 12px;
+      min-height: 18px;
+    }
+
+    /* ── Success state ───────────────────────────────────────── */
+
+    #success-panel { display: none; text-align: center; }
+    #success-panel.visible { display: block; }
+    #form-panel.hidden { display: none; }
+
+    .success-icon { font-size: 52px; display: block; margin-bottom: 16px; }
+
+    .success-msg h2 { font-size: 20px; color: #fff; margin-bottom: 10px; }
+    .success-msg p { font-size: 14px; color: #888; line-height: 1.7; }
+
+    /* ── Footer ──────────────────────────────────────────────── */
+
+    .divider {
+      border: none;
+      border-top: 1px solid #2e2e3e;
+      margin: 28px 0 20px;
+    }
+
+    .footer-copy {
+      font-size: 12px;
+      color: #555;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+    }
+
+    .footer-links a {
+      font-size: 13px;
+      color: #555;
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .footer-links a:hover { color: #888; }
+  </style>
+</head>
+<body>
+<div class="card">
+
+  <!-- ── Form panel ──────────────────────────────────────────── -->
+  <div id="form-panel">
+    <span class="logo">🦋</span>
+    <h1>Opt in to ButterflAI — a service of General Influence LLC.</h1>
+    <p class="subtitle">
+      Enter your name and mobile number below to start receiving SMS messages
+      from ButterflAI. No app needed.
+    </p>
+
+    <form id="join-form" action="/api/join" method="POST" novalidate>
+      <div class="form-group">
+        <label for="name">Name</label>
+        <input
+          type="text"
+          id="name"
+          name="name"
+          required
+          placeholder="Jamie"
+          autocomplete="given-name"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="phone">Mobile number</label>
+        <input
+          type="tel"
+          id="phone"
+          name="phone"
+          required
+          placeholder="+1 555 000 0000"
+          autocomplete="tel"
+        />
+        <p class="phone-hint">US numbers only. Standard SMS rates may apply.</p>
+      </div>
+
+      <!-- Consent checkbox — UNCHECKED, visible in initial HTML, no JS required -->
+      <div class="consent-block">
+        <label class="consent-label">
+          <input
+            type="checkbox"
+            id="sms-consent"
+            name="sms_consent"
+            value="yes"
+            required
+          />
+          <span class="consent-text">
+            I agree to receive recurring automated text messages from ButterflAI,
+            operated by General Influence LLC (frequency varies, avg 2-10/week).
+            Message &amp; data rates may apply. Reply STOP to cancel, HELP for help.
+            See our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.
+          </span>
+        </label>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submit-btn">Opt in →</button>
+      <p class="error-msg" id="error-msg" role="alert"></p>
+    </form>
+  </div>
+
+  <!-- ── Success panel (hidden until JS shows it) ───────────── -->
+  <div id="success-panel">
+    <span class="success-icon">✅</span>
+    <div class="success-msg">
+      <h2>You're opted in!</h2>
+      <p>
+        Check your phone — your first message from ButterflAI is on its way.<br><br>
+        Reply <strong>STOP</strong> at any time to opt out.
+      </p>
+    </div>
+  </div>
+
+  <hr class="divider" />
+  <p class="footer-copy">© 2026 General Influence LLC. ButterflAI is a product of General Influence LLC.</p>
+  <nav class="footer-links">
+    <a href="/">Home</a>
+    <a href="/terms">Terms of Service</a>
+    <a href="/privacy">Privacy Policy</a>
+  </nav>
+
+</div>
+
+<script>
+  // Normalise phone to E.164 (US default if no country code)
+  function normalisePhone(raw) {
+    let s = raw.replace(/[\s\-\(\)\.]/g, '');
+    if (!s.startsWith('+')) s = '+1' + s;
+    return s;
+  }
+
+  const form     = document.getElementById('join-form');
+  const errorMsg = document.getElementById('error-msg');
+  const submitBtn = document.getElementById('submit-btn');
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    errorMsg.textContent = '';
+
+    const name    = document.getElementById('name').value.trim();
+    const phone   = normalisePhone(document.getElementById('phone').value.trim());
+    const consent = document.getElementById('sms-consent').checked;
+
+    if (!name) { errorMsg.textContent = 'Please enter your name.'; return; }
+    if (!phone || phone.length < 7) { errorMsg.textContent = 'Please enter a valid mobile number.'; return; }
+    if (!consent) { errorMsg.textContent = 'You must check the consent box to opt in.'; return; }
+
+    submitBtn.disabled = true;
+
+    try {
+      const res = await fetch('/api/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone }),
+      });
+
+      if (res.ok) {
+        document.getElementById('form-panel').classList.add('hidden');
+        document.getElementById('success-panel').classList.add('visible');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        errorMsg.textContent = data.error || 'Something went wrong. Please try again.';
+        submitBtn.disabled = false;
+      }
+    } catch (_) {
+      errorMsg.textContent = 'Network error — please check your connection and try again.';
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
