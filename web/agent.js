@@ -479,6 +479,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 // ── Process a single inbound message ─────────────────────────────────────────
 
 async function processMessage(msg) {
+  console.log(`[agent] processing msg id=${msg.id} from_type=${msg.from_type} text="${(msg.text||'').slice(0,40)}"`);
   const user = db.getUser(msg.from_id);
   if (!user) {
     console.warn(`[agent] No user found for from_id=${msg.from_id}, skipping`);
@@ -526,11 +527,13 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
     messages.push({ role: 'assistant', content: response.content });
 
     if (response.stop_reason === 'end_turn') {
-      // Extract text response and send to user
+      // Extract text response and send to user.
+      // Use sendUnchecked — agent only processes established users who consented at onboarding.
       const textBlocks = response.content.filter(b => b.type === 'text');
       const replyText = textBlocks.map(b => b.text).join('\n').trim();
       if (replyText && userPhone) {
-        await sms.notifyUser(userPhone, replyText);
+        console.log(`[agent] replying to ${userPhone}: "${replyText.slice(0, 60)}"`);
+        await sms.sendUnchecked(userPhone, replyText);
       }
       break;
     }
