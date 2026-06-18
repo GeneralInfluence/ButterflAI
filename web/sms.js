@@ -195,7 +195,7 @@ function validateTwilioRequest(req, res, next) {
   const host  = req.headers['x-forwarded-host']  || req.headers['host'];
   const webhookUrl = `${proto}://${host}${req.originalUrl}`;
 
-  const valid = twilio.validateRequest(
+  const valid = require('twilio').validateRequest(
     process.env.TWILIO_AUTH_TOKEN,
     twilioSignature,
     webhookUrl,
