@@ -765,6 +765,35 @@ app.get('/auth/google/callback', async (req, res) => {
 // ── Contact import API ────────────────────────────────────────────────────────
 
 // Add a contact manually (user's "people I could invite" list)
+// Bulk import from Contact Picker API (phone-native, no computer needed)
+app.post('/api/contacts/import', (req, res) => {
+  const { userId, contacts } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  if (!Array.isArray(contacts)) return res.status(400).json({ error: 'contacts must be an array' });
+
+  const user = db.getUser(userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  let imported = 0, skipped = 0;
+  for (const c of contacts) {
+    if (!c.name || !c.phone) { skipped++; continue; }
+    try {
+      db.upsertContact({ invited_by_user_id: userId, name: c.name, phone: c.phone, tier: 0 });
+      imported++;
+    } catch (_) { skipped++; }
+  }
+  console.log(`[contacts] bulk import userId=${userId} imported=${imported} skipped=${skipped}`);
+  res.json({ ok: true, imported, skipped });
+});
+
+// Get a signed import link (agent sends this to the user)
+app.get('/api/contacts/import-url/:userId', (req, res) => {
+  const user = db.getUser(req.params.userId);
+  if (!user) return res.status(404).json({ error: 'not found' });
+  const baseUrl = process.env.BASE_URL || 'https://butterflai.social';
+  res.json({ url: `${baseUrl}/contacts-import.html?userId=${user.id}` });
+});
+
 app.post('/api/contacts/add', (req, res) => {
   const { userId, name, phone } = req.body;
   if (!userId || !name) return res.status(400).json({ error: 'userId and name required' });

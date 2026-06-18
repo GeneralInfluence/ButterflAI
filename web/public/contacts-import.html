@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Import Contacts — ButterflAI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #faf9f7;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 36px 28px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+    .emoji { font-size: 56px; margin-bottom: 16px; }
+    h1 { font-size: 22px; font-weight: 700; color: #1a1a1a; margin-bottom: 8px; }
+    .sub { font-size: 15px; color: #666; line-height: 1.5; margin-bottom: 28px; }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      background: #7c3aed;
+      color: white;
+      border: none;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #6d28d9; }
+    .btn:disabled { background: #c4b5fd; cursor: not-allowed; }
+    .btn-secondary {
+      background: none;
+      color: #7c3aed;
+      border: 2px solid #e9d5ff;
+      margin-top: 12px;
+    }
+    .btn-secondary:hover { background: #f5f3ff; }
+    .status {
+      margin-top: 20px;
+      padding: 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+      display: none;
+    }
+    .status.success { background: #f0fdf4; color: #166534; display: block; }
+    .status.error   { background: #fef2f2; color: #991b1b; display: block; }
+    .status.info    { background: #f0f9ff; color: #0c4a6e; display: block; }
+    .privacy {
+      margin-top: 24px;
+      font-size: 12px;
+      color: #999;
+      line-height: 1.6;
+    }
+    .privacy a { color: #7c3aed; text-decoration: none; }
+    .progress { display: none; margin-top: 16px; }
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #e9d5ff;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #7c3aed;
+      border-radius: 3px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .unsupported { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="emoji">🦋</div>
+    <h1>Import your contacts</h1>
+    <p class="sub">
+      ButterflAI uses your contacts to recognize names when you text. Nothing is sent to anyone — this just builds your address book.
+    </p>
+
+    <button class="btn" id="importBtn">Import from phone contacts</button>
+    <div id="status" class="status"></div>
+
+    <div class="progress" id="progress">
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <p style="margin-top:8px;font-size:13px;color:#666;" id="progressText">Saving...</p>
+    </div>
+
+    <div class="unsupported" id="unsupported">
+      <p style="color:#666;font-size:14px;margin-bottom:12px;">
+        Your browser doesn't support the Contact Picker API. Try opening this link in <strong>Chrome on Android</strong> or <strong>Safari on iOS 16+</strong>.
+      </p>
+      <p style="color:#999;font-size:13px;">
+        Alternatively, you can export your contacts as a <code>.vcf</code> file and send it to ButterflAI via text — we'll import it automatically.
+      </p>
+    </div>
+
+    <p class="privacy">
+      Contacts are stored only in your ButterflAI account. They won't be messaged without your explicit request — ever. <a href="/privacy">Privacy policy →</a>
+    </p>
+  </div>
+
+  <script>
+    const btn = document.getElementById('importBtn');
+    const statusEl = document.getElementById('status');
+    const progressEl = document.getElementById('progress');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const unsupportedEl = document.getElementById('unsupported');
+
+    // Get userId from URL param
+    const params = new URLSearchParams(window.location.search);
+    const userId = params.get('userId') || params.get('uid');
+    const token  = params.get('token');
+
+    if (!('contacts' in navigator && 'ContactsManager' in window)) {
+      btn.style.display = 'none';
+      unsupportedEl.style.display = 'block';
+    }
+
+    function showStatus(msg, type) {
+      statusEl.textContent = msg;
+      statusEl.className = 'status ' + type;
+    }
+
+    btn.addEventListener('click', async () => {
+      if (!('contacts' in navigator)) {
+        showStatus('Contact Picker not supported on this browser.', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Opening contacts…';
+
+      try {
+        const contacts = await navigator.contacts.select(
+          ['name', 'tel'],
+          { multiple: true }
+        );
+
+        if (!contacts || contacts.length === 0) {
+          showStatus('No contacts selected — tap the button and select some contacts.', 'info');
+          btn.disabled = false;
+          btn.textContent = 'Import from phone contacts';
+          return;
+        }
+
+        // Flatten contacts (one contact may have multiple numbers)
+        const flat = [];
+        for (const c of contacts) {
+          const name = (c.name || [])[0] || 'Unknown';
+          for (const tel of (c.tel || [])) {
+            flat.push({ name, phone: tel });
+          }
+        }
+
+        progressEl.style.display = 'block';
+        progressText.textContent = `Saving ${flat.length} contacts…`;
+
+        const resp = await fetch('/api/contacts/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, token, contacts: flat }),
+        });
+
+        const data = await resp.json();
+
+        progressFill.style.width = '100%';
+
+        if (resp.ok) {
+          showStatus(
+            `✓ Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}` +
+            (data.skipped ? ` (${data.skipped} skipped — no phone number)` : '') +
+            '. You can close this page.',
+            'success'
+          );
+          btn.textContent = '✓ Done';
+        } else {
+          showStatus('Import failed: ' + (data.error || 'Unknown error'), 'error');
+          btn.disabled = false;
+          btn.textContent = 'Try again';
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          showStatus('Cancelled — tap again when ready.', 'info');
+        } else {
+          showStatus('Error: ' + err.message, 'error');
+        }
+        btn.disabled = false;
+        btn.textContent = 'Import from phone contacts';
+      }
+    });
+  </script>
+</body>
+</html>

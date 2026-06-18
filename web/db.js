@@ -113,6 +113,33 @@ module.exports = {
     return db.prepare('SELECT * FROM contacts WHERE invited_by_user_id = ? ORDER BY name').all(userId);
   },
 
+  /**
+   * Create or update a contact by phone number.
+   * If a contact with this phone already exists for this user, updates name/tier.
+   * Returns the contact id.
+   */
+  upsertContact({ invited_by_user_id, name, phone, notes, tier = 0 }) {
+    const { v4: uuidv4 } = require('uuid');
+    const normalizedPhone = phone ? toE164(phone) : null;
+    if (normalizedPhone) {
+      const existing = db.prepare(
+        'SELECT * FROM contacts WHERE invited_by_user_id = ? AND phone = ?'
+      ).get(invited_by_user_id, normalizedPhone);
+      if (existing) {
+        db.prepare(`
+          UPDATE contacts SET name = ?, updated_at = strftime('%s','now') WHERE id = ?
+        `).run(name, existing.id);
+        return existing.id;
+      }
+    }
+    const id = uuidv4();
+    db.prepare(`
+      INSERT INTO contacts (id, invited_by_user_id, name, phone, tier)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, invited_by_user_id, name, normalizedPhone, tier);
+    return id;
+  },
+
   createContact({ id, invited_by_user_id, name, phone, telegram_id, telegram_username, tier, opted_out_at }) {
     return db.prepare(`
       INSERT INTO contacts (id, invited_by_user_id, name, phone, telegram_id, telegram_username, tier, opted_out_at)

@@ -44,6 +44,30 @@ const MODEL = process.env.AGENT_MODEL || 'claude-3-5-haiku-20241022';  // fast +
 
 const TOOL_DEFINITIONS = [
   {
+    name: 'add_contact',
+    description: 'Add or update a contact in the user\'s address book. Use this whenever the user mentions someone by name and provides a phone number, or asks to add/save a contact. Gate 1 only — does NOT message them.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name:  { type: 'string', description: 'Contact\'s full name or nickname' },
+        phone: { type: 'string', description: 'Phone number (any format — will be normalized)' },
+        notes: { type: 'string', description: 'Any extra context the user provided (optional)' },
+      },
+      required: ['name', 'phone'],
+    },
+  },
+  {
+    name: 'lookup_contact',
+    description: 'Look up a contact by name or phone number in the user\'s address book.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Name or phone number to search for' },
+      },
+      required: ['query'],
+    },
+  },
+  {
     name: 'get_relationships',
     description: 'Get the user\'s relationships and active cadences (who they want to stay in touch with and how often).',
     input_schema: { type: 'object', properties: {}, required: [] },
@@ -113,6 +137,11 @@ const TOOL_DEFINITIONS = [
       },
       required: ['contact_id', 'message'],
     },
+  },
+  {
+    name: 'get_contact_import_url',
+    description: 'Get a link the user can open on their phone to import all their contacts at once. Send this when the user asks to import contacts, sync their address book, or add multiple people at once.',
+    input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'get_pending_invites',
@@ -276,6 +305,26 @@ const TOOL_DEFINITIONS = [
 async function executeTool(toolName, toolInput, userId, userPhone) {
   switch (toolName) {
 
+    case 'add_contact': {
+      const contactId = db.upsertContact({
+        invited_by_user_id: userId,
+        name: toolInput.name,
+        phone: toolInput.phone,
+        notes: toolInput.notes,
+        tier: 0,
+      });
+      return { added: true, contact_id: contactId, name: toolInput.name };
+    }
+
+    case 'lookup_contact': {
+      const q = (toolInput.query || '').toLowerCase().trim();
+      const allContacts = db.getContactsByUser(userId);
+      const matches = allContacts.filter(c =>
+        c.name?.toLowerCase().includes(q) || (c.phone || '').includes(q)
+      );
+      return { contacts: matches, count: matches.length };
+    }
+
     case 'get_relationships': {
       const rels = db.getRelationshipsByUser(userId);
       const cadences = db.getCadencesByUser(userId);
@@ -376,6 +425,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         }
         throw err;
       }
+    }
+
+    case 'get_contact_import_url': {
+      const baseUrl = process.env.BASE_URL || 'https://butterflai.social';
+      return { url: `${baseUrl}/contacts-import.html?userId=${userId}` };
     }
 
     case 'get_pending_invites': {
@@ -503,6 +557,13 @@ HARD RULES — never violate:
 4. On first contact with anyone new, include the self-identify header (is_first_contact: true in send_logistics_sms).
 5. Never reveal private preferences (exclusions, private notes) to anyone other than the user. They never cross the wire to contacts or other agents.
 6. If you're unsure whether something is logistics or expressive, treat it as expressive and ask for approval.
+
+CONTACT MANAGEMENT:
+- If the user mentions a person by name AND provides a phone number, ALWAYS call add_contact immediately before responding. Don't ask permission.
+- If the user mentions a person by name without a phone number, ask for their number so you can add them.
+- Ingesting a contact (add_contact) never sends them any message — it's just your address book.
+- Whether a contact uses ButterflAI is their private information. Don't claim to know or not know. Instead: offer to reach out to them on the user's behalf, which works whether or not they're a user.
+- For importing many contacts at once, use get_contact_import_url and send the user that link.
 
 STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
 
