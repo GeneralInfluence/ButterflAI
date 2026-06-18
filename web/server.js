@@ -735,9 +735,79 @@ app.get('/auth/google/callback', async (req, res) => {
           `Reply "show contacts" to see who you could invite.`
         ).catch(() => {});
       }
-      res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px">
-        <h2>✅ ${result.imported} contacts imported</h2>
-        <p>You'll get a text shortly. You can close this window.</p></body></html>`);
+      res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contacts Imported — ButterflAI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #faf9f7;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: white;
+      border-radius: 24px;
+      padding: 44px 32px;
+      max-width: 380px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 32px rgba(124,58,237,0.10);
+    }
+    .check {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 32px;
+    }
+    h1 { font-size: 26px; font-weight: 800; color: #1a1a1a; margin-bottom: 8px; }
+    .count { color: #7c3aed; }
+    .sub {
+      font-size: 15px; color: #666; line-height: 1.6; margin-bottom: 28px;
+    }
+    .pill {
+      display: inline-block;
+      background: #f5f3ff;
+      color: #7c3aed;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 999px;
+      margin-bottom: 28px;
+    }
+    .hint {
+      font-size: 13px; color: #aaa; line-height: 1.6;
+    }
+    .brand {
+      margin-top: 32px;
+      font-size: 20px;
+      font-weight: 800;
+      color: #7c3aed;
+      letter-spacing: -0.5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="check">✓</div>
+    <h1><span class="count">${result.imported.toLocaleString()}</span> contacts imported</h1>
+    <p class="sub">Your address book is synced. Text me a name and I'll know exactly who you mean.</p>
+    <div class="pill">🦋 You'll get a text shortly</div>
+    <p class="hint">You can close this window and go back to your conversation.</p>
+    <div class="brand">ButterflAI</div>
+  </div>
+</body>
+</html>`);
 
     } else {
       // Google Calendar (state = userId)
@@ -752,9 +822,54 @@ app.get('/auth/google/callback', async (req, res) => {
           `📅 Your Google Calendar is connected! I can now check your real availability when coordinating plans.`
         ).catch(() => {});
       }
-      res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px">
-        <h2>📅 Calendar connected!</h2>
-        <p>Your ButterflAI can now check your real availability. You can close this window.</p></body></html>`);
+      res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendar Connected — ButterflAI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #faf9f7; min-height: 100vh;
+      display: flex; align-items: center; justify-content: center; padding: 24px;
+    }
+    .card {
+      background: white; border-radius: 24px; padding: 44px 32px;
+      max-width: 380px; width: 100%; text-align: center;
+      box-shadow: 0 4px 32px rgba(124,58,237,0.10);
+    }
+    .icon {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px; font-size: 34px;
+    }
+    h1 { font-size: 24px; font-weight: 800; color: #1a1a1a; margin-bottom: 8px; }
+    .sub { font-size: 15px; color: #666; line-height: 1.6; margin-bottom: 28px; }
+    .pill {
+      display: inline-block; background: #f5f3ff; color: #7c3aed;
+      font-size: 13px; font-weight: 600; padding: 6px 14px;
+      border-radius: 999px; margin-bottom: 28px;
+    }
+    .hint { font-size: 13px; color: #aaa; line-height: 1.6; }
+    .brand { margin-top: 32px; font-size: 20px; font-weight: 800; color: #7c3aed; letter-spacing: -0.5px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📅</div>
+    <h1>Calendar connected!</h1>
+    <p class="sub">I can now check your real availability when coordinating plans — no more double-booking.</p>
+    <div class="pill">🦋 You'll get a text shortly</div>
+    <p class="hint">You can close this window and go back to your conversation.</p>
+    <div class="brand">ButterflAI</div>
+  </div>
+</body>
+</html>`);
     }
   } catch (err) {
     console.error('[oauth] callback error:', err.message);
