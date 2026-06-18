@@ -172,14 +172,13 @@ async function notifyUser(to, text) {
  * @param {string} body - Message text
  */
 async function sendUnchecked(to, body) {
-  const phone  = toE164(to);
   const client = _getClient();
   if (!client) {
-    console.log(`[SMS dev/unchecked] → ${phone}: ${body}`);
+    console.log(`[SMS dev/unchecked] → ${to}: ${body}`);
     return null;
   }
-  const msg = await client.messages.create({ from: FROM_NUMBER, to: phone, body });
-  console.log(`[SMS] sendUnchecked sid=${msg.sid} to=${phone}`);
+  const msg = await client.messages.create({ from: FROM_NUMBER, to, body });
+  console.log(`[SMS] sendUnchecked sid=${msg.sid} to=${to}`);
   return msg;
 }
 
