@@ -19,191 +19,248 @@
     .card {
       background: white;
       border-radius: 20px;
-      padding: 36px 28px;
+      padding: 32px 24px;
       max-width: 420px;
       width: 100%;
       text-align: center;
       box-shadow: 0 4px 24px rgba(0,0,0,0.08);
     }
-    .emoji { font-size: 56px; margin-bottom: 16px; }
-    h1 { font-size: 22px; font-weight: 700; color: #1a1a1a; margin-bottom: 8px; }
-    .sub { font-size: 15px; color: #666; line-height: 1.5; margin-bottom: 28px; }
-    .btn {
-      display: block;
-      width: 100%;
-      padding: 16px;
-      background: #7c3aed;
-      color: white;
-      border: none;
+    .emoji { font-size: 52px; margin-bottom: 14px; }
+    h1 { font-size: 21px; font-weight: 700; color: #1a1a1a; margin-bottom: 6px; }
+    .sub { font-size: 14px; color: #666; line-height: 1.55; margin-bottom: 24px; }
+
+    /* Method tabs */
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+    .tab {
+      flex: 1; padding: 10px 4px; border: 2px solid #e5e7eb;
+      border-radius: 12px; background: none; cursor: pointer;
+      font-size: 13px; font-weight: 600; color: #666; transition: all 0.15s;
+    }
+    .tab.active { border-color: #7c3aed; background: #f5f3ff; color: #7c3aed; }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* vCard upload */
+    .upload-area {
+      border: 2px dashed #d8b4fe;
       border-radius: 14px;
-      font-size: 16px;
-      font-weight: 600;
+      padding: 28px 16px;
       cursor: pointer;
       transition: background 0.15s;
+      position: relative;
+    }
+    .upload-area:hover, .upload-area.dragging { background: #f5f3ff; }
+    .upload-area input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .upload-icon { font-size: 36px; margin-bottom: 8px; }
+    .upload-label { font-size: 15px; font-weight: 600; color: #7c3aed; margin-bottom: 4px; }
+    .upload-hint { font-size: 12px; color: #999; }
+
+    .steps {
+      text-align: left;
+      background: #f9f7ff;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-top: 16px;
+      font-size: 13px;
+      color: #555;
+      line-height: 1.8;
+    }
+    .steps strong { color: #1a1a1a; }
+
+    /* Contact picker */
+    .btn {
+      display: block; width: 100%; padding: 15px;
+      background: #7c3aed; color: white; border: none;
+      border-radius: 14px; font-size: 16px; font-weight: 600;
+      cursor: pointer; transition: background 0.15s;
     }
     .btn:hover { background: #6d28d9; }
     .btn:disabled { background: #c4b5fd; cursor: not-allowed; }
-    .btn-secondary {
-      background: none;
-      color: #7c3aed;
-      border: 2px solid #e9d5ff;
-      margin-top: 12px;
-    }
-    .btn-secondary:hover { background: #f5f3ff; }
+
     .status {
-      margin-top: 20px;
-      padding: 14px;
-      border-radius: 12px;
-      font-size: 14px;
-      line-height: 1.5;
-      display: none;
+      margin-top: 16px; padding: 12px 14px; border-radius: 12px;
+      font-size: 14px; line-height: 1.5; display: none; text-align: left;
     }
     .status.success { background: #f0fdf4; color: #166534; display: block; }
     .status.error   { background: #fef2f2; color: #991b1b; display: block; }
     .status.info    { background: #f0f9ff; color: #0c4a6e; display: block; }
+
     .privacy {
-      margin-top: 24px;
-      font-size: 12px;
-      color: #999;
-      line-height: 1.6;
+      margin-top: 20px; font-size: 12px; color: #aaa; line-height: 1.6;
     }
     .privacy a { color: #7c3aed; text-decoration: none; }
-    .progress { display: none; margin-top: 16px; }
-    .progress-bar {
-      width: 100%;
-      height: 6px;
-      background: #e9d5ff;
-      border-radius: 3px;
-      overflow: hidden;
-    }
-    .progress-fill {
-      height: 100%;
-      background: #7c3aed;
-      border-radius: 3px;
-      width: 0%;
-      transition: width 0.3s;
-    }
-    .unsupported { display: none; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="emoji">🦋</div>
     <h1>Import your contacts</h1>
-    <p class="sub">
-      ButterflAI uses your contacts to recognize names when you text. Nothing is sent to anyone — this just builds your address book.
-    </p>
+    <p class="sub">ButterflAI uses your address book to recognize names. Nobody gets messaged without your say-so.</p>
 
-    <button class="btn" id="importBtn">Import from phone contacts</button>
+    <div class="tabs">
+      <button class="tab active" data-panel="vcf">📁 Upload .vcf</button>
+      <button class="tab" data-panel="picker">📱 Phone picker</button>
+    </div>
+
+    <!-- vCard upload panel (default — works on all phones) -->
+    <div class="panel active" id="panel-vcf">
+      <div class="upload-area" id="uploadArea">
+        <input type="file" id="vcfFile" accept=".vcf,.vcard,text/vcard,text/x-vcard">
+        <div class="upload-icon">📂</div>
+        <div class="upload-label">Tap to choose your .vcf file</div>
+        <div class="upload-hint">Supports single or All Contacts export</div>
+      </div>
+
+      <div class="steps">
+        <strong>iPhone:</strong> Open <em>Contacts</em> → tap ··· (top right) → <em>Export</em> → share the .vcf here<br>
+        <strong>Android:</strong> Open <em>Contacts</em> → ⋮ → <em>Import/Export</em> → <em>Export to .vcf</em> → share here<br>
+        <strong>Google Contacts:</strong> contacts.google.com → <em>Export</em> → vCard (.vcf)
+      </div>
+    </div>
+
+    <!-- Contact Picker API panel (Android Chrome / Safari iOS 16+) -->
+    <div class="panel" id="panel-picker">
+      <button class="btn" id="pickerBtn">Open contact picker</button>
+      <p style="margin-top:12px;font-size:12px;color:#999;">
+        Android: tap "Select all" at the top of the picker.<br>
+        iPhone: tap each contact (iOS doesn't support Select All).
+      </p>
+      <div id="pickerUnsupported" style="display:none;margin-top:12px;font-size:13px;color:#c00;">
+        Contact Picker not supported on this browser. Use the .vcf upload instead.
+      </div>
+    </div>
+
     <div id="status" class="status"></div>
 
-    <div class="progress" id="progress">
-      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-      <p style="margin-top:8px;font-size:13px;color:#666;" id="progressText">Saving...</p>
-    </div>
-
-    <div class="unsupported" id="unsupported">
-      <p style="color:#666;font-size:14px;margin-bottom:12px;">
-        Your browser doesn't support the Contact Picker API. Try opening this link in <strong>Chrome on Android</strong> or <strong>Safari on iOS 16+</strong>.
-      </p>
-      <p style="color:#999;font-size:13px;">
-        Alternatively, you can export your contacts as a <code>.vcf</code> file and send it to ButterflAI via text — we'll import it automatically.
-      </p>
-    </div>
-
     <p class="privacy">
-      Contacts are stored only in your ButterflAI account. They won't be messaged without your explicit request — ever. <a href="/privacy">Privacy policy →</a>
+      Contacts are stored only in your ButterflAI account and never shared.
+      <a href="/privacy">Privacy policy →</a>
     </p>
   </div>
 
   <script>
-    const btn = document.getElementById('importBtn');
+    const params  = new URLSearchParams(window.location.search);
+    const userId  = params.get('userId') || params.get('uid');
     const statusEl = document.getElementById('status');
-    const progressEl = document.getElementById('progress');
-    const progressFill = document.getElementById('progressFill');
-    const progressText = document.getElementById('progressText');
-    const unsupportedEl = document.getElementById('unsupported');
 
-    // Get userId from URL param
-    const params = new URLSearchParams(window.location.search);
-    const userId = params.get('userId') || params.get('uid');
-    const token  = params.get('token');
-
-    if (!('contacts' in navigator && 'ContactsManager' in window)) {
-      btn.style.display = 'none';
-      unsupportedEl.style.display = 'block';
-    }
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
+      });
+    });
 
     function showStatus(msg, type) {
       statusEl.textContent = msg;
       statusEl.className = 'status ' + type;
     }
 
-    btn.addEventListener('click', async () => {
-      if (!('contacts' in navigator)) {
-        showStatus('Contact Picker not supported on this browser.', 'error');
-        return;
-      }
-
-      btn.disabled = true;
-      btn.textContent = 'Opening contacts…';
-
-      try {
-        const contacts = await navigator.contacts.select(
-          ['name', 'tel'],
-          { multiple: true }
+    async function submitContacts(contacts) {
+      showStatus(`Saving ${contacts.length} contacts…`, 'info');
+      const resp = await fetch('/api/contacts/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, contacts }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        showStatus(
+          `✓ Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}` +
+          (data.skipped ? ` (${data.skipped} had no phone number)` : '') + '. You can close this page.',
+          'success'
         );
+      } else {
+        showStatus('Import failed: ' + (data.error || 'Unknown error'), 'error');
+      }
+    }
 
-        if (!contacts || contacts.length === 0) {
-          showStatus('No contacts selected — tap the button and select some contacts.', 'info');
-          btn.disabled = false;
-          btn.textContent = 'Import from phone contacts';
+    // ── vCard upload ──────────────────────────────────────────────────────────
+    const uploadArea = document.getElementById('uploadArea');
+    const vcfFile    = document.getElementById('vcfFile');
+
+    uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragging'); });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragging'));
+    uploadArea.addEventListener('drop', e => {
+      e.preventDefault(); uploadArea.classList.remove('dragging');
+      if (e.dataTransfer.files[0]) handleVcfFile(e.dataTransfer.files[0]);
+    });
+    vcfFile.addEventListener('change', () => {
+      if (vcfFile.files[0]) handleVcfFile(vcfFile.files[0]);
+    });
+
+    function handleVcfFile(file) {
+      showStatus('Reading file…', 'info');
+      const reader = new FileReader();
+      reader.onload = e => {
+        const contacts = parseVcf(e.target.result);
+        if (contacts.length === 0) {
+          showStatus('No contacts with phone numbers found in this file.', 'error');
           return;
         }
+        submitContacts(contacts);
+      };
+      reader.readAsText(file);
+    }
 
-        // Flatten contacts (one contact may have multiple numbers)
-        const flat = [];
-        for (const c of contacts) {
-          const name = (c.name || [])[0] || 'Unknown';
-          for (const tel of (c.tel || [])) {
-            flat.push({ name, phone: tel });
+    function parseVcf(text) {
+      const contacts = [];
+      const cards = text.split(/\bEND:VCARD\b/i);
+      for (const card of cards) {
+        if (!/BEGIN:VCARD/i.test(card)) continue;
+        const nameMatch = card.match(/^FN[;:][^\r\n]*/m);
+        let name = nameMatch ? nameMatch[0].replace(/^FN[;:]/i, '').replace(/\\,/g, ',').trim() : null;
+        if (!name) {
+          // fallback to N field
+          const nMatch = card.match(/^N[;:][^\r\n]*/m);
+          if (nMatch) {
+            const parts = nMatch[0].replace(/^N[;:]/i,'').split(';');
+            name = [parts[1], parts[0]].filter(Boolean).join(' ').trim() || parts[0];
           }
         }
-
-        progressEl.style.display = 'block';
-        progressText.textContent = `Saving ${flat.length} contacts…`;
-
-        const resp = await fetch('/api/contacts/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, token, contacts: flat }),
-        });
-
-        const data = await resp.json();
-
-        progressFill.style.width = '100%';
-
-        if (resp.ok) {
-          showStatus(
-            `✓ Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}` +
-            (data.skipped ? ` (${data.skipped} skipped — no phone number)` : '') +
-            '. You can close this page.',
-            'success'
-          );
-          btn.textContent = '✓ Done';
-        } else {
-          showStatus('Import failed: ' + (data.error || 'Unknown error'), 'error');
-          btn.disabled = false;
-          btn.textContent = 'Try again';
+        if (!name) continue;
+        // Extract all TEL lines
+        const telLines = card.match(/^TEL[^\r\n]*/gm) || [];
+        for (const tel of telLines) {
+          const phone = tel.replace(/^TEL[^:]*:/i, '').replace(/[^\d+]/g, '').trim();
+          if (phone.length >= 7) contacts.push({ name, phone });
         }
+      }
+      return contacts;
+    }
+
+    // ── Contact Picker API ────────────────────────────────────────────────────
+    const pickerBtn = document.getElementById('pickerBtn');
+    if (!('contacts' in navigator && 'ContactsManager' in window)) {
+      document.getElementById('pickerUnsupported').style.display = 'block';
+      pickerBtn.style.display = 'none';
+    }
+
+    pickerBtn.addEventListener('click', async () => {
+      pickerBtn.disabled = true;
+      pickerBtn.textContent = 'Opening…';
+      try {
+        const picked = await navigator.contacts.select(['name','tel'], { multiple: true });
+        if (!picked || picked.length === 0) {
+          showStatus('No contacts selected.', 'info');
+          pickerBtn.disabled = false; pickerBtn.textContent = 'Open contact picker';
+          return;
+        }
+        const contacts = [];
+        for (const c of picked) {
+          const name = (c.name || [])[0] || 'Unknown';
+          for (const tel of (c.tel || [])) contacts.push({ name, phone: tel });
+        }
+        await submitContacts(contacts);
+        pickerBtn.textContent = '✓ Done';
       } catch (err) {
-        if (err.name === 'AbortError') {
-          showStatus('Cancelled — tap again when ready.', 'info');
-        } else {
-          showStatus('Error: ' + err.message, 'error');
-        }
-        btn.disabled = false;
-        btn.textContent = 'Import from phone contacts';
+        if (err.name !== 'AbortError') showStatus('Error: ' + err.message, 'error');
+        pickerBtn.disabled = false; pickerBtn.textContent = 'Open contact picker';
       }
     });
   </script>
