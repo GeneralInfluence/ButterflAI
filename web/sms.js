@@ -67,7 +67,7 @@ function _initDefaultClient() {
    */
   smsModule.sendUnchecked = async function sendUnchecked(to, body) {
     const phone = toE164(to);
-    const msg   = await client.messages.create({ from: FROM_NUMBER, to: phone, body });
+    const msg   = await _defaultClient.messages.create({ from: FROM_NUMBER, to: phone, body });
     console.log(`[SMS] sendUnchecked sid=${msg.sid} to=${phone}`);
     return msg;
   };
