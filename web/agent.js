@@ -319,10 +319,38 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     case 'lookup_contact': {
       const q = (toolInput.query || '').toLowerCase().trim();
       const allContacts = db.getContactsByUser(userId);
-      const matches = allContacts.filter(c =>
-        c.name?.toLowerCase().includes(q) || (c.phone || '').includes(q)
-      );
-      return { contacts: matches, count: matches.length };
+
+      // Score each contact — higher = better match
+      function score(c) {
+        const name = (c.name || '').toLowerCase();
+        const phone = (c.phone || '');
+        if (name === q) return 100;                          // exact name
+        if (phone.includes(q)) return 90;                    // phone match
+        if (name.startsWith(q)) return 80;                   // prefix match
+        // Word-level prefix: "Allie" matches "Allison" because alli- prefix
+        const prefix4 = q.slice(0, 4);
+        const words = name.split(/\s+/);
+        if (prefix4.length >= 3 && words.some(w => w.startsWith(prefix4))) return 60;
+        // Substring anywhere
+        if (name.includes(q)) return 50;
+        // Query contains the contact name token (e.g. searching "allison" matches "allie")
+        if (q.includes(name.split(' ')[0]) || name.split(' ')[0].includes(q.slice(0,4))) return 30;
+        return 0;
+      }
+
+      const scored = allContacts
+        .map(c => ({ ...c, _score: score(c) }))
+        .filter(c => c._score > 0)
+        .sort((a, b) => b._score - a._score)
+        .slice(0, 10);
+
+      return {
+        contacts: scored,
+        count: scored.length,
+        tip: scored.length === 0
+          ? 'No match found. Try a different spelling, full name, or phone number.'
+          : 'Results ranked by match quality. If the right person isn\'t here, try their full name.',
+      };
     }
 
     case 'get_relationships': {
@@ -560,7 +588,8 @@ HARD RULES — never violate:
 
 CONTACT MANAGEMENT:
 - If the user mentions a person by name AND provides a phone number, ALWAYS call add_contact immediately before responding. Don't ask permission.
-- If the user mentions a person by name without a phone number, ask for their number so you can add them.
+- If the user mentions a person by name without a phone number, use lookup_contact first. Try the nickname they used AND common full-name variants (e.g. "Allie" → also try "Allison"; "Liz" → "Elizabeth"; "Mike" → "Michael"). If multiple contacts match, show the top options with names and last 4 digits of phone only — never the full number unprompted.
+- If the user gives enough context (e.g. "my college friend Allie" or "Allie McLaine"), narrow down before asking.
 - Ingesting a contact (add_contact) never sends them any message — it's just your address book.
 - Whether a contact uses ButterflAI is their private information. Don't claim to know or not know. Instead: offer to reach out to them on the user's behalf, which works whether or not they're a user.
 - For importing many contacts at once, use get_contact_import_url and send the user that link.
