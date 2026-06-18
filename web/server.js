@@ -54,75 +54,77 @@ app.use(limiter);
 
 // ── SMS webhook (primary human channel) ─────────────────────────────────────
 
+// Empty TwiML — we send replies via REST API (outbound-api) to avoid A2P 10DLC
+// TwiML outbound-reply suppression on long codes.
+const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
+
 app.post('/sms', sms.validateTwilioRequest, async (req, res) => {
   const body   = (req.body.Body  || '').trim();
   const from   = (req.body.From  || '').trim();   // E.164 caller phone
 
   console.log(`[SMS] inbound from=${from} body="${body.slice(0, 40)}"`);
 
-  const twiml = buildTwiml();
+  // Always ack Twilio immediately with empty TwiML.
+  // Replies are sent via sms.send() / sms.sendUnchecked() (outbound-api)
+  // which reliably delivers on A2P 10DLC long codes.
+  res.type('text/xml').send(EMPTY_TWIML);
 
-  // 1. STOP — highest priority, handled before anything else
-  if (/^stop$/i.test(body) || /^stop\b/i.test(body)) {
-    db.recordOptOut(from, 'stop_reply');
-    twiml.push(`You've been opted out and won't receive any more messages from ButterflAI. ` +
-               `Text START to re-subscribe at any time.`);
-    return res.type('text/xml').send(twiml.toString());
-  }
-
-  // 2. START — re-subscribe (existing users only; new users fall through to onboarding)
-  if (/^start$/i.test(body)) {
-    const existingUser = db.getUserByPhone(from);
-    if (existingUser && existingUser.onboarding_state === 'complete') {
-      db.removeOptOut && db.removeOptOut(from);
-      // Record re-subscription consent
-      db.writeConsent(from, 'SELF_START');
-      twiml.push(`Welcome back! You're re-subscribed to ButterflAI. Text me anytime. 🦋`);
-      return res.type('text/xml').send(twiml.toString());
-    }
-    // New user or mid-onboarding: remove from opt-out if present, then fall through to onboarding
-    db.removeOptOut && db.removeOptOut(from);
-  }
-
-  // 3. Check opt-out status before doing anything
-  if (db.isOptedOut(from)) {
-    // Silently drop the message — they opted out
-    return res.type('text/xml').send(twiml.toString());
-  }
-
-  // 4a. Check if this is a CONTACT (not a user) — handle RSVP replies
-  const existingContact = db.getContactByPhone(from);
-  if (existingContact && !db.getUserByPhone(from)) {
-    // This phone belongs to a contact, not a full user
-    const rsvpReply = await multiparty.handleRsvpReply(from, body).catch(() => null);
-    if (rsvpReply) {
-      twiml.push(rsvpReply);
-    } else {
-      // Queue for agent to handle (contact sent a free-text message)
-      db.storeInboundMessage({
-        from_phone: from, from_type: 'contact', from_id: existingContact.id, channel: 'sms', text: body,
-      });
-      twiml.push(`Got it! I'll pass that along. 👍`);
-    }
-    return res.type('text/xml').send(twiml.toString());
-  }
-
-  // 4. Route: onboarding vs. established user
-  const user = db.getUserByPhone(from);
-  const isOnboarding = !user || user.onboarding_state !== 'complete';
+  // ─── Async reply handling (after HTTP response sent) ─────────────────────
 
   try {
+    // 1. STOP — highest priority
+    if (/^stop$/i.test(body) || /^stop\b/i.test(body)) {
+      db.recordOptOut(from, 'stop_reply');
+      await sms.sendUnchecked(from,
+        `You've been opted out and won't receive any more messages from ButterflAI. ` +
+        `Text START to re-subscribe at any time.`);
+      return;
+    }
+
+    // 2. START — re-subscribe
+    if (/^start$/i.test(body)) {
+      const existingUser = db.getUserByPhone(from);
+      db.removeOptOut(from);
+      if (existingUser && existingUser.onboarding_state === 'complete') {
+        db.writeConsent(from, 'SELF_START');
+        await sms.sendUnchecked(from, `Welcome back! You're re-subscribed to ButterflAI. Text me anytime. 🦋`);
+        return;
+      }
+      // New user or mid-onboarding: fall through to onboarding
+    }
+
+    // 3. Opt-out gate
+    if (db.isOptedOut(from)) {
+      return; // silently drop
+    }
+
+    // 4a. Contact (not a user) — handle RSVP replies
+    const existingContact = db.getContactByPhone(from);
+    if (existingContact && !db.getUserByPhone(from)) {
+      const rsvpReply = await multiparty.handleRsvpReply(from, body).catch(() => null);
+      if (rsvpReply) {
+        await sms.sendUnchecked(from, rsvpReply);
+      } else {
+        db.storeInboundMessage({
+          from_phone: from, from_type: 'contact', from_id: existingContact.id, channel: 'sms', text: body,
+        });
+        await sms.sendUnchecked(from, `Got it! I'll pass that along. 👍`);
+      }
+      return;
+    }
+
+    // 4. Route: onboarding vs. established user
+    const user = db.getUserByPhone(from);
+    const isOnboarding = !user || user.onboarding_state !== 'complete';
     let reply;
 
     if (isOnboarding) {
       reply = await handleOnboarding(from, body, db);
     } else {
-      // Check for a pending action (nudge confirmation, message approval, etc.)
       const pending = db.getPendingAction(user.id);
       if (pending) {
         reply = await handlePendingAction(user, body, pending);
       } else {
-        // Generic: queue for agent processing
         db.storeInboundMessage({
           from_phone: from,
           from_type: 'user',
@@ -134,13 +136,21 @@ app.post('/sms', sms.validateTwilioRequest, async (req, res) => {
       }
     }
 
-    if (reply) twiml.push(reply);
+    if (reply) {
+      // Use sms.send() for established users (consent-gated), sendUnchecked for onboarding
+      if (!isOnboarding) {
+        await sms.send(from, reply);
+      } else {
+        await sms.sendUnchecked(from, reply);
+      }
+    }
+
   } catch (err) {
     console.error('[SMS] handler error:', err);
-    twiml.push(`Something went wrong on my end — I'll be back shortly. Sorry!`);
+    try {
+      await sms.sendUnchecked(from, `Something went wrong on my end — I'll be back shortly. Sorry!`);
+    } catch (_) { /* best effort */ }
   }
-
-  res.type('text/xml').send(twiml.toString());
 });
 
 // Also handle inbound SMS from contacts (could arrive on same number)

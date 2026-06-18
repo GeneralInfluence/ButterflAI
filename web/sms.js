@@ -59,6 +59,18 @@ function _initDefaultClient() {
     const twilio = require('twilio');
     _defaultClient = twilio(ACCOUNT_SID, AUTH_TOKEN);
     console.log('Twilio SMS ready');
+
+  /**
+   * Send a message bypassing consent/optout gates — only for system messages
+   * (STOP acknowledgements, START confirmations, onboarding prompts).
+   * Do NOT use for user-generated content.
+   */
+  smsModule.sendUnchecked = async function sendUnchecked(to, body) {
+    const phone = toE164(to);
+    const msg   = await client.messages.create({ from: FROM_NUMBER, to: phone, body });
+    console.log(`[SMS] sendUnchecked sid=${msg.sid} to=${phone}`);
+    return msg;
+  };
   } else {
     console.warn('TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set — SMS disabled (dev mode)');
   }
