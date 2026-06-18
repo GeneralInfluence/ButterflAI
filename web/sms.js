@@ -169,17 +169,17 @@ async function notifyUser(to, text) {
  * Use as Express middleware.
  */
 function validateTwilioRequest(req, res, next) {
+  // DEBUG: log every incoming /sms request regardless of validation outcome
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host  = req.headers['x-forwarded-host'] || req.headers['host'] || 'unknown';
+  const url   = `${proto}://${host}${req.originalUrl}`;
+  const hasSig = !!req.headers['x-twilio-signature'];
+  const bodyKeys = Object.keys(req.body || {}).join(',');
+  console.log(`[SMS webhook] method=${req.method} url="${url}" has_sig=${hasSig} body_keys="${bodyKeys}" NODE_ENV=${process.env.NODE_ENV}`);
+
   if (process.env.NODE_ENV !== 'production') return next(); // skip in dev
 
   const twilioSignature = req.headers['x-twilio-signature'];
-
-  // Reconstruct the URL from forwarded headers — Fly.io (and most reverse proxies)
-  // terminate TLS at the edge, so req.protocol is always 'http' inside the VM.
-  // We trust x-forwarded-proto / x-forwarded-host which Fly sets correctly.
-  const proto = req.headers['x-forwarded-proto'] || 'https';
-  const host  = req.headers['x-forwarded-host'] || req.headers['host'];
-  const url   = `${proto}://${host}${req.originalUrl}`;
-
   const params = req.body;
 
   const valid = require('twilio').validateRequest(AUTH_TOKEN, twilioSignature, url, params);
