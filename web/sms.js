@@ -172,12 +172,19 @@ function validateTwilioRequest(req, res, next) {
   if (process.env.NODE_ENV !== 'production') return next(); // skip in dev
 
   const twilioSignature = req.headers['x-twilio-signature'];
-  const url = process.env.BASE_URL + req.originalUrl;
+
+  // Reconstruct the URL from forwarded headers — Fly.io (and most reverse proxies)
+  // terminate TLS at the edge, so req.protocol is always 'http' inside the VM.
+  // We trust x-forwarded-proto / x-forwarded-host which Fly sets correctly.
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  const host  = req.headers['x-forwarded-host'] || req.headers['host'];
+  const url   = `${proto}://${host}${req.originalUrl}`;
+
   const params = req.body;
 
   const valid = require('twilio').validateRequest(AUTH_TOKEN, twilioSignature, url, params);
   if (!valid) {
-    console.warn(`[SMS] Invalid Twilio signature — rejected. BASE_URL="${process.env.BASE_URL}" reconstructed_url="${url}"`);
+    console.warn(`[SMS] Invalid Twilio signature — rejected. reconstructed_url="${url}"`);
     return res.status(403).send('Forbidden');
   }
   next();
