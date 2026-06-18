@@ -188,7 +188,31 @@ async function sendUnchecked(to, body) {
  */
 function validateTwilioRequest(req, res, next) {
   console.log(`[SMS] inbound from=${req.body?.From || '?'} body="${(req.body?.Body || '').slice(0, 40)}"`);
-  // Validation temporarily disabled for end-to-end debugging
+
+  const twilioSignature = req.headers['x-twilio-signature'];
+  if (!twilioSignature) {
+    console.warn('[SMS] Missing X-Twilio-Signature — rejected');
+    return res.status(403).send('Forbidden');
+  }
+
+  // Fly.io terminates TLS at the edge — req.protocol is always 'http' inside
+  // the VM, so reconstruct the URL from forwarded headers instead.
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  const host  = req.headers['x-forwarded-host']  || req.headers['host'];
+  const webhookUrl = `${proto}://${host}${req.originalUrl}`;
+
+  const valid = require('twilio').validateRequest(
+    process.env.TWILIO_AUTH_TOKEN,
+    twilioSignature,
+    webhookUrl,
+    req.body || {}
+  );
+
+  if (!valid) {
+    console.warn(`[SMS] Invalid Twilio signature — rejected. url="${webhookUrl}"`);
+    return res.status(403).send('Forbidden');
+  }
+
   return next();
 }
 
