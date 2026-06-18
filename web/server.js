@@ -627,13 +627,6 @@ function escapeXml(str) {
 
 // ── Health check ─────────────────────────────────────────────────────────────
 
-// Temporary diagnostic endpoint — remove before public launch
-app.get('/api/diag', (req, res) => {
-  const optouts = db._raw().prepare('SELECT phone, source FROM sms_optouts').all();
-  const users   = db._raw().prepare('SELECT id, name, phone, onboarding_state FROM users').all();
-  res.json({ optouts, users });
-});
-
 app.get('/health', (req, res) => {
   // Verify DB is reachable
   try {
