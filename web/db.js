@@ -404,6 +404,26 @@ module.exports = {
     `).all();
   },
 
+  // ── Conversation history (agent context across turns) ──────────────────────
+
+  appendConversation(userId, role, text) {
+    const { v4: uuidv4 } = require('uuid');
+    db.prepare(`
+      INSERT INTO conversation_history (id, user_id, role, text)
+      VALUES (?, ?, ?, ?)
+    `).run(uuidv4(), userId, role, text.slice(0, 4000));
+  },
+
+  getRecentConversation(userId, limit = 20) {
+    // Returns oldest-first so it reads naturally as a chat log
+    const rows = db.prepare(`
+      SELECT role, text, created_at FROM conversation_history
+      WHERE user_id = ?
+      ORDER BY created_at DESC LIMIT ?
+    `).all(userId, limit);
+    return rows.reverse();
+  },
+
   markMessageProcessed(id) {
     db.prepare('UPDATE inbound_messages SET processed = 1 WHERE id = ?').run(id);
   },

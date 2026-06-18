@@ -134,7 +134,9 @@ app.post(['/sms', '/inbound'], sms.validateTwilioRequest, async (req, res) => {
           channel: 'sms',
           text: body,
         });
-        reply = `Got it! 🦋`;
+        // No ACK reply — agent will respond directly. Sending "Got it! 🦋"
+        // before every agent response is noisy and confusing.
+        reply = null;
       }
     }
 

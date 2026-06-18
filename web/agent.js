@@ -596,7 +596,15 @@ CONTACT MANAGEMENT:
 
 STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
 
-  const messages = [{ role: 'user', content: msg.text }];
+  // Load recent conversation history so the agent has context across SMS turns
+  const history = db.getRecentConversation(userId, 20);
+  const messages = [
+    ...history.map(h => ({ role: h.role, content: h.text })),
+    { role: 'user', content: msg.text },
+  ];
+
+  // Store this inbound message in conversation history
+  db.appendConversation(userId, 'user', msg.text);
 
   // Agentic loop — run until Claude stops calling tools
   let iterations = 0;
@@ -621,9 +629,13 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
       // Use sendUnchecked — agent only processes established users who consented at onboarding.
       const textBlocks = response.content.filter(b => b.type === 'text');
       const replyText = textBlocks.map(b => b.text).join('\n').trim();
-      if (replyText && userPhone) {
-        console.log(`[agent] replying to ${userPhone}: "${replyText.slice(0, 60)}"`);
-        await sms.sendUnchecked(userPhone, replyText);
+      if (replyText) {
+        // Store reply in conversation history before sending
+        db.appendConversation(userId, 'assistant', replyText);
+        if (userPhone) {
+          console.log(`[agent] replying to ${userPhone}: "${replyText.slice(0, 60)}"`);
+          await sms.sendUnchecked(userPhone, replyText);
+        }
       }
       break;
     }
