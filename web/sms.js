@@ -59,18 +59,6 @@ function _initDefaultClient() {
     const twilio = require('twilio');
     _defaultClient = twilio(ACCOUNT_SID, AUTH_TOKEN);
     console.log('Twilio SMS ready');
-
-  /**
-   * Send a message bypassing consent/optout gates — only for system messages
-   * (STOP acknowledgements, START confirmations, onboarding prompts).
-   * Do NOT use for user-generated content.
-   */
-  smsModule.sendUnchecked = async function sendUnchecked(to, body) {
-    const phone = toE164(to);
-    const msg   = await _defaultClient.messages.create({ from: FROM_NUMBER, to: phone, body });
-    console.log(`[SMS] sendUnchecked sid=${msg.sid} to=${phone}`);
-    return msg;
-  };
   } else {
     console.warn('TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set — SMS disabled (dev mode)');
   }
@@ -177,6 +165,25 @@ async function notifyUser(to, text) {
 }
 
 /**
+ * Send a message bypassing consent/optout gates.
+ * Use ONLY for system-generated replies to inbound messages (STOP acks,
+ * START confirmations, onboarding prompts, webhook replies).
+ * @param {string} to   - E.164 phone number
+ * @param {string} body - Message text
+ */
+async function sendUnchecked(to, body) {
+  const phone  = toE164(to);
+  const client = _getClient();
+  if (!client) {
+    console.log(`[SMS dev/unchecked] → ${phone}: ${body}`);
+    return null;
+  }
+  const msg = await client.messages.create({ from: FROM_NUMBER, to: phone, body });
+  console.log(`[SMS] sendUnchecked sid=${msg.sid} to=${phone}`);
+  return msg;
+}
+
+/**
  * Validate that an inbound Twilio webhook request is genuine.
  * Use as Express middleware.
  */
@@ -188,6 +195,7 @@ function validateTwilioRequest(req, res, next) {
 
 module.exports = {
   send,
+  sendUnchecked,
   sendContactInvite,
   notifyUser,
   validateTwilioRequest,
