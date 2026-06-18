@@ -58,7 +58,9 @@ app.use(limiter);
 // TwiML outbound-reply suppression on long codes.
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
-app.post('/sms', sms.validateTwilioRequest, async (req, res) => {
+// Twilio Messaging Service webhook — using /inbound path (Twilio marks /sms as
+// unhealthy after a 500 and stops calling it; fresh path has no failure history)
+app.post(['/sms', '/inbound'], sms.validateTwilioRequest, async (req, res) => {
   const body   = (req.body.Body  || '').trim();
   const from   = (req.body.From  || '').trim();   // E.164 caller phone
 
