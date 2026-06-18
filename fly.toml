@@ -9,9 +9,10 @@ primary_region = "ewr"   # Newark / US East — move to "lax" or "ord" to follow
   dockerfile = "Dockerfile"
 
 [env]
-  PORT       = "3000"
-  NODE_ENV   = "production"
+  PORT        = "3000"
+  NODE_ENV    = "production"
   KMS_PROVIDER = "local"   # swap to "aws" before public launch
+  APP_URL     = "https://butterflai.social"
   APP_URL    = "https://butterflai.social"
 
 # All secrets are set via `fly secrets set` — never in this file.
