@@ -137,19 +137,19 @@ app.post('/sms', sms.validateTwilioRequest, async (req, res) => {
     }
 
     if (reply) {
-      // Use sms.send() for established users (consent-gated), sendUnchecked for onboarding
-      if (!isOnboarding) {
-        await sms.send(from, reply);
-      } else {
-        await sms.sendUnchecked(from, reply);
-      }
+      // Use sendUnchecked for all inbound-triggered replies — the act of texting
+      // us is itself consent for a response. sms.send() consent gate is for
+      // proactive outbound only.
+      await sms.sendUnchecked(from, reply);
     }
 
   } catch (err) {
-    console.error('[SMS] handler error:', err);
+    console.error('[SMS] handler error:', err.message || err);
     try {
       await sms.sendUnchecked(from, `Something went wrong on my end — I'll be back shortly. Sorry!`);
-    } catch (_) { /* best effort */ }
+    } catch (sendErr) {
+      console.error('[SMS] sendUnchecked fallback failed:', sendErr.message || sendErr);
+    }
   }
 });
 
