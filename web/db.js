@@ -434,6 +434,14 @@ module.exports = {
     `).get(toE164(phone));
   },
 
+  /** Returns true if there is at least one consent record for the phone number. */
+  hasConsent(phone) {
+    const row = db.prepare(`
+      SELECT 1 FROM consent_records WHERE phone = ? LIMIT 1
+    `).get(toE164(phone));
+    return !!row;
+  },
+
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
 
   getWallet(userId) {
