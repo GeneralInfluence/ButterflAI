@@ -254,6 +254,10 @@ module.exports = {
     `).run(phone);
   },
 
+  removeOptOut(phone) {
+    db.prepare('DELETE FROM sms_optouts WHERE phone = ?').run(toE164(phone));
+  },
+
   // ── Onboarding intents ─────────────────────────────────────────────────────
 
   createOnboardingIntent({ id, user_id, contact_name, frequency, activity_type, group_size }) {
