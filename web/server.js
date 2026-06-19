@@ -100,19 +100,45 @@ app.post(['/sms', '/inbound'], sms.validateTwilioRequest, async (req, res) => {
       return; // silently drop
     }
 
-    // 4a. RSVP reply check — runs for ANYONE with a pending event invitation
-    // (contacts AND users who are also contacts). Must run before user agent routing.
+    // 4a. RSVP reply check — runs for ANYONE with a pending event invitation.
+    // Also handles logistics replies: if this phone was recently coordinated with
+    // as a contact (invited to an event within 48h), route their reply to the HOST's
+    // agent rather than their own — even if they're a registered ButterflAI user.
     const existingContact = db.getContactByPhone(from);
     if (existingContact) {
+      // Try pending RSVP first
       const rsvpReply = await multiparty.handleRsvpReply(from, body).catch(() => null);
       if (rsvpReply) {
         await sms.sendUnchecked(from, rsvpReply);
-        // If they're a pure contact (not a user), stop here
-        if (!db.getUserByPhone(from)) return;
-        // If they're also a user, still return — RSVP takes precedence
         return;
       }
-      // Pure contact with no pending RSVP — store and ACK, don't send to user agent
+
+      // Check for recent coordination context (invited within 48h, any status)
+      const recentInvitation = db._raw().prepare(`
+        SELECT ei.*, se.host_user_id, se.title, se.activity_type, se.scheduled_at
+        FROM event_invitations ei
+        JOIN social_events se ON se.id = ei.event_id
+        WHERE ei.contact_id = ? AND ei.notified_at > strftime('%s','now') - 172800
+        ORDER BY ei.notified_at DESC LIMIT 1
+      `).get(existingContact.id);
+
+      if (recentInvitation) {
+        // Route reply to the host's agent with coordination context
+        const host = db.getUser(recentInvitation.host_user_id);
+        if (host) {
+          const contextNote = `[System] ${existingContact.name} (who was invited to "${recentInvitation.title}") replied: "${body}"`;
+          db.appendConversation(host.id, 'user', contextNote);
+          db.storeInboundMessage({
+            from_phone: from, from_type: 'contact', from_id: existingContact.id,
+            channel: 'sms', text: body,
+          });
+          // ACK back to the contact so they know it landed
+          await sms.sendUnchecked(from, `Got it! 🦋`);
+          return;
+        }
+      }
+
+      // Pure contact with no coordination context — store and ACK
       if (!db.getUserByPhone(from)) {
         db.storeInboundMessage({
           from_phone: from, from_type: 'contact', from_id: existingContact.id, channel: 'sms', text: body,
