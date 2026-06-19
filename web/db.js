@@ -1,533 +1,558 @@
-/**
- * ButterflAI database module
- *
- * All SQL lives here. No raw queries elsewhere.
- * Sections:
- *   Users · Contacts · Contact preferences · Private data · Access audit
- *   Invites · SMS opt-outs · Onboarding · Relationships · Cadences
- *   Activities · Inbound messages · Wallets
- */
-
 'use strict';
 
+/**
+ * ButterflAI database module — split DB architecture
+ *
+ * main.sqlite        — identity, contacts, coordination metadata (no routing problems)
+ * users/{id}.sqlite  — conversation history, desires, private data, preferences
+ *                       (physical isolation: a bug cannot cross user boundaries)
+ *
+ * Public API
+ * ----------
+ * All SQL lives here. No raw queries outside db.js.
+ * Methods that touch per-user tables require a userId argument.
+ * _raw()         → main DB (backward compat for cadence, coord-loop one-off queries)
+ * _userDb(userId) → per-user DB (create/open/cache on demand)
+ */
+
 const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const path     = require('path');
+const fs       = require('fs');
 const { toE164 } = require('./phoneUtils');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'butterflai.sqlite');
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+// ── DB paths ──────────────────────────────────────────────────────────────────
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const DATA_DIR   = process.env.DATA_DIR  || path.join(__dirname, '..', 'data');
+const MAIN_PATH  = process.env.DB_PATH   || path.join(DATA_DIR, 'main.sqlite');
+const USERS_DIR  = process.env.USERS_DIR || path.join(DATA_DIR, 'users');
 
-// Apply schema (idempotent — all statements use IF NOT EXISTS)
-const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
-db.exec(schema);
+fs.mkdirSync(path.dirname(MAIN_PATH), { recursive: true });
+fs.mkdirSync(USERS_DIR, { recursive: true });
 
-// Migration tracking table — ensures each migration file runs exactly once
-db.exec(`CREATE TABLE IF NOT EXISTS _migrations (
+// ── Schema files ──────────────────────────────────────────────────────────────
+
+const MAIN_SCHEMA = fs.readFileSync(
+  path.join(__dirname, '..', 'db', 'main-schema.sql'), 'utf8');
+const USER_SCHEMA = fs.readFileSync(
+  path.join(__dirname, '..', 'db', 'user-schema.sql'), 'utf8');
+
+// ── Open and initialise main DB ───────────────────────────────────────────────
+
+const main = new Database(MAIN_PATH);
+main.pragma('journal_mode = WAL');
+main.pragma('foreign_keys = ON');
+main.exec(MAIN_SCHEMA);
+
+// Migration tracking (main DB only; user DBs are always created fresh from user-schema.sql)
+main.exec(`CREATE TABLE IF NOT EXISTS _migrations (
   name TEXT PRIMARY KEY,
   applied_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 )`);
 
-// Apply any pending migrations (skips already-applied ones)
 const migrationsDir = path.join(__dirname, 'db', 'migrations');
 if (fs.existsSync(migrationsDir)) {
-  const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+  // Only run migrations that belong to main (001, 002) — coordination migrations
+  // (003+) now live in user-schema.sql. We do not run them against main.
+  const MAIN_ONLY_MIGRATIONS = ['001_', '002_'];
+  const files = fs.readdirSync(migrationsDir)
+    .filter(f => f.endsWith('.sql') && MAIN_ONLY_MIGRATIONS.some(p => f.startsWith(p)))
+    .sort();
   for (const file of files) {
-    const alreadyApplied = db.prepare('SELECT 1 FROM _migrations WHERE name = ?').get(file);
-    if (alreadyApplied) continue;
+    const already = main.prepare('SELECT 1 FROM _migrations WHERE name = ?').get(file);
+    if (already) continue;
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-    const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
-    let allOk = true;
-    for (const stmt of statements) {
-      try { db.exec(stmt + ';'); } catch (err) {
-        // Only swallow "already exists" errors; log real failures
+    const stmts = sql.split(';').map(s => s.trim()).filter(Boolean);
+    let ok = true;
+    for (const stmt of stmts) {
+      try { main.exec(stmt + ';'); } catch (err) {
         if (!err.message.includes('already exists') && !err.message.includes('duplicate column')) {
           console.error(`[migration] ${file}: ${err.message}`);
-          allOk = false;
+          ok = false;
         }
       }
     }
-    if (allOk) {
-      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
+    if (ok) {
+      main.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
       console.log(`[migration] applied ${file}`);
     }
   }
 }
 
+// Ensure schema columns added post-initial-schema exist (idempotent ALTERs)
+for (const stmt of [
+  `ALTER TABLE users ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN agent_notes TEXT`,
+  `ALTER TABLE users ADD COLUMN agent_endpoint TEXT`,
+  `ALTER TABLE contacts ADD COLUMN imported_from TEXT`,
+  `ALTER TABLE contacts ADD COLUMN import_source TEXT`,
+]) {
+  try { main.exec(stmt); } catch (_) { /* column already exists */ }
+}
+
+// ── Per-user DB cache ─────────────────────────────────────────────────────────
+
+const _userCache = new Map(); // userId → Database instance
+
+function _userDb(userId) {
+  if (!userId) throw new Error('db._userDb: userId is required');
+  if (_userCache.has(userId)) return _userCache.get(userId);
+
+  const userPath = path.join(USERS_DIR, `${userId}.sqlite`);
+  const udb = new Database(userPath);
+  udb.pragma('journal_mode = WAL');
+  udb.pragma('foreign_keys = ON');
+  udb.exec(USER_SCHEMA);
+
+  _userCache.set(userId, udb);
+  return udb;
+}
+
+// ── Module exports ────────────────────────────────────────────────────────────
+
 module.exports = {
 
-  // Escape hatch for one-off queries (cadence engine, migrations, etc.)
-  // Use sparingly — prefer named methods above.
-  _raw() { return db; },
+  /** Escape hatch for the main DB (coordination, cadence one-off queries) */
+  _raw()             { return main; },
+  /** Per-user DB — creates file if new user */
+  _userDb(userId)    { return _userDb(userId); },
 
-  // ── Users ──────────────────────────────────────────────────────────────────
+  // ── Users (main) ──────────────────────────────────────────────────────────
 
   getUser(id) {
-    return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    return main.prepare('SELECT * FROM users WHERE id = ?').get(id);
   },
 
   getUserByPhone(phone) {
-    return db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
+    return main.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
   },
 
   getUserByTelegramId(telegramId) {
-    return db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(String(telegramId));
+    return main.prepare('SELECT * FROM users WHERE telegram_id = ?').get(String(telegramId));
   },
 
   createUser({ id, phone, name, onboarding_state, telegram_id, telegram_username, clawbank_pubkey }) {
-    return db.prepare(`
+    main.prepare(`
       INSERT INTO users (id, phone, name, onboarding_state, telegram_id, telegram_username, clawbank_pubkey)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
-      id,
-      phone || null,
-      name || 'unknown',
+      id, phone || null, name || 'unknown',
       onboarding_state || 'new',
-      telegram_id || null,
-      telegram_username || null,
-      clawbank_pubkey || null,
+      telegram_id || null, telegram_username || null, clawbank_pubkey || null,
     );
+    // Initialise per-user DB immediately so the file exists
+    _userDb(id);
   },
 
   updateUser(id, fields) {
     const allowed = ['name', 'phone', 'onboarding_state', 'onboarding_data',
-                     'telegram_id', 'telegram_chat_id', 'agent_endpoint'];
+                     'telegram_id', 'telegram_chat_id', 'agent_endpoint',
+                     'onboarded', 'agent_notes'];
     const sets = Object.keys(fields)
       .filter(k => allowed.includes(k))
       .map(k => `${k} = ?`);
     if (!sets.length) return;
-    const values = sets.map(s => fields[s.split(' ')[0]]);
-    db.prepare(`UPDATE users SET ${sets.join(', ')}, updated_at = strftime('%s','now') WHERE id = ?`)
-      .run(...values, id);
+    main.prepare(
+      `UPDATE users SET ${sets.join(', ')}, updated_at = strftime('%s','now') WHERE id = ?`
+    ).run(...sets.map(s => fields[s.split(' ')[0]]), id);
   },
 
   setUserTelegramChatId(userId, telegramId, chatId) {
-    db.prepare(`
+    main.prepare(`
       UPDATE users SET telegram_id = ?, telegram_chat_id = ?, updated_at = strftime('%s','now')
       WHERE id = ?
     `).run(String(telegramId), String(chatId), userId);
   },
 
-  // ── Contacts ───────────────────────────────────────────────────────────────
+  // ── Contacts (main) ───────────────────────────────────────────────────────
 
   getContact(id) {
-    return db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
+    return main.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
   },
 
   getContactByPhone(phone) {
-    return db.prepare('SELECT * FROM contacts WHERE phone = ?').get(phone);
+    return main.prepare('SELECT * FROM contacts WHERE phone = ?').get(phone);
   },
 
   getContactByTelegramId(telegramId) {
-    return db.prepare('SELECT * FROM contacts WHERE telegram_id = ?').get(String(telegramId));
+    return main.prepare('SELECT * FROM contacts WHERE telegram_id = ?').get(String(telegramId));
   },
 
-  /**
-   * Find a contact linked to a peer agent endpoint.
-   * Used by the MCP inbound handler to verify consent before accepting coord messages.
-   * Joins through the contact's linked user record to find the agent_endpoint.
-   */
   getContactByAgentEndpoint(agentEndpoint, ownerUserId) {
-    return db.prepare(`
-      SELECT c.*, ce.can_coordinate
+    return main.prepare(`
+      SELECT c.*
       FROM contacts c
-      JOIN consent_edges ce ON ce.contact_id = c.id AND ce.user_id = ?
       JOIN users u ON u.phone = c.phone
       WHERE u.agent_endpoint = ?
+        AND c.invited_by_user_id = ?
       LIMIT 1
-    `).get(ownerUserId, agentEndpoint);
+    `).get(agentEndpoint, ownerUserId);
   },
 
   getContactsByUser(userId) {
-    return db.prepare('SELECT * FROM contacts WHERE invited_by_user_id = ? ORDER BY name').all(userId);
+    return main.prepare(
+      'SELECT * FROM contacts WHERE invited_by_user_id = ? ORDER BY name'
+    ).all(userId);
   },
 
-  /**
-   * Create or update a contact by phone number.
-   * If a contact with this phone already exists for this user, updates name/tier.
-   * Returns the contact id.
-   */
   upsertContact({ invited_by_user_id, name, phone, notes, tier = 0 }) {
     const { v4: uuidv4 } = require('uuid');
-    const normalizedPhone = phone ? toE164(phone) : null;
-    if (normalizedPhone) {
-      const existing = db.prepare(
-        'SELECT * FROM contacts WHERE invited_by_user_id = ? AND phone = ?'
-      ).get(invited_by_user_id, normalizedPhone);
-      if (existing) {
-        db.prepare(`
-          UPDATE contacts SET name = ?, updated_at = strftime('%s','now') WHERE id = ?
-        `).run(name, existing.id);
-        return existing.id;
-      }
+    const e164 = phone ? toE164(phone) : null;
+    const existing = e164
+      ? main.prepare('SELECT * FROM contacts WHERE invited_by_user_id = ? AND phone = ?')
+             .get(invited_by_user_id, e164)
+      : null;
+    if (existing) {
+      main.prepare(`
+        UPDATE contacts SET name = ?, tier = ?, updated_at = strftime('%s','now') WHERE id = ?
+      `).run(name, tier, existing.id);
+      return existing.id;
     }
     const id = uuidv4();
-    db.prepare(`
+    main.prepare(`
       INSERT INTO contacts (id, invited_by_user_id, name, phone, tier)
       VALUES (?, ?, ?, ?, ?)
-    `).run(id, invited_by_user_id, name, normalizedPhone, tier);
+    `).run(id, invited_by_user_id, name, e164, tier);
     return id;
   },
 
   createContact({ id, invited_by_user_id, name, phone, telegram_id, telegram_username, tier, opted_out_at }) {
-    return db.prepare(`
+    main.prepare(`
       INSERT INTO contacts (id, invited_by_user_id, name, phone, telegram_id, telegram_username, tier, opted_out_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id, invited_by_user_id, name,
-      phone || null, telegram_id || null, telegram_username || null,
-      tier ?? 0, opted_out_at || null,
-    );
+    `).run(id, invited_by_user_id, name, phone || null,
+           telegram_id || null, telegram_username || null,
+           tier ?? 0, opted_out_at || null);
+    return id;
   },
 
   updateContact(id, fields) {
-    const allowed = ['name', 'phone', 'tier', 'opted_out_at', 'telegram_id', 'telegram_chat_id'];
+    const allowed = ['name', 'phone', 'tier', 'telegram_id', 'telegram_username', 'telegram_chat_id', 'opted_out_at'];
     const sets = Object.keys(fields).filter(k => allowed.includes(k)).map(k => `${k} = ?`);
     if (!sets.length) return;
-    const values = sets.map(s => fields[s.split(' ')[0]]);
-    db.prepare(`UPDATE contacts SET ${sets.join(', ')}, updated_at = strftime('%s','now') WHERE id = ?`)
-      .run(...values, id);
+    main.prepare(
+      `UPDATE contacts SET ${sets.join(', ')}, updated_at = strftime('%s','now') WHERE id = ?`
+    ).run(...sets.map(s => fields[s.split(' ')[0]]), id);
   },
 
   setContactTelegramId(contactId, telegramId, chatId) {
-    db.prepare(`
+    main.prepare(`
       UPDATE contacts SET telegram_id = ?, telegram_chat_id = ?, updated_at = strftime('%s','now')
       WHERE id = ?
     `).run(String(telegramId), String(chatId), contactId);
   },
 
   optOutContact(id) {
-    db.prepare(`
-      UPDATE contacts SET tier = 0, opted_out_at = strftime('%s','now'), updated_at = strftime('%s','now')
-      WHERE id = ?
+    main.prepare(`
+      UPDATE contacts SET tier = 0, opted_out_at = strftime('%s','now'),
+        updated_at = strftime('%s','now') WHERE id = ?
     `).run(id);
   },
 
-  // ── Contact preferences (non-sensitive) ───────────────────────────────────
+  // ── Contact preferences (main) ────────────────────────────────────────────
 
   setContactPreferences({ contact_id, availability_notes, neighborhoods, dietary, comm_preference }) {
-    return db.prepare(`
-      INSERT INTO contact_preferences (contact_id, availability_notes, neighborhoods, dietary, comm_preference)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(contact_id) DO UPDATE SET
-        availability_notes = excluded.availability_notes,
-        neighborhoods = excluded.neighborhoods,
-        dietary = excluded.dietary,
-        comm_preference = excluded.comm_preference,
-        updated_at = strftime('%s','now')
-    `).run(
-      contact_id,
-      availability_notes || null,
-      neighborhoods ? JSON.stringify(neighborhoods) : null,
-      dietary ? JSON.stringify(dietary) : null,
-      comm_preference || 'sms',
-    );
+    const existing = main.prepare('SELECT 1 FROM contact_preferences WHERE contact_id = ?').get(contact_id);
+    if (existing) {
+      main.prepare(`
+        UPDATE contact_preferences
+        SET availability_notes = ?, neighborhoods = ?, dietary = ?,
+            comm_preference = ?, updated_at = strftime('%s','now')
+        WHERE contact_id = ?
+      `).run(availability_notes || null,
+             Array.isArray(neighborhoods) ? JSON.stringify(neighborhoods) : neighborhoods,
+             Array.isArray(dietary)       ? JSON.stringify(dietary)       : dietary,
+             comm_preference || 'sms', contact_id);
+    } else {
+      main.prepare(`
+        INSERT INTO contact_preferences (contact_id, availability_notes, neighborhoods, dietary, comm_preference)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(contact_id, availability_notes || null,
+             Array.isArray(neighborhoods) ? JSON.stringify(neighborhoods) : neighborhoods,
+             Array.isArray(dietary)       ? JSON.stringify(dietary)       : dietary,
+             comm_preference || 'sms');
+    }
   },
 
   getContactPreferences(contactId) {
-    return db.prepare('SELECT * FROM contact_preferences WHERE contact_id = ?').get(contactId);
+    return main.prepare('SELECT * FROM contact_preferences WHERE contact_id = ?').get(contactId);
   },
 
-  // ── Private data (encrypted at rest) ──────────────────────────────────────
+  // ── Private data (per-user) ───────────────────────────────────────────────
 
   getPrivateData(userId) {
-    return db.prepare('SELECT * FROM private_data WHERE user_id = ?').get(userId);
+    return _userDb(userId).prepare('SELECT * FROM private_data WHERE id = ?').get('singleton');
   },
 
   upsertPrivateData(userId, { ciphertext, iv, tag, wrapped_key }) {
-    return db.prepare(`
-      INSERT INTO private_data (user_id, ciphertext, iv, tag, wrapped_key)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET
-        ciphertext = excluded.ciphertext,
-        iv = excluded.iv,
-        tag = excluded.tag,
-        wrapped_key = excluded.wrapped_key,
-        version = version + 1,
-        updated_at = strftime('%s','now')
-    `).run(userId, ciphertext, iv, tag, wrapped_key);
+    const udb = _userDb(userId);
+    const existing = udb.prepare('SELECT 1 FROM private_data WHERE id = ?').get('singleton');
+    if (existing) {
+      udb.prepare(`
+        UPDATE private_data SET ciphertext = ?, iv = ?, tag = ?, wrapped_key = ?,
+          version = version + 1, updated_at = strftime('%s','now')
+        WHERE id = 'singleton'
+      `).run(ciphertext, iv, tag, wrapped_key);
+    } else {
+      udb.prepare(`
+        INSERT INTO private_data (id, ciphertext, iv, tag, wrapped_key) VALUES ('singleton', ?, ?, ?, ?)
+      `).run(ciphertext, iv, tag, wrapped_key);
+    }
   },
 
-  deletePrivateData(userId) {
-    return db.prepare('DELETE FROM private_data WHERE user_id = ?').run(userId);
-  },
-
-  // ── Access audit log ───────────────────────────────────────────────────────
+  // ── Access audit (per-user) ───────────────────────────────────────────────
 
   writeAccessAudit({ userId, accessor, purpose, recordClass, outsideNormalPath }) {
-    return db.prepare(`
-      INSERT INTO access_audit (user_id, accessor, purpose, record_class, outside_normal_path)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(userId, accessor, purpose, recordClass, outsideNormalPath ? 1 : 0);
+    _userDb(userId).prepare(`
+      INSERT INTO access_audit (accessor, purpose, record_class, outside_normal_path)
+      VALUES (?, ?, ?, ?)
+    `).run(accessor, purpose, recordClass, outsideNormalPath ? 1 : 0);
   },
 
   getAccessAuditForUser(userId, limit = 100) {
-    return db.prepare(`
-      SELECT * FROM access_audit WHERE user_id = ? ORDER BY accessed_at DESC LIMIT ?
-    `).all(userId, limit);
+    return _userDb(userId).prepare(
+      'SELECT * FROM access_audit ORDER BY accessed_at DESC LIMIT ?'
+    ).all(limit);
   },
 
-  // ── Invites ────────────────────────────────────────────────────────────────
+  // ── Invites (main) ────────────────────────────────────────────────────────
 
   getInvite(token) {
-    return db.prepare('SELECT * FROM invites WHERE token = ?').get(token);
+    return main.prepare('SELECT * FROM invites WHERE token = ?').get(token);
   },
 
   createInvite({ token, created_by_user_id, contact_name, expires_at }) {
-    return db.prepare(`
+    main.prepare(`
       INSERT INTO invites (token, created_by_user_id, contact_name, expires_at)
       VALUES (?, ?, ?, ?)
     `).run(token, created_by_user_id, contact_name || null, expires_at || null);
   },
 
   resolveInvite(token, status, contactId) {
-    return db.prepare(`
-      UPDATE invites SET status = ?, contact_id = ?, resolved_at = strftime('%s','now')
-      WHERE token = ?
+    main.prepare(`
+      UPDATE invites SET status = ?, contact_id = ?,
+        resolved_at = strftime('%s','now') WHERE token = ?
     `).run(status, contactId || null, token);
   },
 
   getPendingInvitesByUser(userId) {
-    return db.prepare(`
-      SELECT * FROM invites WHERE created_by_user_id = ? AND status = 'pending' ORDER BY created_at DESC
+    return main.prepare(`
+      SELECT i.*, c.name as contact_name, c.phone as contact_phone
+      FROM invites i LEFT JOIN contacts c ON c.id = i.contact_id
+      WHERE i.created_by_user_id = ? AND i.status = 'pending'
+      ORDER BY i.created_at DESC
     `).all(userId);
   },
 
-  // ── SMS opt-outs ───────────────────────────────────────────────────────────
+  // ── SMS opt-outs (main) ───────────────────────────────────────────────────
 
   isOptedOut(phone) {
-    return !!db.prepare('SELECT 1 FROM sms_optouts WHERE phone = ?').get(toE164(phone));
+    return !!main.prepare('SELECT 1 FROM sms_optouts WHERE phone = ?').get(toE164(phone));
   },
 
   recordOptOut(phone, source = 'stop_reply') {
-    db.prepare(`
-      INSERT OR REPLACE INTO sms_optouts (phone, opted_out_at, source) VALUES (?, strftime('%s','now'), ?)
-    `).run(phone, source);
-    // Also tier-0 any contact with this phone
-    db.prepare(`
-      UPDATE contacts SET tier = 0, opted_out_at = strftime('%s','now'), updated_at = strftime('%s','now')
-      WHERE phone = ?
-    `).run(phone);
+    const e164 = toE164(phone);
+    main.prepare(`
+      INSERT INTO sms_optouts (phone, source) VALUES (?, ?)
+      ON CONFLICT(phone) DO UPDATE SET source = excluded.source,
+        opted_out_at = strftime('%s','now')
+    `).run(e164, source);
+    // Also zero the tier for any matching contacts
+    main.prepare(
+      `UPDATE contacts SET tier = 0, opted_out_at = strftime('%s','now') WHERE phone = ?`
+    ).run(e164);
   },
 
   removeOptOut(phone) {
-    db.prepare('DELETE FROM sms_optouts WHERE phone = ?').run(toE164(phone));
+    main.prepare('DELETE FROM sms_optouts WHERE phone = ?').run(toE164(phone));
   },
 
-  // ── Onboarding intents ─────────────────────────────────────────────────────
+  // ── Onboarding intents (per-user) ─────────────────────────────────────────
 
   createOnboardingIntent({ id, user_id, contact_name, frequency, activity_type, group_size }) {
-    return db.prepare(`
-      INSERT INTO onboarding_intents (id, user_id, contact_name, frequency, activity_type, group_size)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, user_id, contact_name, frequency, activity_type || null, group_size || 'one_on_one');
+    _userDb(user_id).prepare(`
+      INSERT INTO onboarding_intents (id, contact_name, frequency, activity_type, group_size)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, contact_name, frequency, activity_type || null, group_size || 'one_on_one');
   },
 
   getOnboardingIntents(userId) {
-    return db.prepare('SELECT * FROM onboarding_intents WHERE user_id = ? ORDER BY created_at').all(userId);
+    return _userDb(userId).prepare('SELECT * FROM onboarding_intents ORDER BY created_at ASC').all();
   },
 
   confirmOnboardingIntents(userId) {
-    db.prepare('UPDATE onboarding_intents SET confirmed = 1 WHERE user_id = ?').run(userId);
+    _userDb(userId).prepare('UPDATE onboarding_intents SET confirmed = 1').run();
   },
 
-  deleteOnboardingIntents(userId) {
-    db.prepare('DELETE FROM onboarding_intents WHERE user_id = ?').run(userId);
-  },
-
-  // ── Relationships ──────────────────────────────────────────────────────────
+  // ── Relationships (per-user) ──────────────────────────────────────────────
 
   createRelationship({ id, user_id, contact_id, contact_is_user, nickname, notes }) {
-    return db.prepare(`
-      INSERT INTO relationships (id, user_id, contact_id, contact_is_user, nickname, notes)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, user_id, contact_id, contact_is_user ? 1 : 0, nickname || null, notes || null);
+    _userDb(user_id).prepare(`
+      INSERT INTO relationships (id, contact_id, contact_is_user, nickname, notes)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, contact_id, contact_is_user ? 1 : 0, nickname || null, notes || null);
+    return id;
   },
 
   getRelationshipsByUser(userId) {
-    return db.prepare('SELECT * FROM relationships WHERE user_id = ?').all(userId);
+    return _userDb(userId).prepare('SELECT * FROM relationships ORDER BY created_at ASC').all();
   },
 
-  // ── Cadences ───────────────────────────────────────────────────────────────
+  // ── Cadences (per-user) ───────────────────────────────────────────────────
 
-  createCadence({ id, relationship_id, activity_type, frequency, group_size, budget_per_person, preferred_areas, preferred_times }) {
-    return db.prepare(`
-      INSERT INTO cadences (id, relationship_id, activity_type, frequency, group_size, budget_per_person, preferred_areas, preferred_times)
+  createCadence({ id, relationship_id, user_id, activity_type, frequency, group_size,
+                  budget_per_person, preferred_areas, preferred_times }) {
+    _userDb(user_id).prepare(`
+      INSERT INTO cadences (id, relationship_id, activity_type, frequency, group_size,
+        budget_per_person, preferred_areas, preferred_times)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id, relationship_id, activity_type, frequency,
-      group_size || 'one_on_one',
-      budget_per_person || null,
-      preferred_areas ? JSON.stringify(preferred_areas) : null,
-      preferred_times || null,
-    );
+    `).run(id, relationship_id, activity_type, frequency,
+           group_size || 'one_on_one', budget_per_person || null,
+           preferred_areas || null, preferred_times || null);
+    return id;
   },
 
   getCadencesByUser(userId) {
-    return db.prepare(`
-      SELECT c.* FROM cadences c
-      JOIN relationships r ON c.relationship_id = r.id
-      WHERE r.user_id = ? AND c.active = 1
-      ORDER BY c.next_target_at ASC NULLS LAST
-    `).all(userId);
+    return _userDb(userId).prepare(`
+      SELECT c.*, r.contact_id, r.nickname
+      FROM cadences c JOIN relationships r ON r.id = c.relationship_id
+      WHERE c.active = 1 ORDER BY c.next_target_at ASC
+    `).all();
   },
 
-  updateCadenceLastFulfilled(cadenceId, ts) {
-    db.prepare(`
-      UPDATE cadences SET last_fulfilled_at = ?, updated_at = strftime('%s','now') WHERE id = ?
+  updateCadenceLastFulfilled(cadenceId, userId, ts) {
+    _userDb(userId).prepare(`
+      UPDATE cadences SET last_fulfilled_at = ?, next_target_at = NULL WHERE id = ?
     `).run(ts, cadenceId);
   },
 
-  // ── Activities ─────────────────────────────────────────────────────────────
+  // ── Activities (per-user) ─────────────────────────────────────────────────
 
-  getActivity(id) {
-    return db.prepare('SELECT * FROM activities WHERE id = ?').get(id);
+  getActivity(userId, id) {
+    return _userDb(userId).prepare('SELECT * FROM activities WHERE id = ?').get(id);
   },
 
-  getActivityOrganiser(activityId) {
-    return db.prepare(`
-      SELECT u.* FROM activities a
-      JOIN cadences c ON a.cadence_id = c.id
-      JOIN relationships r ON c.relationship_id = r.id
-      JOIN users u ON r.user_id = u.id
-      WHERE a.id = ?
-    `).get(activityId);
+  getActivityOrganiser(userId, activityId) {
+    // Returns the user record of whoever owns this activity's cadence
+    const act = _userDb(userId).prepare('SELECT * FROM activities WHERE id = ?').get(activityId);
+    if (!act) return null;
+    return { userId, activity: act };
   },
 
-  updateActivityResponse(activityId, phone, response) {
-    const activity = db.prepare('SELECT * FROM activities WHERE id = ?').get(activityId);
-    if (!activity) return;
-    const responses = JSON.parse(activity.responses || '{}');
-    responses[phone] = response;
-    db.prepare(`UPDATE activities SET responses = ?, updated_at = strftime('%s','now') WHERE id = ?`)
-      .run(JSON.stringify(responses), activityId);
+  updateActivityResponse(userId, activityId, phone, response) {
+    const udb  = _userDb(userId);
+    const act  = udb.prepare('SELECT responses FROM activities WHERE id = ?').get(activityId);
+    if (!act) return;
+    const responses = JSON.parse(act.responses || '{}');
+    responses[toE164(phone)] = response;
+    udb.prepare(`
+      UPDATE activities SET responses = ?, updated_at = strftime('%s','now') WHERE id = ?
+    `).run(JSON.stringify(responses), activityId);
   },
 
-  setActivityTimeChoice(activityId, phone, slotIndex) {
-    const activity = db.prepare('SELECT * FROM activities WHERE id = ?').get(activityId);
-    if (!activity) return;
-    const choices = JSON.parse(activity.time_choices || '{}');
-    choices[phone] = slotIndex;
-    db.prepare(`UPDATE activities SET time_choices = ?, updated_at = strftime('%s','now') WHERE id = ?`)
-      .run(JSON.stringify(choices), activityId);
+  setActivityTimeChoice(userId, activityId, phone, slotIndex) {
+    const udb    = _userDb(userId);
+    const act    = udb.prepare('SELECT time_choices FROM activities WHERE id = ?').get(activityId);
+    if (!act) return;
+    const choices = JSON.parse(act.time_choices || '{}');
+    choices[toE164(phone)] = slotIndex;
+    udb.prepare(`
+      UPDATE activities SET time_choices = ?, updated_at = strftime('%s','now') WHERE id = ?
+    `).run(JSON.stringify(choices), activityId);
   },
 
-  // ── Inbound messages (agent queue) ─────────────────────────────────────────
+  // ── Inbound messages (main) ───────────────────────────────────────────────
 
   storeInboundMessage({ from_phone, from_telegram_id, from_type, from_id, channel, text }) {
-    return db.prepare(`
-      INSERT INTO inbound_messages (id, from_phone, from_telegram_id, from_type, from_id, channel, text)
+    main.prepare(`
+      INSERT INTO inbound_messages
+        (id, from_phone, from_telegram_id, from_type, from_id, channel, text)
       VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)
     `).run(
       from_phone || null,
       from_telegram_id ? String(from_telegram_id) : null,
       from_type, from_id,
-      channel || 'sms',
-      text,
+      channel || 'sms', text,
     );
   },
 
   getPendingInboundMessages() {
-    return db.prepare(`
-      SELECT * FROM inbound_messages WHERE processed = 0 ORDER BY created_at ASC
-    `).all();
-  },
-
-  // ── Conversation history (agent context across turns) ──────────────────────
-
-  appendConversation(userId, role, text) {
-    const { v4: uuidv4 } = require('uuid');
-    db.prepare(`
-      INSERT INTO conversation_history (id, user_id, role, text)
-      VALUES (?, ?, ?, ?)
-    `).run(uuidv4(), userId, role, text.slice(0, 4000));
-  },
-
-  getRecentConversation(userId, limit = 20) {
-    // Returns oldest-first so it reads naturally as a chat log
-    const rows = db.prepare(`
-      SELECT role, text, created_at FROM conversation_history
-      WHERE user_id = ?
-      ORDER BY created_at DESC LIMIT ?
-    `).all(userId, limit);
-    return rows.reverse();
+    return main.prepare(
+      'SELECT * FROM inbound_messages WHERE processed = 0 ORDER BY created_at ASC'
+    ).all();
   },
 
   markMessageProcessed(id) {
-    db.prepare('UPDATE inbound_messages SET processed = 1 WHERE id = ?').run(id);
+    main.prepare('UPDATE inbound_messages SET processed = 1 WHERE id = ?').run(id);
   },
 
-  // ── Pending actions (stateful SMS conversations) ──────────────────────────
+  // ── Conversation history (per-user) ───────────────────────────────────────
+
+  appendConversation(userId, role, text) {
+    const { v4: uuidv4 } = require('uuid');
+    _userDb(userId).prepare(`
+      INSERT INTO conversation_history (id, role, text) VALUES (?, ?, ?)
+    `).run(uuidv4(), role, text.slice(0, 4000));
+  },
+
+  getRecentConversation(userId, limit = 20) {
+    const rows = _userDb(userId).prepare(`
+      SELECT role, text, created_at FROM conversation_history
+      ORDER BY created_at DESC LIMIT ?
+    `).all(limit);
+    return rows.reverse();
+  },
+
+  // ── Pending actions (per-user) ────────────────────────────────────────────
 
   createPendingAction({ id, user_id, action_type, payload, ttl_secs }) {
     const expires_at = Math.floor(Date.now() / 1000) + (ttl_secs || 86400);
-    return db.prepare(`
-      INSERT INTO pending_actions (id, user_id, action_type, payload, expires_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, user_id, action_type, JSON.stringify(payload || {}), expires_at);
+    _userDb(user_id).prepare(`
+      INSERT INTO pending_actions (id, action_type, payload, expires_at) VALUES (?, ?, ?, ?)
+    `).run(id, action_type, JSON.stringify(payload || {}), expires_at);
   },
 
   getPendingAction(userId) {
-    // Get the most recent non-expired pending action for a user
-    return db.prepare(`
+    return _userDb(userId).prepare(`
       SELECT * FROM pending_actions
-      WHERE user_id = ? AND expires_at > strftime('%s','now')
+      WHERE expires_at > strftime('%s','now')
       ORDER BY created_at DESC LIMIT 1
-    `).get(userId);
+    `).get();
   },
 
-  deletePendingAction(id) {
-    db.prepare('DELETE FROM pending_actions WHERE id = ?').run(id);
+  deletePendingAction(id, userId) {
+    _userDb(userId).prepare('DELETE FROM pending_actions WHERE id = ?').run(id);
   },
 
-  clearExpiredPendingActions() {
-    db.prepare(`DELETE FROM pending_actions WHERE expires_at <= strftime('%s','now')`).run();
+  clearExpiredPendingActions(userId) {
+    _userDb(userId).prepare(
+      `DELETE FROM pending_actions WHERE expires_at <= strftime('%s','now')`
+    ).run();
   },
 
-  // ── Consent ledger ────────────────────────────────────────────────────────
+  // ── Consent ledger (main) ─────────────────────────────────────────────────
 
-  /**
-   * Record an explicit opt-in event.
-   * @param {string} phone             - E.164 phone number
-   * @param {'SELF_START'|'INVITE_PAGE'} source
-   * @param {string} [disclosureVersion]
-   */
   writeConsent(phone, source, disclosureVersion = '1.0') {
-    return db.prepare(`
+    main.prepare(`
       INSERT INTO consent_records (phone, consent_source, disclosure_version)
       VALUES (?, ?, ?)
     `).run(toE164(phone), source, disclosureVersion);
   },
 
-  /**
-   * Return the most recent consent record for a phone number, or undefined.
-   * Phone is normalized to E.164 before lookup.
-   * @param {string} phone
-   */
   getConsent(phone) {
-    return db.prepare(`
+    return main.prepare(`
       SELECT * FROM consent_records WHERE phone = ? ORDER BY consented_at DESC LIMIT 1
     `).get(toE164(phone));
   },
 
-  /** Returns true if there is at least one consent record for the phone number. */
   hasConsent(phone) {
-    const row = db.prepare(`
-      SELECT 1 FROM consent_records WHERE phone = ? LIMIT 1
-    `).get(toE164(phone));
-    return !!row;
+    return !!main.prepare(`SELECT 1 FROM consent_records WHERE phone = ? LIMIT 1`).get(toE164(phone));
   },
 
-  // ── User preferences ──────────────────────────────────────────────────────
+  // ── User preferences (per-user) ───────────────────────────────────────────
 
   getPreferences(userId) {
-    const row = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
+    const row = _userDb(userId).prepare('SELECT * FROM user_preferences WHERE id = ?').get('singleton');
     if (!row) return null;
-    // Parse JSON columns
     const jsonCols = ['dietary_restrictions','food_allergies','cuisine_loves','cuisine_avoids',
                       'activity_loves','activity_avoids','vibe'];
     for (const col of jsonCols) {
@@ -537,7 +562,6 @@ module.exports = {
   },
 
   upsertPreferences(userId, fields) {
-    // Stringify any array/object fields before writing
     const jsonCols = ['dietary_restrictions','food_allergies','cuisine_loves','cuisine_avoids',
                       'activity_loves','activity_avoids','vibe'];
     const toWrite = { ...fields };
@@ -546,55 +570,56 @@ module.exports = {
         toWrite[col] = JSON.stringify(toWrite[col]);
       }
     }
-    const existing = db.prepare('SELECT user_id FROM user_preferences WHERE user_id = ?').get(userId);
+    delete toWrite.user_id;  // no user_id column in per-user DB
+    const udb      = _userDb(userId);
+    const existing = udb.prepare('SELECT id FROM user_preferences WHERE id = ?').get('singleton');
     if (!existing) {
-      const cols = ['user_id', ...Object.keys(toWrite)].join(', ');
-      const placeholders = ['?', ...Object.keys(toWrite).map(() => '?')].join(', ');
-      db.prepare(`INSERT INTO user_preferences (${cols}) VALUES (${placeholders})`)
-        .run(userId, ...Object.values(toWrite));
+      const cols    = ['id', ...Object.keys(toWrite)].join(', ');
+      const holders = ['?', ...Object.keys(toWrite).map(() => '?')].join(', ');
+      udb.prepare(`INSERT INTO user_preferences (${cols}) VALUES (${holders})`)
+         .run('singleton', ...Object.values(toWrite));
     } else {
       const sets = Object.keys(toWrite).map(k => `${k} = ?`).join(', ');
-      db.prepare(`UPDATE user_preferences SET ${sets}, updated_at = strftime('%s','now') WHERE user_id = ?`)
-        .run(...Object.values(toWrite), userId);
+      udb.prepare(`UPDATE user_preferences SET ${sets}, updated_at = strftime('%s','now') WHERE id = 'singleton'`)
+         .run(...Object.values(toWrite));
     }
     return this.getPreferences(userId);
   },
 
-  // ── Agent-to-agent messages ────────────────────────────────────────────────
+  // ── Agent messages (per-user) ─────────────────────────────────────────────
 
   sendAgentMessage({ fromUserId, toUserId, threadId, kind, topic, body }) {
     const { v4: uuidv4 } = require('uuid');
     const id = uuidv4();
-    db.prepare(`
+    // Store in recipient's DB so they can poll it without cross-user access
+    _userDb(toUserId).prepare(`
       INSERT INTO agent_messages (id, from_user, to_user, thread_id, kind, topic, body)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(id, fromUserId, toUserId, threadId || id, kind, topic, body.slice(0, 2000));
     return id;
   },
 
-  getPendingAgentMessages(toUserId) {
-    return db.prepare(`
-      SELECT * FROM agent_messages
-      WHERE to_user = ? AND processed = 0
-      ORDER BY created_at ASC
-    `).all(toUserId);
+  getPendingAgentMessages(userId) {
+    return _userDb(userId).prepare(`
+      SELECT * FROM agent_messages WHERE processed = 0 ORDER BY created_at ASC
+    `).all();
   },
 
-  markAgentMessageProcessed(id) {
-    db.prepare('UPDATE agent_messages SET processed = 1 WHERE id = ?').run(id);
+  markAgentMessageProcessed(userId, id) {
+    _userDb(userId).prepare('UPDATE agent_messages SET processed = 1 WHERE id = ?').run(id);
   },
 
-  // ── Desires ───────────────────────────────────────────────────────────────
+  // ── Desires (per-user) ────────────────────────────────────────────────────
 
   createDesire({ id, userId, rawText, category, activityType, socialSizeMin, socialSizeMax,
                   windowStart, windowEnd, priority, candidateStrategy, candidateIds,
                   candidateTierMin, recurrence, horizon, parentDesireId }) {
-    return db.prepare(`
-      INSERT INTO desires (id, user_id, raw_text, category, activity_type,
+    _userDb(userId).prepare(`
+      INSERT INTO desires (id, raw_text, category, activity_type,
         social_size_min, social_size_max, time_window_start, time_window_end, priority,
         candidate_strategy, candidate_ids, candidate_tier_min, recurrence, horizon, parent_desire_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, userId, rawText, category, activityType || 'any',
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, rawText, category, activityType || 'any',
            socialSizeMin || 0, socialSizeMax || 0,
            windowStart, windowEnd, priority || 'want',
            candidateStrategy || 'any', candidateIds || null,
@@ -602,51 +627,50 @@ module.exports = {
            horizon || 'one_off', parentDesireId || null);
   },
 
-  // Zero raw_text immediately after parsing — structured fields are all we need
-  zeroDesireRawText(id) {
-    return db.prepare(`UPDATE desires SET raw_text = '', raw_text_zeroed = 1,
-      updated_at = strftime('%s','now') WHERE id = ?`).run(id);
+  zeroDesireRawText(userId, id) {
+    _userDb(userId).prepare(`
+      UPDATE desires SET raw_text = '', raw_text_zeroed = 1,
+        updated_at = strftime('%s','now') WHERE id = ?
+    `).run(id);
+  },
+
+  getCoordDesire(userId, id) {
+    return _userDb(userId).prepare('SELECT * FROM coord_desires WHERE id = ?').get(id);
+  },
+
+  getPendingSocialDesires(userId) {
+    return _userDb(userId).prepare(`
+      SELECT * FROM coord_desires
+      WHERE status = 'pending'
+      AND category IN ('social','dining','outdoor','live_music','dancing','drinks','sports','culture')
+      ORDER BY created_at ASC
+    `).all();
+  },
+
+  updateDesireStatus(userId, id, status) {
+    _userDb(userId).prepare(`
+      UPDATE desires SET status = ?, updated_at = strftime('%s','now') WHERE id = ?
+    `).run(status, id);
   },
 
   getDueRecurringTemplates(userId) {
-    // Templates are due if: they have no children in the current week,
-    // or the recurrence_end hasn't passed yet
-    return db.prepare(`
+    return _userDb(userId).prepare(`
       SELECT d.* FROM coord_desires d
-      WHERE d.user_id = ? AND d.horizon = 'template'
+      WHERE d.horizon = 'template'
       AND (d.recurrence_end IS NULL OR d.recurrence_end >= date('now'))
       AND NOT EXISTS (
         SELECT 1 FROM desires child
         WHERE child.parent_desire_id = d.id
         AND child.time_window_start >= date('now', 'weekday 0', '-7 days')
       )
-    `).all(userId);
+    `).all();
   },
 
-  // Returns coord-safe fields only — raw_text excluded
-  getCoordDesire(id) {
-    return db.prepare('SELECT * FROM coord_desires WHERE id = ?').get(id);
-  },
-
-  getPendingSocialDesires(userId) {
-    return db.prepare(`
-      SELECT * FROM coord_desires
-      WHERE user_id = ? AND status = 'pending'
-      AND category IN ('social','dining','outdoor','live_music','dancing','drinks','sports','culture')
-      ORDER BY created_at ASC
-    `).all(userId);
-  },
-
-  updateDesireStatus(id, status) {
-    return db.prepare(`
-      UPDATE desires SET status = ?, updated_at = strftime('%s','now') WHERE id = ?
-    `).run(status, id);
-  },
-
-  // ── Coordination sessions ─────────────────────────────────────────────────
+  // ── Coordination sessions (main) ──────────────────────────────────────────
+  // Kept in main so inbound MCP messages can be routed without knowing userId first.
 
   createCoordSession({ id, desireId, initiatorUserId, role, expiresAt, purgeAfter }) {
-    return db.prepare(`
+    main.prepare(`
       INSERT INTO coordination_sessions
         (id, desire_id, initiator_user_id, role, expires_at, purge_after)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -654,7 +678,7 @@ module.exports = {
   },
 
   getCoordSession(id) {
-    return db.prepare('SELECT * FROM coordination_sessions WHERE id = ?').get(id);
+    return main.prepare('SELECT * FROM coordination_sessions WHERE id = ?').get(id);
   },
 
   updateCoordSession(id, fields) {
@@ -662,93 +686,107 @@ module.exports = {
                      'agreed_activity', 'escalation_reason'];
     const sets = Object.keys(fields).filter(k => allowed.includes(k)).map(k => `${k} = ?`);
     if (!sets.length) return;
-    db.prepare(`
+    main.prepare(`
       UPDATE coordination_sessions SET ${sets.join(', ')}, updated_at = strftime('%s','now')
       WHERE id = ?
     `).run(...sets.map(s => fields[s.split(' ')[0]]), id);
   },
 
-  // ── Coordination session peers ────────────────────────────────────────────
-
   createCoordPeer({ id, sessionId, peerAgentId, peerUserId }) {
-    return db.prepare(`
+    main.prepare(`
       INSERT INTO coord_session_peers (id, session_id, peer_agent_id, peer_user_id)
       VALUES (?, ?, ?, ?)
     `).run(id, sessionId, peerAgentId, peerUserId || null);
   },
 
   getCoordPeers(sessionId) {
-    return db.prepare('SELECT * FROM coord_session_peers WHERE session_id = ?').all(sessionId);
+    return main.prepare('SELECT * FROM coord_session_peers WHERE session_id = ?').all(sessionId);
   },
 
   getCoordPeer(sessionId, peerAgentId) {
-    return db.prepare('SELECT * FROM coord_session_peers WHERE session_id = ? AND peer_agent_id = ?')
-      .get(sessionId, peerAgentId);
+    return main.prepare(
+      'SELECT * FROM coord_session_peers WHERE session_id = ? AND peer_agent_id = ?'
+    ).get(sessionId, peerAgentId);
   },
 
   updateCoordPeer(id, fields) {
-    const allowed = ['state', 'available_days', 'offered_windows', 'matched_windows',
-                     'proposed_slot_start', 'proposed_slot_dur', 'rounds_used', 'last_msg_at'];
-    const sets = Object.keys(fields).filter(k => allowed.includes(k)).map(k => `${k} = ?`);
+    const allowed = ['state', 'available_days', 'offered_windows'];
+    const sets    = Object.keys(fields).filter(k => allowed.includes(k)).map(k => `${k} = ?`);
     if (!sets.length) return;
-    // Stringify JSON fields
-    const values = sets.map(s => {
+    const values  = sets.map(s => {
       const k = s.split(' ')[0];
-      return (k === 'available_days' || k === 'offered_windows' || k === 'matched_windows')
+      return (k === 'available_days' || k === 'offered_windows')
         ? JSON.stringify(fields[k]) : fields[k];
     });
-    db.prepare(`
+    main.prepare(`
       UPDATE coord_session_peers SET ${sets.join(', ')}, updated_at = strftime('%s','now')
       WHERE id = ?
     `).run(...values, id);
   },
 
   getCoordPeerByAgentId(peerAgentId, sessionId) {
-    return db.prepare('SELECT * FROM coord_session_peers WHERE peer_agent_id = ? AND session_id = ?')
-      .get(peerAgentId, sessionId);
+    return main.prepare(
+      'SELECT * FROM coord_session_peers WHERE peer_agent_id = ? AND session_id = ?'
+    ).get(peerAgentId, sessionId);
   },
 
-  // ── Ambient signals ───────────────────────────────────────────────────────
+  // ── Ambient signals (main) ────────────────────────────────────────────────
 
   upsertAmbientSignal({ id, fromAgentId, category, area, date, period, certainty, openToCompany, expiresAt }) {
-    return db.prepare(`
+    main.prepare(`
       INSERT INTO ambient_signals (id, from_agent_id, category, area, date, period, certainty, open_to_company, expires_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         certainty = excluded.certainty,
         open_to_company = excluded.open_to_company,
         expires_at = excluded.expires_at
-    `).run(id, fromAgentId, category, area || null, date, period, certainty, openToCompany ? 1 : 0, expiresAt);
+    `).run(id, fromAgentId || null, category, area || null, date, period, certainty,
+           openToCompany ? 1 : 0, expiresAt);
   },
 
   getAmbientSignalsForDate(date) {
-    return db.prepare(`
+    return main.prepare(`
       SELECT * FROM ambient_signals
       WHERE date = ? AND expires_at > datetime('now')
-      ORDER BY received_at DESC
+      ORDER BY created_at DESC
     `).all(date);
   },
 
   deleteAmbientSignal(fromAgentId, date, category) {
-    return db.prepare('DELETE FROM ambient_signals WHERE from_agent_id = ? AND date = ? AND category = ?')
-      .run(fromAgentId, date, category);
+    main.prepare(
+      'DELETE FROM ambient_signals WHERE from_agent_id = ? AND date = ? AND category = ?'
+    ).run(fromAgentId, date, category);
   },
 
-  // ── Wallets (stubbed) ──────────────────────────────────────────────────────
+  // ── Wallets (per-user) ────────────────────────────────────────────────────
 
   getWallet(userId) {
-    return db.prepare('SELECT * FROM user_wallets WHERE user_id = ?').get(userId);
+    return _userDb(userId).prepare('SELECT * FROM user_wallets WHERE id = ?').get('singleton');
   },
 
   upsertWallet(userId, { wallet_address, clawbank_account_id }) {
-    return db.prepare(`
-      INSERT INTO user_wallets (user_id, wallet_address, clawbank_account_id)
-      VALUES (?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET
-        wallet_address = excluded.wallet_address,
-        clawbank_account_id = excluded.clawbank_account_id,
-        updated_at = strftime('%s','now')
-    `).run(userId, wallet_address || null, clawbank_account_id || null);
+    const udb      = _userDb(userId);
+    const existing = udb.prepare('SELECT id FROM user_wallets WHERE id = ?').get('singleton');
+    if (existing) {
+      udb.prepare(`
+        UPDATE user_wallets SET wallet_address = ?, clawbank_account_id = ?,
+          updated_at = strftime('%s','now') WHERE id = 'singleton'
+      `).run(wallet_address || null, clawbank_account_id || null);
+    } else {
+      udb.prepare(`
+        INSERT INTO user_wallets (id, wallet_address, clawbank_account_id)
+        VALUES ('singleton', ?, ?)
+      `).run(wallet_address || null, clawbank_account_id || null);
+    }
+  },
+
+  // ── Available windows (stub for coordination deps) ────────────────────────
+  // Returns availability windows for a user (from preferences + calendar).
+  // Currently returns an empty array — wire to Google Calendar when ready.
+  getAvailableWindows(userId) {
+    const prefs = this.getPreferences(userId);
+    if (!prefs || !prefs.preferred_times) return [];
+    try { return JSON.parse(prefs.preferred_times); } catch { return []; }
   },
 
 };

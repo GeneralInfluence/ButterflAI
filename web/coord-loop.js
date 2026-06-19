@@ -126,20 +126,14 @@ async function tick(transport = stubTransport) {
  * Skips desires that already have an active session.
  */
 async function tickDesires(transport) {
-  // Get all users with pending social desires
-  // We need to iterate across all users — use the raw DB to get distinct user_ids
-  const rows = db._raw().prepare(`
-    SELECT DISTINCT user_id FROM coord_desires
-    WHERE status = 'pending'
-    AND category IN ('social','dining','outdoor','live_music','dancing','drinks','sports','culture','active')
-    AND social_size_min > 0
-  `).all();
+  // Iterate all users; desires are in per-user DBs, so we poll each user individually
+  const users = db._raw().prepare('SELECT id FROM users').all();
 
-  for (const { user_id } of rows) {
+  for (const { id: user_id } of users) {
     const pendingDesires = desires.getPendingSocialDesires(user_id);
 
     for (const desire of pendingDesires) {
-      await processDesire(transport, desire);
+      await processDesire(transport, { ...desire, user_id });
     }
   }
 }
@@ -155,7 +149,7 @@ async function processDesire(transport, desire) {
 
   // Check if desire window has expired
   if (desire.time_window_end < new Date().toISOString().slice(0, 10)) {
-    db.updateDesireStatus(desire.id, 'dropped');
+    db.updateDesireStatus(desire.user_id, desire.id, 'dropped');
     console.log(`[coord] desire ${desire.id} expired — marked dropped`);
     return;
   }
@@ -172,7 +166,7 @@ async function processDesire(transport, desire) {
         `I'm trying to set up a ${desire.category} for you this week, but the people you mentioned aren't on ButterflAI yet. Want me to send them an invite, or suggest someone else?`,
         { desireId: desire.id, type: 'no_peer_agents' }
       );
-      db.updateDesireStatus(desire.id, 'dropped');  // don't retry indefinitely
+      db.updateDesireStatus(desire.user_id, desire.id, 'dropped');  // don't retry indefinitely
     }
     return;
   }
@@ -206,7 +200,7 @@ async function tickRecurring() {
       const windowEnd = _addDays(today, _recurrenceDays(template.recurrence));
 
       try {
-        const instanceId = desires.spawnRecurringInstance(template.id, today, windowEnd);
+        const instanceId = desires.spawnRecurringInstance(userId, template.id, today, windowEnd);
         console.log(`[coord] spawned recurring instance ${instanceId} from template ${template.id}`);
       } catch (err) {
         console.error(`[coord] failed to spawn instance for template ${template.id}:`, err.message);
@@ -219,22 +213,23 @@ async function tickRecurring() {
  * Check for sessions that need human attention and haven't been notified recently.
  */
 async function tickEscalations() {
+  // coord_desires is per-user; coordination_sessions is main — no cross-DB JOIN possible.
+  // Use initiator_user_id from coordination_sessions (already stored there).
   const stuckSessions = db._raw().prepare(`
-    SELECT cs.*, cd.user_id, cd.category
-    FROM coordination_sessions cs
-    JOIN coord_desires cd ON cd.id = cs.desire_id
-    WHERE cs.state = 'escalate_human'
-    AND cs.updated_at < strftime('%s','now') - 3600  -- stuck for > 1 hour
+    SELECT * FROM coordination_sessions
+    WHERE state = 'escalate_human'
+    AND updated_at < strftime('%s','now') - 3600
   `).all();
 
   for (const session of stuckSessions) {
-    const user = db.getUser(session.user_id || session.initiator_user_id);
+    const userId = session.initiator_user_id;
+    const user   = db.getUser(userId);
     if (!user) continue;
 
     const reason = session.escalation_reason || 'coordination hit a snag';
     await notifyUser(
-      session.initiator_user_id,
-      `Heads up: I'm trying to arrange a ${session.category || 'plan'} for you but I hit a wall — ${_humanizeReason(reason)}. Want to weigh in or let it go?`,
+      userId,
+      `Heads up: I'm trying to arrange a plan for you but I hit a wall — ${_humanizeReason(reason)}. Want to weigh in or let it go?`,
       { sessionId: session.id, type: 'coord_escalate' }
     );
 

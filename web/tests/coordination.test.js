@@ -14,13 +14,17 @@
  * No external services required.
  */
 
-process.env.DB_PATH         = ':memory:';
+const os = require('os');
+const testDataDir = require('fs').mkdtempSync(require('path').join(os.tmpdir(), 'butterflai-test-'));
+process.env.DB_PATH         = require('path').join(testDataDir, 'main.sqlite');
+process.env.DATA_DIR        = testDataDir;
 process.env.NODE_ENV        = 'test';
 process.env.MCP_SHARED_SECRET = 'test-secret-1234';
 process.env.AGENT_MODEL     = 'claude-3-5-haiku-20241022';
 // Prevent actual Anthropic/Twilio calls during test
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.TWILIO_ACCOUNT_SID;
+require('fs').mkdirSync(require('path').join(testDataDir, 'users'), { recursive: true });
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -316,12 +320,15 @@ describe('coord-loop.processDesire', () => {
   const testUserId = 'test-user-coordloop';
   const testPhone  = '+15550009999';
 
-  // Ensure user exists
+  // Ensure user exists (main DB)
   try {
     db._raw().prepare(
       `INSERT OR IGNORE INTO users (id, phone, name, onboarded) VALUES (?, ?, 'Test', 1)`
     ).run(testUserId, testPhone);
   } catch { /* ignore */ }
+
+  // desires are per-user DB; coordination_sessions are main DB
+  const udb = db._userDb(testUserId);
 
   const capturedSends = [];
   const mockTransport = {
@@ -330,24 +337,23 @@ describe('coord-loop.processDesire', () => {
 
   test('expired desire is marked dropped, no session created', async () => {
     const desireId = 'desire-expired-' + Date.now();
-    db._raw().prepare(`
-      INSERT INTO desires (id, user_id, category, activity_type,
+    udb.prepare(`
+      INSERT INTO desires (id, category, activity_type,
         social_size_min, social_size_max, priority, status,
         candidate_strategy, horizon, recurrence,
         time_window_start, time_window_end, raw_text, raw_text_zeroed)
-      VALUES (?, ?, 'social', 'any', 1, 3, 'want', 'pending',
+      VALUES (?, 'social', 'any', 1, 3, 'want', 'pending',
               'any', 'one_off', 'none',
               '2026-01-01', '2026-01-07', '', 1)
-    `).run(desireId, testUserId);
+    `).run(desireId);
 
-    // Fetch the desire as the coord_desires VIEW would (without raw_text)
-    const desire = db._raw().prepare(
-      'SELECT * FROM coord_desires WHERE id = ?'
-    ).get(desireId);
+    // Fetch the desire as coord_desires VIEW (per-user DB)
+    const desire = { ...udb.prepare('SELECT * FROM coord_desires WHERE id = ?').get(desireId),
+                     user_id: testUserId };
 
     await processDesire(mockTransport, desire);
 
-    const updated = db._raw().prepare('SELECT status FROM desires WHERE id = ?').get(desireId);
+    const updated = udb.prepare('SELECT status FROM desires WHERE id = ?').get(desireId);
     assert.equal(updated.status, 'dropped', 'expired desire should be marked dropped');
     assert.equal(capturedSends.length, 0, 'no messages should be sent for expired desire');
   });
@@ -356,17 +362,17 @@ describe('coord-loop.processDesire', () => {
     const desireId  = 'desire-inflight-' + Date.now();
     const sessionId = 'session-inflight-' + Date.now();
 
-    db._raw().prepare(`
-      INSERT INTO desires (id, user_id, category, activity_type,
+    udb.prepare(`
+      INSERT INTO desires (id, category, activity_type,
         social_size_min, social_size_max, priority, status,
         candidate_strategy, horizon, recurrence,
         time_window_start, time_window_end, raw_text, raw_text_zeroed)
-      VALUES (?, ?, 'social', 'any', 1, 3, 'want', 'pending',
+      VALUES (?, 'social', 'any', 1, 3, 'want', 'pending',
               'any', 'one_off', 'none',
               date('now'), date('now', '+7 days'), '', 1)
-    `).run(desireId, testUserId);
+    `).run(desireId);
 
-    // Plant an in-flight session for this desire (using actual schema columns)
+    // Plant an in-flight session in main DB
     db._raw().prepare(`
       INSERT INTO coordination_sessions (id, desire_id, initiator_user_id, state,
         round, expires_at, created_at, updated_at, purge_after)
@@ -374,7 +380,8 @@ describe('coord-loop.processDesire', () => {
     `).run(sessionId, desireId, testUserId);
 
     const sendsBefore = capturedSends.length;
-    const desire = db._raw().prepare('SELECT * FROM coord_desires WHERE id = ?').get(desireId);
+    const desire = { ...udb.prepare('SELECT * FROM coord_desires WHERE id = ?').get(desireId),
+                     user_id: testUserId };
     await processDesire(mockTransport, desire);
 
     assert.equal(capturedSends.length, sendsBefore, 'should not probe again when session is in-flight');
