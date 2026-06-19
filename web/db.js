@@ -527,6 +527,30 @@ module.exports = {
     return this.getPreferences(userId);
   },
 
+  // ── Agent-to-agent messages ────────────────────────────────────────────────
+
+  sendAgentMessage({ fromUserId, toUserId, threadId, kind, topic, body }) {
+    const { v4: uuidv4 } = require('uuid');
+    const id = uuidv4();
+    db.prepare(`
+      INSERT INTO agent_messages (id, from_user, to_user, thread_id, kind, topic, body)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, fromUserId, toUserId, threadId || id, kind, topic, body.slice(0, 2000));
+    return id;
+  },
+
+  getPendingAgentMessages(toUserId) {
+    return db.prepare(`
+      SELECT * FROM agent_messages
+      WHERE to_user = ? AND processed = 0
+      ORDER BY created_at ASC
+    `).all(toUserId);
+  },
+
+  markAgentMessageProcessed(id) {
+    db.prepare('UPDATE agent_messages SET processed = 1 WHERE id = ?').run(id);
+  },
+
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
 
   getWallet(userId) {

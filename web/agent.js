@@ -139,6 +139,32 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'message_agent',
+    description: 'Send a message to another ButterflAI user\'s agent. Use this to coordinate BEFORE bothering either user. Ask about availability, dietary constraints, RSVP status, or logistics. The other agent will respond autonomously without disturbing their user for factual questions.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_id:  { type: 'string', description: 'Contact ID of the other user (from lookup_contact)' },
+        topic:       { type: 'string', enum: ['availability', 'constraints', 'rsvp', 'coordination'], description: 'What you\'re asking about' },
+        message:     { type: 'string', description: 'Your question or message to the other agent. Be specific.' },
+        thread_id:   { type: 'string', description: 'Thread ID to continue an existing conversation; omit to start a new one' },
+      },
+      required: ['contact_id', 'topic', 'message'],
+    },
+  },
+  {
+    name: 'reply_agent',
+    description: 'Reply to an agent message you received. Used when your agent receives a query from another agent and you want to respond on your user\'s behalf without bothering them.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        message_id:  { type: 'string', description: 'ID of the agent message to reply to' },
+        body:        { type: 'string', description: 'Your reply on behalf of your user' },
+      },
+      required: ['message_id', 'body'],
+    },
+  },
+  {
     name: 'update_preferences',
     description: 'Save something you learned about the user\'s preferences — allergies, dietary needs, activity likes/dislikes, vibe, budget, neighborhood, availability. Call this whenever the user mentions anything about their preferences, even casually ("I hate sushi", "I\'m usually free after 7", "I\'m allergic to nuts"). Do NOT wait to be asked — just save it.',
     input_schema: {
@@ -545,6 +571,45 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       }
     }
 
+    case 'message_agent': {
+      const { contact_id, topic, message: agentMsg, thread_id } = toolInput;
+      const contact = db.getContact(contact_id);
+      if (!contact?.phone) return { error: 'Contact not found' };
+      const targetUser = db.getUserByPhone(contact.phone);
+      if (!targetUser) return { error: 'Contact is not a ButterflAI user — they need to sign up first', contact_name: contact.name };
+      const msgId = db.sendAgentMessage({
+        fromUserId: userId, toUserId: targetUser.id,
+        threadId: thread_id, kind: 'query', topic, body: agentMsg,
+      });
+      // Queue message for target agent to process
+      db.storeInboundMessage({
+        from_phone: targetUser.phone, from_type: 'user', from_id: targetUser.id,
+        channel: 'agent_query', text: `[Agent query from ${user.name}'s agent | thread=${msgId} | topic=${topic}] ${agentMsg}`,
+      });
+      return { sent: true, message_id: msgId, to: contact.name, note: 'Their agent will respond; watch for reply_received in next turns' };
+    }
+
+    case 'reply_agent': {
+      const { message_id, body: replyBody } = toolInput;
+      const original = db._raw().prepare('SELECT * FROM agent_messages WHERE id = ?').get(message_id);
+      if (!original) return { error: 'Message not found' };
+      const replyId = db.sendAgentMessage({
+        fromUserId: userId, toUserId: original.from_user,
+        threadId: original.thread_id, kind: 'reply', topic: original.topic, body: replyBody,
+      });
+      db.markAgentMessageProcessed(message_id);
+      // Deliver reply to originating agent's queue
+      const sender = db.getUser(original.from_user);
+      if (sender) {
+        db.storeInboundMessage({
+          from_phone: sender.phone, from_type: 'user', from_id: sender.id,
+          channel: 'agent_reply',
+          text: `[Agent reply from ${user.name}'s agent | thread=${original.thread_id} | topic=${original.topic}] ${replyBody}`,
+        });
+      }
+      return { replied: true, reply_id: replyId };
+    }
+
     case 'update_preferences': {
       db.upsertPreferences(userId, toolInput);
       return { saved: true, fields: Object.keys(toolInput) };
@@ -798,11 +863,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 // ── Process a single inbound message ─────────────────────────────────────────
 
 async function processMessage(msg) {
-  // Agent-to-agent channel: system notification, not a user-initiated message.
-  // Prepend context so the agent knows to proactively notify the user.
+  // Agent-to-agent channels: handle silently on behalf of the user where possible.
   if (msg.channel === 'agent') {
     msg = { ...msg, text: `[System notification — inform the user proactively via SMS] ${msg.text}` };
   }
+  // agent_query: another agent is asking a question — answer from preferences without bothering the user
+  // agent_reply: a reply to something we asked — process and update our state
+  // Both arrive as normal messages but the agent knows to handle them autonomously
   console.log(`[agent] processing msg id=${msg.id} from_type=${msg.from_type} channel=${msg.channel||'sms'} text="${(msg.text||'').slice(0,60)}"`);
 
   const user = db.getUser(msg.from_id);
@@ -913,6 +980,13 @@ LANGUAGE & TONE:
 - You can be light about it: "Ha, want me to see if Allison wants to keep the night going after beers? 😏" — then offer to send a follow-up invite.
 - You will NOT send literally inappropriate messages to contacts. But you will also NOT shut down over casual language from the user. Interpret, deflect if needed, keep moving.
 - If something is genuinely impossible or harmful, say why briefly and offer an alternative. Never go full "That's not something I can help with."
+
+AGENT-TO-AGENT FIRST — talk to agents before talking to users:
+- Before asking the user anything about a third party (their availability, dietary needs, preferences), use message_agent to ask THEIR agent directly.
+- For planning a group event: message_agent each invitee's agent first for availability and constraints → only then suggest a plan to the user.
+- When you receive an [Agent query] or [Agent reply] message, handle it autonomously: answer factual questions about your user from the preferences snapshot, use reply_agent to respond. Only involve your user if the question requires their judgment.
+- Agents talking to agents: share hard constraints freely (allergies, dietary restrictions, availability). Never share soft preferences, exclusion reasons, or private notes.
+- The user should feel like things just got handled — not like they're managing a group chat.
 
 LIVE STATE OVER MEMORY — always check the snapshot:
 - When asked "did she reply?", "who's confirmed?", "any updates?" — read the open events section of THIS message's state snapshot. It shows live RSVP statuses from the DB. Do NOT rely on what you said in a previous turn.
