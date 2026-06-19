@@ -601,19 +601,27 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         }
       }
 
-      // Notify the host's agent (agent-to-agent: share only RSVP result, not private prefs)
+      // Notify the host's agent (agent-to-agent: share only RSVP result, not private prefs).
+      // Queue as an inbound_message so the host's agent proactively processes it and
+      // texts the host — without waiting for the host to ask.
       const host = db.getUser(inv.host_user_id);
       const contact = db.getContactByPhone(user.phone);
       if (host) {
         const emoji = status === 'accepted' ? '✅' : '❌';
-        const ts = new Date(inv.scheduled_at * 1000).toLocaleString('en-US', { timeZone: host.timezone || 'America/Los_Angeles', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-        const hostNote = `[Agent-to-Agent] ${emoji} ${contact?.name || user.name} has ${status} the invite for "${inv.title}" on ${ts}.`;
-        db.appendConversation(inv.host_user_id, 'assistant', hostNote);
-        // Proactively notify host via SMS
-        const hostMsg = status === 'accepted'
-          ? `${emoji} ${contact?.name || user.name} is in for ${inv.activity_type} on ${ts}!`
-          : `${emoji} ${contact?.name || user.name} can't make ${inv.activity_type} on ${ts}.`;
-        await sms.notifyUser(host.phone, hostMsg).catch(() => {});
+        const ts = new Date(inv.scheduled_at * 1000).toLocaleString('en-US', {
+          timeZone: host.timezone || 'America/Los_Angeles',
+          weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+        });
+        const contactName = contact?.name || user.name;
+        // Queue for host agent to process proactively
+        const agentMsg = `[Agent-to-Agent RSVP] ${emoji} ${contactName} has ${status} the invite for "${inv.title}" on ${ts}. Update the host and notify them now.`;
+        db.storeInboundMessage({
+          from_phone: host.phone,
+          from_type: 'user',
+          from_id: host.id,
+          channel: 'agent',
+          text: agentMsg,
+        });
       }
 
       const calFailed = calendarResult?.error;
@@ -790,7 +798,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 // ── Process a single inbound message ─────────────────────────────────────────
 
 async function processMessage(msg) {
-  console.log(`[agent] processing msg id=${msg.id} from_type=${msg.from_type} text="${(msg.text||'').slice(0,40)}"`);
+  // Agent-to-agent channel: system notification, not a user-initiated message.
+  // Prepend context so the agent knows to proactively notify the user.
+  if (msg.channel === 'agent') {
+    msg = { ...msg, text: `[System notification — inform the user proactively via SMS] ${msg.text}` };
+  }
+  console.log(`[agent] processing msg id=${msg.id} from_type=${msg.from_type} channel=${msg.channel||'sms'} text="${(msg.text||'').slice(0,60)}"`);
+
   const user = db.getUser(msg.from_id);
   if (!user) {
     console.warn(`[agent] No user found for from_id=${msg.from_id}, skipping`);
@@ -899,6 +913,11 @@ LANGUAGE & TONE:
 - You can be light about it: "Ha, want me to see if Allison wants to keep the night going after beers? 😏" — then offer to send a follow-up invite.
 - You will NOT send literally inappropriate messages to contacts. But you will also NOT shut down over casual language from the user. Interpret, deflect if needed, keep moving.
 - If something is genuinely impossible or harmful, say why briefly and offer an alternative. Never go full "That's not something I can help with."
+
+LIVE STATE OVER MEMORY — always check the snapshot:
+- When asked "did she reply?", "who's confirmed?", "any updates?" — read the open events section of THIS message's state snapshot. It shows live RSVP statuses from the DB. Do NOT rely on what you said in a previous turn.
+- If the snapshot shows a contact as "accepted" or "declined", report that immediately — even if you previously said "waiting for a reply."
+- Agent-to-agent notifications arrive as [System notification] messages. When you receive one, your job is to inform the user proactively — send them an SMS with the update and report back.
 
 RESILIENCE — handle partial failures silently:
 - If a tool call partially succeeds (RSVP confirmed but calendar not added), report the success and quietly note the side issue if relevant. Never present a partial failure as a blocker.
