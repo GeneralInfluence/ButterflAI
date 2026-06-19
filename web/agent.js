@@ -637,12 +637,22 @@ async function processMessage(msg) {
   const contactCount = db.getContactsByUser(userId).length;
   const pendingEvents = (() => {
     try {
-      return multiparty.getEventsByHost(userId)
-        .filter(e => e.status === 'open')
-        .map(e => {
-          const rsvp = multiparty.getRsvpSummary(e.id);
-          return `  - "${e.title}" on ${new Date(e.scheduled_at * 1000).toLocaleString()} (${rsvp.accepted} confirmed, ${rsvp.pending} pending)`;
-        }).join('\n') || '  (none)';
+      const events = multiparty.getEventsByHost(userId).filter(e => e.status === 'open');
+      if (!events.length) return '  (none)';
+      return events.map(e => {
+        const rsvp = multiparty.getRsvpSummary(e.id);
+        // Get invitee details with status
+        const invitations = db._raw
+          ? db._raw().prepare(`
+              SELECT c.name, ei.status FROM event_invitations ei
+              JOIN contacts c ON c.id = ei.contact_id
+              WHERE ei.event_id = ?
+            `).all(e.id)
+          : [];
+        const inviteeList = invitations.map(i => `${i.name} (${i.status})`).join(', ') || 'no invitees yet';
+        const ts = new Date(e.scheduled_at * 1000).toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+        return `  - eventId="${e.id}" | "${e.title}" | ${ts} | invitees: ${inviteeList}`;
+      }).join('\n');
     } catch (_) { return '  (none)'; }
   })();
 
