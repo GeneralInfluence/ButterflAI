@@ -311,6 +311,19 @@ function hasCalendarConnected(userId) {
 
 ensureCalendarTable();
 
+/**
+ * Fetch the user's timezone from their primary Google Calendar.
+ * Returns an IANA timezone string (e.g. "America/Los_Angeles") or null.
+ */
+async function getCalendarTimezone(userId) {
+  const client = await getAuthClient(userId);
+  if (!client) return null;
+  const { google } = require('googleapis');
+  const cal = google.calendar({ version: 'v3', auth: client });
+  const resp = await cal.calendars.get({ calendarId: 'primary' });
+  return resp.data.timeZone || null;
+}
+
 module.exports = {
   getAuthUrl,
   handleOAuthCallback,
@@ -318,4 +331,5 @@ module.exports = {
   findFreeSlots,
   createEvent,
   hasCalendarConnected,
+  getCalendarTimezone,
 };

@@ -826,9 +826,16 @@ app.get('/auth/google/callback', async (req, res) => {
 
       await calendar.handleOAuthCallback(code, userId);
 
+      // Pull timezone from the primary calendar and persist it
+      const calTz = await calendar.getCalendarTimezone(userId).catch(() => null);
+      if (calTz) {
+        db.updateUser(userId, { timezone: calTz });
+        console.log(`[calendar] timezone set for user ${userId}: ${calTz}`);
+      }
+
       // Write to conversation history so the agent knows on the next turn
       db.appendConversation(userId, 'assistant',
-        '[System] Google Calendar successfully connected. You can now ask me to check your availability, find free slots, or create calendar events.'
+        `[System] Google Calendar successfully connected. Timezone detected: ${calTz || 'unknown'}. You can now check availability, find free slots, or create calendar events.`
       );
 
       if (user.phone) {
