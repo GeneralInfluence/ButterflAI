@@ -33,6 +33,7 @@ const calendar = require('./calendar');
 const contactsImport = require('./contacts-import');
 const venues = require('./venues');
 const multiparty = require('./multiparty');
+const desires    = require('./desires');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -400,6 +401,8 @@ const TOOL_DEFINITIONS = [
       required: ['event_id'],
     },
   },
+  desires.TOOL_DEFINITION,
+
   {
     name: 'store_pending_confirm',
     description: 'Store a booking/venue confirmation that needs user approval before proceeding. The next SMS from the user (yes/no) will resolve it.',
@@ -853,6 +856,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         rsvp: multiparty.getRsvpSummary(toolInput.event_id),
         invitations: event.invitations,
       };
+    }
+
+    case 'parse_desires': {
+      return desires.handleTool(toolInput, userId);
     }
 
     case 'store_pending_confirm': {
