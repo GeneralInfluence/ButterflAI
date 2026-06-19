@@ -29,7 +29,8 @@ const { ConsentRequired, RecipientOptedOut } = require('./sms');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
 const { startNudgeLoop } = require('./cadence');
-const { startCoordLoop } = require('./coord-loop');
+const { startCoordLoop }           = require('./coord-loop');
+const { mcpTransport, handleInboundRequest } = require('./mcp-transport');
 const calendar = require('./calendar');
 const contactsImport = require('./contacts-import');
 const venues = require('./venues');
@@ -664,6 +665,23 @@ app.get('/health', (req, res) => {
   }
 });
 
+// ── Agent-to-agent MCP inbound ────────────────────────────────────────────────
+// Receives coordination messages from peer ButterflAI agents.
+// Signature verified inside handleInboundRequest.
+
+app.post('/mcp/inbound', express.json({ limit: '64kb' }), (req, res) => {
+  const deps = {
+    getWindows:   (userId) => db.getAvailableWindows(userId),
+    notifyUser:   (userId, text, meta) => require('./coord-loop').notifyUser(userId, text, meta),
+    checkConsent: (fromAgentId, toUserId) => {
+      // Check that the from agent corresponds to a contact with can_coordinate flag
+      const contact = db.getContactByAgentEndpoint(fromAgentId, toUserId);
+      return !!(contact && contact.can_coordinate);
+    }
+  };
+  return handleInboundRequest(req, res, deps);
+});
+
 // ── Venue API ─────────────────────────────────────────────────────────────────
 
 app.get('/api/venues/favorites/:userId', (req, res) => {
@@ -1066,5 +1084,5 @@ app.listen(PORT, () => {
   console.log(`ButterflAI web running on :${PORT}`);
   startAgentLoop();
   startNudgeLoop();
-  startCoordLoop();
+  startCoordLoop({ transport: mcpTransport });
 });

@@ -126,6 +126,22 @@ module.exports = {
     return db.prepare('SELECT * FROM contacts WHERE telegram_id = ?').get(String(telegramId));
   },
 
+  /**
+   * Find a contact linked to a peer agent endpoint.
+   * Used by the MCP inbound handler to verify consent before accepting coord messages.
+   * Joins through the contact's linked user record to find the agent_endpoint.
+   */
+  getContactByAgentEndpoint(agentEndpoint, ownerUserId) {
+    return db.prepare(`
+      SELECT c.*, ce.can_coordinate
+      FROM contacts c
+      JOIN consent_edges ce ON ce.contact_id = c.id AND ce.user_id = ?
+      JOIN users u ON u.phone = c.phone
+      WHERE u.agent_endpoint = ?
+      LIMIT 1
+    `).get(ownerUserId, agentEndpoint);
+  },
+
   getContactsByUser(userId) {
     return db.prepare('SELECT * FROM contacts WHERE invited_by_user_id = ? ORDER BY name').all(userId);
   },
