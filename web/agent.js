@@ -671,6 +671,7 @@ async function processMessage(msg) {
 
   // Build live user state snapshot — injected into system prompt so agent
   // always has current context regardless of conversation history window.
+  const userTimezone = user.timezone || 'America/Los_Angeles';
   const calendarConnected = calendar.hasCalendarConnected(userId);
   const contactCount = db.getContactsByUser(userId).length;
   const pendingEvents = (() => {
@@ -694,9 +695,11 @@ async function processMessage(msg) {
     } catch (_) { return '  (none)'; }
   })();
 
+  const userLocalTime = new Date().toLocaleString('en-US', { timeZone: userTimezone, weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
   const agentNotes = user.agent_notes?.trim();
   const stateSnapshot = [
     `## Current state`,
+    `- User timezone: ${userTimezone} (current local time: ${userLocalTime})`,
     `- Calendar: ${calendarConnected ? '✅ connected (can check availability & create events)' : '❌ not connected'}`,
     `- Contacts: ${contactCount} in address book`,
     `- Open events:\n${pendingEvents}`,
@@ -733,6 +736,7 @@ HARD RULES — never violate:
 11. Before sending a logistics SMS to a contact for the first time, call check_contact_consent. If they haven't consented, use send_contact_invite instead (which includes the required self-identify header). Never send a regular logistics SMS to someone who hasn't opted in.
 
 COORDINATING PLANS:
+- All times and dates from the user are in THEIR local timezone (shown in state snapshot). Convert to UTC unix timestamp when storing. Display times back to them in their local timezone.
 - When the user wants to invite someone to an activity (beer, dinner, lunch, etc.), ALWAYS use create_social_event with contact_ids — never send_logistics_sms for an invitation. This creates the tracking record that allows RSVP replies to be recognized automatically.
 - create_social_event sends the invite message automatically. Do NOT also call send_logistics_sms for the same invite.
 - After create_social_event, tell the user: "I've sent [Name] an invite. I'll let you know when they respond."

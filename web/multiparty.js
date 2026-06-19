@@ -146,6 +146,8 @@ async function inviteContacts(eventId, contactIds) {
   const host = db.getUser(event.host_user_id);
   if (!host) throw new Error('Host not found');
 
+  const hostTimezone = host.timezone || 'America/Los_Angeles';
+
   let sent = 0;
   let skipped = 0;
 
@@ -173,7 +175,7 @@ async function inviteContacts(eventId, contactIds) {
     // opt-out instruction — this IS the first-touch consent mechanism.
     // sms.send() would block on ConsentRequired for new contacts, preventing
     // the invite from ever going out.
-    const dateStr = formatEventDate(event.scheduled_at);
+    const dateStr = formatEventDate(event.scheduled_at, hostTimezone);
     const venueStr = event.venue_name ? ` at ${event.venue_name}` : '';
     const message = buildInviteMessage(host.name, contact.name, event.activity_type, dateStr, venueStr, invId);
 
@@ -325,12 +327,16 @@ function wasInvited(contactPhone, eventId) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatEventDate(ts) {
+function formatEventDate(ts, timezone = 'America/Los_Angeles') {
   const d = new Date(ts * 1000);
-  const days  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const h = d.getHours(), ampm = h >= 12 ? 'pm' : 'am', hour = h % 12 || 12;
-  return `${days[d.getDay()]} ${months[d.getMonth()]} ${d.getDate()} at ${hour}${ampm}`;
+  return d.toLocaleString('en-US', {
+    timeZone: timezone,
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
