@@ -31,10 +31,20 @@ fs.mkdirSync(USERS_DIR, { recursive: true });
 
 // ── Schema files ──────────────────────────────────────────────────────────────
 
-const MAIN_SCHEMA = fs.readFileSync(
-  path.join(__dirname, '..', 'db', 'main-schema.sql'), 'utf8');
-const USER_SCHEMA = fs.readFileSync(
-  path.join(__dirname, '..', 'db', 'user-schema.sql'), 'utf8');
+// Schema files: in Docker the app root is /app and db/ is at /app/db/.
+// __dirname is /app (web/ is the WORKDIR). Try sibling db/ first, then parent.
+function _readSchema(filename) {
+  for (const p of [
+    path.join(__dirname, 'db', filename),          // Docker: /app/db/
+    path.join(__dirname, '..', 'db', filename),    // local dev: web/../db/
+  ]) {
+    if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8');
+  }
+  throw new Error(`Schema file not found: ${filename}`);
+}
+
+const MAIN_SCHEMA = _readSchema('main-schema.sql');
+const USER_SCHEMA = _readSchema('user-schema.sql');
 
 // ── Open and initialise main DB ───────────────────────────────────────────────
 
