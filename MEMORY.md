@@ -199,3 +199,22 @@ A contact agreeing to be messaged has NOT agreed to be modeled. The agent may kn
 
 ---
 *Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*
+
+## Core UX Principle [LOCKED 2026-06-19]
+
+**The agent asks itself, not the user.**
+
+The user comes to ButterflAI precisely because they don't want to do the legwork. Every time the agent asks the user a question it could answer by checking its own data, it has failed at its core job.
+
+Before generating any reply:
+1. Check the state snapshot (open events, invitee statuses, calendar, contact count)
+2. Call relevant tools (lookup_contact, get_event_rsvp_status, check_calendar)
+3. Only ask the user when no tool or data can resolve the ambiguity
+
+**Wrong:** "I wasn't able to pull RSVP status — can you confirm which event?"
+**Right:** Check the open events in the snapshot, read the invitee list, report what it says.
+
+**Wrong:** "Want me to send invites to Sean and Allison?"
+**Right:** Check if invites were already sent. Report current status. Offer next action only if genuinely needed.
+
+This principle gates every feature: if a feature requires the user to help the agent find its own data, the feature is broken.
