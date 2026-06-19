@@ -86,6 +86,10 @@ hard_rules:
   - ingesting_contacts_is_not_consent_to_message_them_per_contact_invite_gate: true
   - plan_disclosure_is_pull_not_push_and_only_to_host_chosen_invitees: true
   - never_reveal_where_someone_will_be_to_anyone_they_did_not_personally_include: true
+  - never_claim_sent_unless_tool_returned_sent_true: true      # [LOCKED 2026-06-19] agent fabricated send confirmation — catastrophic trust failure
+  - never_invent_contact_rsvp_or_response: true                # contacts have not agreed to anything until they actually reply
+  - never_fabricate_plan_details_not_confirmed: true           # only report times/venues/attendees that are actually confirmed
+  - always_report_actual_tool_result_not_hoped_outcome: true   # "sent" vs "queued" vs "failed" — be exact
 companion_doc: IMPLEMENTATION.md          # detailed build spec for this architecture
 
 ---
