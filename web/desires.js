@@ -145,6 +145,8 @@ function sanitizeDesire(item) {
     const sizeMin = parseInt(item.social_size_min, 10);
     const sizeMax = parseInt(item.social_size_max, 10);
     if (isNaN(sizeMin) || isNaN(sizeMax) || sizeMin < 0 || sizeMax < sizeMin) return null;
+    // Social desires must involve at least one other person
+    if (item.type === 'social' && sizeMin < 1) return null;
 
     const frequency = parseInt(item.frequency, 10);
     if (isNaN(frequency) || frequency < 1) return null;
