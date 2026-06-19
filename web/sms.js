@@ -161,7 +161,9 @@ async function sendContactInvite(to, contactName, userName, context, ctaText, po
  * @throws {ConsentRequired} if no consent record exists for `to`
  */
 async function notifyUser(to, text) {
-  return send(to, text);
+  // System notifications to known users bypass the consent gate —
+  // the user signed up and is actively using the system.
+  return sendUnchecked(to, text);
 }
 
 /**
