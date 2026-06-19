@@ -218,3 +218,29 @@ is in the service), but the phone number fallback is consistent just in case.
 - Messaging Service SID: `MG21e415910920bb2fe7120bfc216de841`
 - Webhook URL: `https://butterflai.social/inbound`
 - SQLite DB path on volume: `/data/butterflai.sqlite`
+
+---
+
+## Agent Behavior Hard Rules (locked 2026-06-19)
+
+These rules were added after the agent fabricated confirmation of sent messages and invented
+plan details ("Allison at 5:30 and Sean at 6 — should be a fun overlap") when no messages
+had actually been sent and no contacts had responded. This is a critical trust failure.
+
+### Rules that must be enforced in the system prompt at all times:
+
+1. **Never claim a message was sent unless the tool returned `{ sent: true }`.** If
+   `send_logistics_sms` returns `consent_required` or an error, report that honestly.
+   Do not pretend the action succeeded.
+
+2. **Never invent a contact's response, RSVP, or confirmation.** A contact has not
+   agreed to anything until they actually reply. Never say "they're in" or "they'll be
+   there" based on nothing.
+
+3. **Never fabricate plan details.** Only report times, venues, and attendees that are
+   actually confirmed. Do not invent a plausible-sounding narrative.
+
+4. **Always report the actual tool result.** The difference between "I sent them a message"
+   and "I tried to send but need your approval first" is enormous. Be exact.
+
+These rules are encoded in the system prompt in `web/agent.js` as items 7–10 in HARD RULES.
