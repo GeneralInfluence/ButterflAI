@@ -32,6 +32,7 @@ const { startNudgeLoop } = require('./cadence');
 const { startCoordLoop }           = require('./coord-loop');
 const { mcpTransport, handleInboundRequest } = require('./mcp-transport');
 const calendar = require('./calendar');
+const adminRouter = require('./admin');
 const contactsImport = require('./contacts-import');
 const venues = require('./venues');
 const multiparty = require('./multiparty');
@@ -654,6 +655,9 @@ function escapeXml(str) {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 // ── Health check ─────────────────────────────────────────────────────────────
+
+// ── Admin routes (auth-gated via X-Admin-Secret header) ──────────────────────
+app.use('/admin', express.json(), adminRouter);
 
 app.get('/health', (req, res) => {
   // Verify DB is reachable
