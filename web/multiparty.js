@@ -162,21 +162,21 @@ async function inviteContacts(eventId, contactIds) {
       VALUES (?, ?, ?, 'invited', strftime('%s','now'))
     `).run(invId, eventId, contactId);
 
-    // Send invite SMS
+    // Send invite SMS.
+    // Use sendUnchecked because the invite message includes a mandatory STOP
+    // opt-out instruction — this IS the first-touch consent mechanism.
+    // sms.send() would block on ConsentRequired for new contacts, preventing
+    // the invite from ever going out.
     const dateStr = formatEventDate(event.scheduled_at);
     const venueStr = event.venue_name ? ` at ${event.venue_name}` : '';
     const message = buildInviteMessage(host.name, contact.name, event.activity_type, dateStr, venueStr, invId);
 
     try {
-      await sms.send(contact.phone, message);
+      await sms.sendUnchecked(contact.phone, message);
       sent++;
       console.log(`[multiparty] invite sent event=${eventId} contact=${contactId}`);
     } catch (err) {
-      if (err instanceof ConsentRequired) {
-        console.log(`[multiparty] skipped contact=${contactId} — no consent record (not yet opted in)`);
-      } else {
-        console.error(`[multiparty] invite failed contact=${contactId}:`, err.message);
-      }
+      console.error(`[multiparty] invite failed contact=${contactId}:`, err.message);
       skipped++;
     }
   }

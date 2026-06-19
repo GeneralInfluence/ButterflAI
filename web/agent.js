@@ -560,7 +560,15 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (contact_ids?.length) {
         inviteResult = await multiparty.inviteContacts(eventId, contact_ids);
       }
-      return { created: true, eventId, ...inviteResult };
+      return {
+        action_status: inviteResult.sent > 0 ? 'EVENT_CREATED_INVITES_SENT' : 'EVENT_CREATED_NO_INVITES_SENT',
+        eventId,
+        invites_sent: inviteResult.sent,
+        invites_skipped: inviteResult.skipped,
+        note: inviteResult.sent > 0
+          ? `Invite(s) sent. Contacts can reply YES/NO and their response will be tracked automatically.`
+          : `Event created but no invites sent (check contact_ids are valid and contacts aren't opted out).`,
+      };
     }
 
     case 'get_event_rsvp_status': {
@@ -622,6 +630,12 @@ HARD RULES — never violate:
 9. NEVER fabricate details about plans (times, venues, who's coming) that the user did not tell you or that you did not actually coordinate. Only report confirmed facts.
 10. After any action (sending a message, creating a calendar event, etc.), tell the user exactly what was done and what the actual status is — not what you hope will happen.
 11. Before sending a logistics SMS to a contact for the first time, call check_contact_consent. If they haven't consented, use send_contact_invite instead (which includes the required self-identify header). Never send a regular logistics SMS to someone who hasn't opted in.
+
+COORDINATING PLANS:
+- When the user wants to invite someone to an activity (beer, dinner, lunch, etc.), ALWAYS use create_social_event with contact_ids — never send_logistics_sms for an invitation. This creates the tracking record that allows RSVP replies to be recognized automatically.
+- create_social_event sends the invite message automatically. Do NOT also call send_logistics_sms for the same invite.
+- After create_social_event, tell the user: "I've sent [Name] an invite. I'll let you know when they respond."
+- Once a contact responds, their RSVP is tracked and you'll be notified. Do not claim they responded until the system tells you they did.
 
 CONTACT MANAGEMENT:
 - If the user mentions a person by name AND provides a phone number, ALWAYS call add_contact immediately before responding. Don't ask permission.
