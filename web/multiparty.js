@@ -191,26 +191,36 @@ async function handleRsvpReply(contactPhone, body) {
 
   if (!invitation) return null;
 
-  const lower = body.toLowerCase().trim().replace(/[!.?]+$/, '').trim();
+  const lower = body.toLowerCase().trim();
 
-  // Broad affirmative matching — humans express YES in many ways
-  const YES_PATTERNS = [
-    /^y(es|ep|eah|up|o)?$/i,
-    /^(sure|in|count me in|i'm in|im in|absolutely|definitely|for sure|of course|totally|obvs|obviously)$/i,
-    /^(sounds good|sounds great|sounds fun|works for me|works)$/i,
-    /hell yeah/, /fuck yeah/, /hell yes/, /oh yeah/, /heck yeah/,
-    /^(can't wait|cant wait|so down|i'm down|im down|down)$/i,
-    /^(ok|okay|k|kk|great|perfect|awesome|love it|let's go|lets go|let's do it|lets do it)$/i,
+  // When someone has a pending invite, classify their reply as YES / NO / UNCLEAR.
+  // Use keyword presence (not anchored) so natural sentences like
+  // "yeah I wanna beer with my buddy 100%" are caught.
+
+  const YES_KEYWORDS = [
+    /\by(es|ep|eah|up|o)\b/i,
+    /\b(sure|in|count me in|i'?m in|absolutely|definitely|for sure|of course|totally|down)\b/i,
+    /\b(sounds good|sounds great|sounds fun|works for me|let'?s go|let'?s do it)\b/i,
+    /hell yeah|fuck yeah|hell yes|heck yeah|oh yeah/i,
+    /\b(can'?t wait|so down|love it|perfect|awesome|great)\b/i,
+    /\b(ok|okay)\b/i,
+    /100%/,
+    /\bwanna\b.*\b(beer|drink|hang|meet)\b/i,
   ];
-  const NO_PATTERNS = [
-    /^n(o|ope|ah)?$/i,
-    /^(can'?t|cannot|won'?t|not gonna|not going|no can do)$/i,
-    /^(pass|skip|maybe next time|next time|rain check|not this time|can'?t make it|won'?t make it)$/i,
-    /^(busy|not free|tied up|have plans|got plans|something came up)$/i,
+  const NO_KEYWORDS = [
+    /\bn(o|ope|ah)\b/i,
+    /\b(can'?t|cannot|won'?t|not gonna|not going|no can do)\b/i,
+    /\b(pass|skip|next time|rain check|busy|not free|tied up|have plans|got plans|something came up)\b/i,
+    /\b(can'?t make it|won'?t make it)\b/i,
   ];
 
-  const isYes = YES_PATTERNS.some(p => p.test(lower));
-  const isNo  = NO_PATTERNS.some(p => p.test(lower));
+  const isYes = YES_KEYWORDS.some(p => p.test(lower));
+  const isNo  = NO_KEYWORDS.some(p => p.test(lower));
+
+  // If both or neither match clearly, don't silently drop — ask a direct yes/no
+  if (!isYes && !isNo) {
+    return `Just to confirm — are you in? (Reply yes or no)`;
+  }
 
   if (!isYes && !isNo) return null;
 

@@ -139,6 +139,17 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'check_contact_consent',
+    description: 'Check whether a contact has opted in to receive messages from ButterflAI. Always check this before attempting to send a logistics SMS to a contact for the first time.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_id: { type: 'string' },
+      },
+      required: ['contact_id'],
+    },
+  },
+  {
     name: 'get_contact_import_url',
     description: 'Get a link the user can open on their phone to import all their contacts at once. Send this when the user asks to import contacts, sync their address book, or add multiple people at once.',
     input_schema: { type: 'object', properties: {}, required: [] },
@@ -431,7 +442,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         } else {
           await sms.send(contact.phone, messageBody);
         }
-        return { sent: true, to: contact.phone };
+        return {
+          action_status: 'MESSAGE_SENT',
+          sent: true,
+          to: contact.phone,
+          contact_name: contact.name,
+          message_preview: messageBody.slice(0, 80),
+        };
       } catch (err) {
         if (err instanceof ConsentRequired) {
           // Contact has not opted in — return an assisted-compose fallback.
@@ -439,9 +456,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           const encodedBody = encodeURIComponent(messageBody);
           const smsLink = `sms:${contact.phone}?body=${encodedBody}`;
           return {
+            action_status: 'NOT_SENT_CONSENT_REQUIRED',
             sent: false,
             reason: 'consent_required',
-            assisted_compose: true,
+            IMPORTANT: 'DO NOT tell the user the message was sent. It was NOT sent.',
             contact_name: contact.name,
             contact_phone: contact.phone,
             sms_link: smsLink,
@@ -453,6 +471,20 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         }
         throw err;
       }
+    }
+
+    case 'check_contact_consent': {
+      const contact = db.getContact(toolInput.contact_id);
+      if (!contact) return { error: 'Contact not found' };
+      const hasConsent = contact.phone ? db.hasConsent(contact.phone) : false;
+      return {
+        contact_name: contact.name,
+        has_consent: hasConsent,
+        can_receive_messages: hasConsent && !db.isOptedOut(contact.phone),
+        note: hasConsent
+          ? 'This contact has opted in — you can send via send_logistics_sms.'
+          : 'This contact has NOT opted in yet. Do NOT use send_logistics_sms. Instead, use send_contact_invite to send them a first-touch invite with self-identify header.',
+      };
     }
 
     case 'get_contact_import_url': {
@@ -585,10 +617,11 @@ HARD RULES — never violate:
 4. On first contact with anyone new, include the self-identify header (is_first_contact: true in send_logistics_sms).
 5. Never reveal private preferences (exclusions, private notes) to anyone other than the user. They never cross the wire to contacts or other agents.
 6. If you're unsure whether something is logistics or expressive, treat it as expressive and ask for approval.
-7. NEVER claim a message was sent unless send_logistics_sms or send_contact_invite returned { sent: true }. If a tool returns an error or consent_required, report that honestly — do not pretend the action succeeded.
+7. NEVER claim a message was sent unless the tool returned action_status: "MESSAGE_SENT". If the tool returns action_status: "NOT_SENT_CONSENT_REQUIRED" or any error, report the failure honestly. Never say "Done", "Sent", "All set" unless the tool confirmed it.
 8. NEVER invent a contact's response, RSVP, or confirmation. A contact has not agreed to anything until they actually reply. Do not say "they're in" or "they'll be there" or anything implying a response you haven't received.
 9. NEVER fabricate details about plans (times, venues, who's coming) that the user did not tell you or that you did not actually coordinate. Only report confirmed facts.
 10. After any action (sending a message, creating a calendar event, etc.), tell the user exactly what was done and what the actual status is — not what you hope will happen.
+11. Before sending a logistics SMS to a contact for the first time, call check_contact_consent. If they haven't consented, use send_contact_invite instead (which includes the required self-identify header). Never send a regular logistics SMS to someone who hasn't opted in.
 
 CONTACT MANAGEMENT:
 - If the user mentions a person by name AND provides a phone number, ALWAYS call add_contact immediately before responding. Don't ask permission.
