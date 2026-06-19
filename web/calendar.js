@@ -324,12 +324,71 @@ async function getCalendarTimezone(userId) {
   return resp.data.timeZone || null;
 }
 
+// ── Unified calendar interface (Google + Apple) ──────────────────────────────
+
+const apple = require('./calendar-apple');
+
+/**
+ * Returns 'google', 'apple', or null.
+ */
+function getCalendarProvider(userId) {
+  const hasGoogle = hasCalendarConnected(userId);
+  const hasApple  = apple.hasAppleCalendarConnected(userId);
+  if (hasGoogle) return 'google';
+  if (hasApple)  return 'apple';
+  return null;
+}
+
+/**
+ * Create a calendar event on whichever backend is connected.
+ */
+async function createEventUnified(userId, eventData) {
+  const provider = getCalendarProvider(userId);
+  if (provider === 'google') return createEvent(userId, eventData);
+  if (provider === 'apple')  return apple.createEvent(userId, eventData);
+  throw new Error('No calendar connected');
+}
+
+/**
+ * Check availability on whichever backend is connected.
+ */
+async function checkAvailabilityUnified(userId, slots, timezone) {
+  const provider = getCalendarProvider(userId);
+  if (provider === 'google') return checkAvailability(userId, slots, timezone);
+  if (provider === 'apple')  return apple.checkAvailability(userId, slots, timezone);
+  throw new Error('No calendar connected');
+}
+
+/**
+ * Get timezone from whichever backend is connected.
+ */
+async function getCalendarTimezoneUnified(userId) {
+  const provider = getCalendarProvider(userId);
+  if (provider === 'google') return getCalendarTimezone(userId);
+  if (provider === 'apple')  return apple.getCalendarTimezone(userId);
+  return null;
+}
+
+/**
+ * Is ANY calendar connected (Google or Apple)?
+ */
+function hasAnyCalendarConnected(userId) {
+  return hasCalendarConnected(userId) || apple.hasAppleCalendarConnected(userId);
+}
+
 module.exports = {
+  // Google-specific
   getAuthUrl,
   handleOAuthCallback,
-  checkAvailability,
-  findFreeSlots,
-  createEvent,
   hasCalendarConnected,
-  getCalendarTimezone,
+  // Apple-specific
+  saveAppleCredentials: apple.saveAppleCredentials,
+  hasAppleCalendarConnected: apple.hasAppleCalendarConnected,
+  // Unified interface (use these in agent.js)
+  getCalendarProvider,
+  createEvent: createEventUnified,
+  checkAvailability: checkAvailabilityUnified,
+  findFreeSlots,
+  getCalendarTimezone: getCalendarTimezoneUnified,
+  hasAnyCalendarConnected,
 };

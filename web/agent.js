@@ -330,8 +330,13 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'get_calendar_connect_url',
-    description: 'Get a URL the user can open to connect their Google Calendar. Send this when the user asks about calendar or when calendar is needed but not connected.',
-    input_schema: { type: 'object', properties: {}, required: [] },
+    description: 'Get a URL the user can open to connect their calendar. Supports Google Calendar (OAuth) and Apple/iCloud Calendar (app-specific password). Ask which they prefer, or offer both options.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        provider: { type: 'string', enum: ['google', 'apple'], description: 'Which calendar to connect. If unsure, ask the user.' },
+      },
+    },
   },
   {
     name: 'suggest_venues',
@@ -789,12 +794,19 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'get_calendar_connect_url': {
       const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-      const connected = calendar.hasCalendarConnected(userId);
-      if (connected) return { connected: true, message: 'Calendar already connected.' };
+      const provider = calendar.getCalendarProvider(userId);
+      if (provider) return { connected: true, provider, message: `${provider} Calendar already connected.` };
+      const requestedProvider = toolInput.provider || 'google';
+      const urls = {
+        google: `${baseUrl}/auth/google/calendar?userId=${userId}`,
+        apple:  `${baseUrl}/auth/apple/calendar?userId=${userId}`,
+      };
       return {
         connected: false,
-        url: `${baseUrl}/auth/google/calendar?userId=${userId}`,
-        message: 'User needs to open this URL to connect their Google Calendar.',
+        provider: requestedProvider,
+        url: urls[requestedProvider],
+        also_available: requestedProvider === 'google' ? { apple: urls.apple } : { google: urls.google },
+        message: `Send this URL to connect ${requestedProvider === 'google' ? 'Google' : 'Apple'} Calendar.`,
       };
     }
 
@@ -885,7 +897,8 @@ async function processMessage(msg) {
   // Build live user state snapshot — injected into system prompt so agent
   // always has current context regardless of conversation history window.
   const userTimezone = user.timezone || 'America/Los_Angeles';
-  const calendarConnected = calendar.hasCalendarConnected(userId);
+  const calendarProvider   = calendar.getCalendarProvider(userId);   // 'google' | 'apple' | null
+  const calendarConnected  = !!calendarProvider;
   const prefs = db.getPreferences(userId);
   const contactCount = db.getContactsByUser(userId).length;
   const pendingEvents = (() => {
@@ -957,7 +970,7 @@ async function processMessage(msg) {
   const stateSnapshot = [
     `## Current state`,
     `- User timezone: ${userTimezone} (current local time: ${userLocalTime})`,
-    `- Calendar: ${calendarConnected ? '✅ connected (can check availability & create events)' : '❌ not connected'}`,
+    `- Calendar: ${calendarConnected ? `✅ connected (${calendarProvider}) — can check availability & create events` : '❌ not connected — offer Google or Apple Calendar setup'}`,
     `- Contacts: ${contactCount} in address book`,
     `\n## ${user.name}'s preferences\n${prefsSection}`,
     `\n## Open events\n${pendingEvents}`,

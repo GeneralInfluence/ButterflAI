@@ -718,6 +718,85 @@ app.get('/auth/google/calendar', (req, res) => {
   res.redirect(url);
 });
 
+// Apple Calendar connect — user submits Apple ID + app-specific password
+app.get('/auth/apple/calendar', (req, res) => {
+  const { userId } = req.query;
+  if (!userId || !db.getUser(userId)) return res.status(400).send('Invalid userId');
+  res.send(`<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connect Apple Calendar — ButterflAI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    body{font-family:-apple-system,sans-serif;background:#0f0f0f;color:#f0f0f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:1rem;box-sizing:border-box}
+    .card{background:#1a1a2e;border-radius:16px;padding:2rem;max-width:440px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+    h2{margin:0 0 .5rem;font-size:1.4rem}
+    p{color:#aaa;font-size:.9rem;line-height:1.5;margin:.5rem 0 1.5rem}
+    a{color:#7c6fcd}
+    label{display:block;font-size:.85rem;color:#aaa;margin-bottom:.25rem}
+    input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #333;background:#0f0f0f;color:#fff;font-size:1rem;box-sizing:border-box;margin-bottom:1rem}
+    button{width:100%;padding:.85rem;border-radius:8px;border:none;background:linear-gradient(135deg,#7c6fcd,#a855f7);color:#fff;font-size:1rem;font-weight:600;cursor:pointer}
+    .note{font-size:.8rem;color:#666;margin-top:1rem;text-align:center}
+  </style>
+</head><body>
+  <div class="card">
+    <div style="font-size:2.5rem;margin-bottom:1rem">🦋🍎</div>
+    <h2>Connect Apple Calendar</h2>
+    <p>ButterflAI needs an <strong>app-specific password</strong> (not your regular Apple ID password).<br>
+    Generate one at <a href="https://appleid.apple.com" target="_blank">appleid.apple.com</a> → Sign-In and Security → App-Specific Passwords.</p>
+    <form method="POST" action="/auth/apple/calendar">
+      <input type="hidden" name="userId" value="${userId}">
+      <label>Apple ID (email)</label>
+      <input type="email" name="appleId" placeholder="you@icloud.com" required autocomplete="username">
+      <label>App-Specific Password</label>
+      <input type="password" name="appPassword" placeholder="xxxx-xxxx-xxxx-xxxx" required autocomplete="current-password">
+      <button type="submit">Connect Calendar 🗓️</button>
+    </form>
+    <p class="note">Your password is encrypted and never stored in plain text.</p>
+  </div>
+</body></html>`);
+});
+
+app.post('/auth/apple/calendar', async (req, res) => {
+  const { userId, appleId, appPassword } = req.body;
+  if (!userId || !appleId || !appPassword) return res.status(400).send('Missing fields');
+  const user = db.getUser(userId);
+  if (!user) return res.status(400).send('Invalid userId');
+
+  try {
+    await calendar.saveAppleCredentials(userId, { appleId, appPassword });
+
+    // Try to get timezone from iCloud
+    const tz = await calendar.getCalendarTimezone(userId).catch(() => null);
+    if (tz) db.updateUser(userId, { timezone: tz });
+
+    db.appendConversation(userId, 'assistant',
+      `[System] Apple Calendar connected${tz ? ` (timezone: ${tz})` : ''}. You can now check availability and create events on the user's iCloud Calendar.`
+    );
+
+    if (user.phone) {
+      await sms.notifyUser(user.phone, `📅 Your Apple Calendar is connected! I can now check your availability and add events.`).catch(() => {});
+    }
+
+    res.send(`<!DOCTYPE html><html lang="en"><head>
+      <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>Calendar Connected — ButterflAI</title>
+      <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+      <style>body{font-family:-apple-system,sans-serif;background:#0f0f0f;color:#f0f0f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+      .card{background:#1a1a2e;border-radius:16px;padding:2rem;max-width:400px;text-align:center}</style>
+    </head><body>
+      <div class="card">
+        <div style="font-size:3rem">🦋✅</div>
+        <h2>Apple Calendar Connected!</h2>
+        <p style="color:#aaa">ButterflAI can now check your availability and add events to your iCloud Calendar.</p>
+      </div>
+    </body></html>`);
+  } catch (err) {
+    console.error('[apple-calendar] connect error:', err.message);
+    res.status(500).send('Failed to connect — check your Apple ID and app-specific password.');
+  }
+});
+
 // Initiate Google Contacts OAuth
 app.get('/auth/google/contacts', (req, res) => {
   const { userId } = req.query;
