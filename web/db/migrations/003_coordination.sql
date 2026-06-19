@@ -13,7 +13,7 @@
 CREATE TABLE IF NOT EXISTS desires (
   id              TEXT PRIMARY KEY,
   user_id         TEXT NOT NULL,
-  raw_text        TEXT NOT NULL,          -- private; never read by coord layer
+  raw_text        TEXT NOT NULL,          -- private, never read by coord layer
   category        TEXT NOT NULL,          -- enum: social | active | dining | ...
   activity_type   TEXT NOT NULL DEFAULT 'any',
   social_size_min INTEGER NOT NULL DEFAULT 1,
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS coordination_sessions (
   agreed_activity       TEXT,             -- enum value
   escalation_reason     TEXT,             -- internal only, never sent to peers
   expires_at            TEXT NOT NULL,    -- ISO
-  purge_after           TEXT NOT NULL,    -- event_date + 7 days; hard delete after this
+  purge_after           TEXT NOT NULL,    -- event_date + 7 days, hard delete after this
   created_at            INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   updated_at            INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
