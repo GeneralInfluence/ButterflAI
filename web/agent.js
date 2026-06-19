@@ -402,6 +402,7 @@ const TOOL_DEFINITIONS = [
     },
   },
   desires.TOOL_DEFINITION,
+  desires.DELETE_TOOL_DEFINITION,
 
   {
     name: 'store_pending_confirm',
@@ -859,7 +860,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'parse_desires': {
-      return desires.handleTool(toolInput, userId);
+      return desires.handleParseTool(toolInput, userId);
+    }
+
+    case 'delete_desires': {
+      // transport is not available in executeTool scope — pass null; cancels are best-effort
+      return desires.handleDeleteTool(toolInput, userId, null);
     }
 
     case 'store_pending_confirm': {

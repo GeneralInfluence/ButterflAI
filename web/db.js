@@ -570,14 +570,41 @@ module.exports = {
 
   // ── Desires ───────────────────────────────────────────────────────────────
 
-  createDesire({ id, userId, rawText, category, activityType, socialSizeMin, socialSizeMax, windowStart, windowEnd, priority }) {
+  createDesire({ id, userId, rawText, category, activityType, socialSizeMin, socialSizeMax,
+                  windowStart, windowEnd, priority, candidateStrategy, candidateIds,
+                  candidateTierMin, recurrence, horizon, parentDesireId }) {
     return db.prepare(`
       INSERT INTO desires (id, user_id, raw_text, category, activity_type,
-        social_size_min, social_size_max, time_window_start, time_window_end, priority)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        social_size_min, social_size_max, time_window_start, time_window_end, priority,
+        candidate_strategy, candidate_ids, candidate_tier_min, recurrence, horizon, parent_desire_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, userId, rawText, category, activityType || 'any',
-           socialSizeMin || 1, socialSizeMax || 1,
-           windowStart, windowEnd, priority || 'want');
+           socialSizeMin || 0, socialSizeMax || 0,
+           windowStart, windowEnd, priority || 'want',
+           candidateStrategy || 'any', candidateIds || null,
+           candidateTierMin ?? 1, recurrence || 'none',
+           horizon || 'one_off', parentDesireId || null);
+  },
+
+  // Zero raw_text immediately after parsing — structured fields are all we need
+  zeroDesireRawText(id) {
+    return db.prepare(`UPDATE desires SET raw_text = '', raw_text_zeroed = 1,
+      updated_at = strftime('%s','now') WHERE id = ?`).run(id);
+  },
+
+  getDueRecurringTemplates(userId) {
+    // Templates are due if: they have no children in the current week,
+    // or the recurrence_end hasn't passed yet
+    return db.prepare(`
+      SELECT d.* FROM coord_desires d
+      WHERE d.user_id = ? AND d.horizon = 'template'
+      AND (d.recurrence_end IS NULL OR d.recurrence_end >= date('now'))
+      AND NOT EXISTS (
+        SELECT 1 FROM desires child
+        WHERE child.parent_desire_id = d.id
+        AND child.time_window_start >= date('now', 'weekday 0', '-7 days')
+      )
+    `).all(userId);
   },
 
   // Returns coord-safe fields only — raw_text excluded
