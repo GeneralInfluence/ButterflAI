@@ -229,3 +229,38 @@ The user's message to ButterflAI is an **instruction**, not outbound content. Th
 The agent is a social proxy. Messages it sends to contacts reflect on the user. Always write as a thoughtful friend would.
 
 Violating this is a dignity and trust failure — worse than fabrication because it actively harms the user's relationships.
+
+## Agent Architecture Vision [LOCKED 2026-06-19]
+
+**Each user's agent must deeply understand them and represent them to the world of agents.**
+
+### What "full context" means for each user agent
+- Social graph: friend circles with different intimacy levels and group dynamics
+- Preferences: food allergies, dietary restrictions, activity types, budget, vibe preferences
+- Availability patterns: typical schedule, blocked times, preferred windows
+- City context: neighborhood, usual venues, what's happening locally
+- History: who they've seen recently, what they've done, what went well
+- Communication style: how they talk to different friend circles
+
+### Agent-to-agent first, user second
+When coordination is needed:
+1. Host agent queries guest agents for availability, hard constraints (allergies, opt-outs)
+2. Guest agents respond on behalf of their users — no user needed for logistics
+3. Only escalate to the human when: preference tie-breaking, expressive content, or irreversible decisions
+4. Users should feel like things just got handled — not like they're managing a group chat
+
+### Privacy in agent-to-agent communication
+- Hard constraints cross freely: "can't eat shellfish", "unavailable after 10pm"
+- Soft preferences stay scoped: agents negotiate but don't dump full profiles on each other
+- Exclusion reasons never cross the wire
+- Each agent advocates for their user's interests, like a good EA
+
+### Build order for this vision
+1. **User preferences schema** — food allergies, activity types, budget, neighborhood, vibe
+2. **Rich state snapshot** — preferences injected into every agent call, not just events/calendar
+3. **MCP agent-to-agent protocol** — structured queries between agents (availability, hard constraints)
+4. **City/events awareness** — what's happening locally, integrated into suggestions
+5. **Friend circles** — different priority/intimacy groups, agent knows which circle applies
+6. **Cadence intelligence** — who hasn't been seen in a while, what's the right nudge
+
+The user should feel like they have a brilliant EA who knows them deeply, handles everything quietly, and only surfaces what actually needs their attention.
