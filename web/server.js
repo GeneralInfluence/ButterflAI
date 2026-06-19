@@ -29,6 +29,7 @@ const { ConsentRequired, RecipientOptedOut } = require('./sms');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
 const { startNudgeLoop } = require('./cadence');
+const { startCoordLoop } = require('./coord-loop');
 const calendar = require('./calendar');
 const contactsImport = require('./contacts-import');
 const venues = require('./venues');
@@ -1065,4 +1066,5 @@ app.listen(PORT, () => {
   console.log(`ButterflAI web running on :${PORT}`);
   startAgentLoop();
   startNudgeLoop();
+  startCoordLoop();
 });
