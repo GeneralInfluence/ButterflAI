@@ -612,11 +612,36 @@ async function processMessage(msg) {
   const userId = user.id;
   const userPhone = user.phone;
 
+  // Build live user state snapshot — injected into system prompt so agent
+  // always has current context regardless of conversation history window.
+  const calendarConnected = calendar.hasCalendarConnected(userId);
+  const contactCount = db.getContactsByUser(userId).length;
+  const pendingEvents = (() => {
+    try {
+      return multiparty.getEventsByHost(userId)
+        .filter(e => e.status === 'open')
+        .map(e => {
+          const rsvp = multiparty.getRsvpSummary(e.id);
+          return `  - "${e.title}" on ${new Date(e.scheduled_at * 1000).toLocaleString()} (${rsvp.accepted} confirmed, ${rsvp.pending} pending)`;
+        }).join('\n') || '  (none)';
+    } catch (_) { return '  (none)'; }
+  })();
+
+  const stateSnapshot = [
+    `## Current state`,
+    `- Calendar: ${calendarConnected ? '✅ connected (can check availability & create events)' : '❌ not connected'}`,
+    `- Contacts: ${contactCount} in address book`,
+    `- Open events:\n${pendingEvents}`,
+  ].join('\n');
+
   // Build system prompt (lean — context comes from tools, not prompt stuffing)
   const systemPrompt = `You are ButterflAI, a personal social agent for ${user.name}.
 
 Your job: help them stay meaningfully connected with people they care about.
 You handle the logistics of friendship (scheduling, coordination, reminders) so they can focus on the emotional parts.
+
+${stateSnapshot}
+
 
 HARD RULES — never violate:
 1. Never impersonate the user. Never send a message that sounds like it's coming from them unless they've approved that exact text.
