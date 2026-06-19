@@ -25,6 +25,38 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 const sms = require('./sms');
 const { ConsentRequired } = require('./sms');
+const Anthropic = require('@anthropic-ai/sdk');
+
+const _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+/**
+ * Use Claude to classify an RSVP reply as YES / NO / UNCLEAR.
+ * Regex will always lose against natural human language ("absofuckinglutely",
+ * "you know it", "lmao yes"). Claude handles all of it.
+ */
+async function classifyRsvp(inviteText, replyText) {
+  try {
+    const result = await _anthropic.messages.create({
+      model: process.env.AGENT_MODEL || 'claude-haiku-4-5-20251001',
+      max_tokens: 10,
+      system: 'You classify RSVP replies. Reply with exactly one word: YES, NO, or UNCLEAR.',
+      messages: [{
+        role: 'user',
+        content: `Invite: "${inviteText}"\nReply: "${replyText}"\n\nIs this a yes, no, or unclear?`,
+      }],
+    });
+    const word = (result.content[0]?.text || '').trim().toUpperCase();
+    if (word === 'YES') return 'yes';
+    if (word === 'NO') return 'no';
+    return 'unclear';
+  } catch (_) {
+    // Fallback to a simple keyword check if Claude call fails
+    const lower = replyText.toLowerCase();
+    if (/\b(yes|yeah|yep|sure|in|absolutely|definitely|totally|down)\b/.test(lower)) return 'yes';
+    if (/\b(no|nope|can't|busy|pass)\b/.test(lower)) return 'no';
+    return 'unclear';
+  }
+}
 
 // ── Table setup ───────────────────────────────────────────────────────────────
 
@@ -191,34 +223,17 @@ async function handleRsvpReply(contactPhone, body) {
 
   if (!invitation) return null;
 
-  const lower = body.toLowerCase().trim();
+  // Use Claude to classify the reply — regex can't handle natural language
+  const classification = await classifyRsvp(
+    `${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at)}`,
+    body
+  );
 
-  // When someone has a pending invite, classify their reply as YES / NO / UNCLEAR.
-  // Use keyword presence (not anchored) so natural sentences like
-  // "yeah I wanna beer with my buddy 100%" are caught.
+  const isYes = classification === 'yes';
+  const isNo  = classification === 'no';
 
-  const YES_KEYWORDS = [
-    /\by(es|ep|eah|up|o)\b/i,
-    /\b(sure|in|count me in|i'?m in|absolutely|definitely|for sure|of course|totally|down)\b/i,
-    /\b(sounds good|sounds great|sounds fun|works for me|let'?s go|let'?s do it)\b/i,
-    /hell yeah|fuck yeah|hell yes|heck yeah|oh yeah/i,
-    /\b(can'?t wait|so down|love it|perfect|awesome|great)\b/i,
-    /\b(ok|okay)\b/i,
-    /100%/,
-    /\bwanna\b.*\b(beer|drink|hang|meet)\b/i,
-  ];
-  const NO_KEYWORDS = [
-    /\bn(o|ope|ah)\b/i,
-    /\b(can'?t|cannot|won'?t|not gonna|not going|no can do)\b/i,
-    /\b(pass|skip|next time|rain check|busy|not free|tied up|have plans|got plans|something came up)\b/i,
-    /\b(can'?t make it|won'?t make it)\b/i,
-  ];
-
-  const isYes = YES_KEYWORDS.some(p => p.test(lower));
-  const isNo  = NO_KEYWORDS.some(p => p.test(lower));
-
-  // If both or neither match clearly, don't silently drop — ask a direct yes/no
   if (!isYes && !isNo) {
+    // Genuinely ambiguous — ask a direct yes/no, don't route to planning agent
     return `Just to confirm — are you in? (Reply yes or no)`;
   }
 
