@@ -106,7 +106,7 @@ Payload shapes:
 | 1 | `web/mcp-messages.js` | ✅ Done | Builder fns + outbound schema validator — covers both coordination + ambient |
 | 2 | `web/coordination.js` | ✅ Done | Session state machine, round logic, ambient intent, window intersection |
 | 3 | `web/db/migrations/003_coordination.sql` | ✅ Done | `desires`, `coord_desires` view, `coordination_sessions`, `coord_session_peers`, `ambient_signals` |
-| 4 | `web/desires.js` | 🔲 Next | Parse free-text desires (via LLM) → structured records; stores to `desires` table |
+| 4 | `web/desires.js` | ✅ Done | LLM parsing → structured records; sanitizer blocks free-text; tool wired into agent |
 | 5 | Agent loop hook | 🔲 | When desire is `pending` + `social`, ask user who to probe, then call `createSession` + `startProbing` |
 | 6 | SMS escalation | 🔲 | `notifyUser` implementation — sends SMS when `ESCALATE_HUMAN` fires or plan is ready |
 | 7 | Ambient query handler | 🔲 | Agent responds to "what's happening tonight?" using `getAmbientSummary` + venue lookup |
