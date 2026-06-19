@@ -107,9 +107,9 @@ Payload shapes:
 | 2 | `web/coordination.js` | ✅ Done | Session state machine, round logic, ambient intent, window intersection |
 | 3 | `web/db/migrations/003_coordination.sql` | ✅ Done | `desires`, `coord_desires` view, `coordination_sessions`, `coord_session_peers`, `ambient_signals` |
 | 4 | `web/desires.js` | ✅ Done | LLM parsing → structured records; sanitizer blocks free-text; vague candidates; horizons; hard delete |
-| 5 | Agent loop hook | 🔲 Next | When desire is `pending` + `social`, resolve candidates then call `createSession` + `startProbing` |
-| 6 | SMS escalation | 🔲 | `notifyUser` implementation — sends SMS when `ESCALATE_HUMAN` fires or plan is ready |
-| 7 | Ambient query handler | 🔲 | Agent responds to "what's happening tonight?" using `getAmbientSummary` + venue lookup |
+| 5 | `web/coord-loop.js` | ✅ Done | Ticks every 5min: pending desires → resolve candidates → createSession → startProbing; recurring templates; escalation notify |
+| 6 | `notifyUser` | ✅ Done | Routes through agent loop via `storeInboundMessage` — agent sends SMS + handles reply in same turn |
+| 7 | `whats_happening` tool | ✅ Done | Aggregates ambient signals + venue lookup; severs identity link (venues from lookup, not broadcast) |
 | 8 | Per-user SQLite migration | 🔲 | Split single DB into `main.sqlite` + `users/{user_id}.sqlite` before public launch — see §Storage below |
 
 ---
