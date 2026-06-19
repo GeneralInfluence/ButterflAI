@@ -100,19 +100,26 @@ app.post(['/sms', '/inbound'], sms.validateTwilioRequest, async (req, res) => {
       return; // silently drop
     }
 
-    // 4a. Contact (not a user) — handle RSVP replies
+    // 4a. RSVP reply check — runs for ANYONE with a pending event invitation
+    // (contacts AND users who are also contacts). Must run before user agent routing.
     const existingContact = db.getContactByPhone(from);
-    if (existingContact && !db.getUserByPhone(from)) {
+    if (existingContact) {
       const rsvpReply = await multiparty.handleRsvpReply(from, body).catch(() => null);
       if (rsvpReply) {
         await sms.sendUnchecked(from, rsvpReply);
-      } else {
+        // If they're a pure contact (not a user), stop here
+        if (!db.getUserByPhone(from)) return;
+        // If they're also a user, still return — RSVP takes precedence
+        return;
+      }
+      // Pure contact with no pending RSVP — store and ACK, don't send to user agent
+      if (!db.getUserByPhone(from)) {
         db.storeInboundMessage({
           from_phone: from, from_type: 'contact', from_id: existingContact.id, channel: 'sms', text: body,
         });
         await sms.sendUnchecked(from, `Got it! I'll pass that along. 👍`);
+        return;
       }
-      return;
     }
 
     // 4. Route: onboarding vs. established user

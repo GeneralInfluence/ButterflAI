@@ -191,9 +191,26 @@ async function handleRsvpReply(contactPhone, body) {
 
   if (!invitation) return null;
 
-  const lower = body.toLowerCase().trim();
-  const isYes = /^y(es|ep)?[.!]?$/i.test(lower) || lower === 'sure' || lower === 'in';
-  const isNo  = /^n(o|ope)?[.!]?$/i.test(lower) || lower === 'can\'t' || lower === "can't make it";
+  const lower = body.toLowerCase().trim().replace(/[!.?]+$/, '').trim();
+
+  // Broad affirmative matching — humans express YES in many ways
+  const YES_PATTERNS = [
+    /^y(es|ep|eah|up|o)?$/i,
+    /^(sure|in|count me in|i'm in|im in|absolutely|definitely|for sure|of course|totally|obvs|obviously)$/i,
+    /^(sounds good|sounds great|sounds fun|works for me|works)$/i,
+    /hell yeah/, /fuck yeah/, /hell yes/, /oh yeah/, /heck yeah/,
+    /^(can't wait|cant wait|so down|i'm down|im down|down)$/i,
+    /^(ok|okay|k|kk|great|perfect|awesome|love it|let's go|lets go|let's do it|lets do it)$/i,
+  ];
+  const NO_PATTERNS = [
+    /^n(o|ope|ah)?$/i,
+    /^(can'?t|cannot|won'?t|not gonna|not going|no can do)$/i,
+    /^(pass|skip|maybe next time|next time|rain check|not this time|can'?t make it|won'?t make it)$/i,
+    /^(busy|not free|tied up|have plans|got plans|something came up)$/i,
+  ];
+
+  const isYes = YES_PATTERNS.some(p => p.test(lower));
+  const isNo  = NO_PATTERNS.some(p => p.test(lower));
 
   if (!isYes && !isNo) return null;
 
