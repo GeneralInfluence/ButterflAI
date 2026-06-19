@@ -29,6 +29,20 @@ const USERS_DIR  = process.env.USERS_DIR || path.join(DATA_DIR, 'users');
 fs.mkdirSync(path.dirname(MAIN_PATH), { recursive: true });
 fs.mkdirSync(USERS_DIR, { recursive: true });
 
+// ── Auto-migration from legacy single-DB to split-DB ─────────────────────────
+// If butterflai.sqlite exists and main.sqlite does not, run migration on startup.
+const LEGACY_PATH = path.join(path.dirname(MAIN_PATH), 'butterflai.sqlite');
+if (!fs.existsSync(MAIN_PATH) && fs.existsSync(LEGACY_PATH)) {
+  console.log('[db] Detected legacy butterflai.sqlite — running per-user split migration…');
+  try {
+    require('../scripts/migrate-per-user-db.js');
+  } catch (err) {
+    // Migration script uses process.exit — if it didn't exit, it failed
+    console.error('[db] Migration failed:', err.message);
+    process.exit(1);
+  }
+}
+
 // ── Schema files ──────────────────────────────────────────────────────────────
 
 // Schema files: in Docker the app root is /app and db/ is at /app/db/.

@@ -27,8 +27,15 @@ const OLD_PATH   = path.join(DATA_DIR, 'butterflai.sqlite');
 const MAIN_PATH  = path.join(DATA_DIR, 'main.sqlite');
 const USERS_DIR  = path.join(DATA_DIR, 'users');
 
-const MAIN_SCHEMA = fs.readFileSync(path.join(__dirname, '..', 'db', 'main-schema.sql'), 'utf8');
-const USER_SCHEMA = fs.readFileSync(path.join(__dirname, '..', 'db', 'user-schema.sql'), 'utf8');
+function _readSchema(name) {
+  for (const p of [
+    path.join(__dirname, '..', 'db', name),   // local dev / Docker /app/scripts/../db/
+    path.join(__dirname, 'db', name),          // fallback
+  ]) { if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8'); }
+  throw new Error('Schema not found: ' + name);
+}
+const MAIN_SCHEMA = _readSchema('main-schema.sql');
+const USER_SCHEMA = _readSchema('user-schema.sql');
 
 // Tables that go into main.sqlite
 const MAIN_TABLES = [
@@ -101,11 +108,14 @@ function run() {
     if (!tableExists(old, tbl)) { console.log(`  skip ${tbl} (not in source)`); continue; }
     const rows = old.prepare(`SELECT * FROM ${tbl}`).all();
     if (!rows.length) { console.log(`  ${tbl}: 0 rows`); continue; }
-    const cols = Object.keys(rows[0]);
+    // Intersect columns — old schema may have extra cols (e.g. timezone) not in new schema
+    const targetCols = new Set(main.prepare(`PRAGMA table_info(${tbl})`).all().map(c => c.name));
+    const useCols = Object.keys(rows[0]).filter(c => targetCols.has(c));
+    if (!useCols.length) { console.log(`  skip ${tbl} (no matching columns)`); continue; }
     const stmt = main.prepare(
-      `INSERT OR IGNORE INTO ${tbl} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`
+      `INSERT OR IGNORE INTO ${tbl} (${useCols.join(',')}) VALUES (${useCols.map(() => '?').join(',')})`
     );
-    const ins = main.transaction((rs) => rs.forEach(r => stmt.run(Object.values(r))));
+    const ins = main.transaction((rs) => rs.forEach(r => stmt.run(useCols.map(c => r[c]))));
     ins(rows);
     console.log(`  ${tbl}: ${rows.length} rows → main`);
     totalMain += rows.length;
@@ -210,8 +220,15 @@ function run() {
   console.log(`  DO NOT delete it yet — keep as a backup for 7 days.`);
 }
 
-try { run(); } catch (err) {
-  console.error('\n✗ Migration failed:', err.message);
-  console.error(err.stack);
-  process.exit(1);
+// Run immediately when invoked directly; export for require() from db.js
+if (require.main === module) {
+  try { run(); } catch (err) {
+    console.error('\n✗ Migration failed:', err.message);
+    console.error(err.stack);
+    process.exit(1);
+  }
+} else {
+  // Called via require() from db.js on startup
+  run();
+  module.exports = { run };
 }
