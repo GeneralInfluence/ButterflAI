@@ -243,14 +243,23 @@ async function handleRsvpReply(contactPhone, body) {
     UPDATE event_invitations SET status = ?, responded_at = strftime('%s','now') WHERE id = ?
   `).run(status, invitation.id);
 
-  // Notify the host
+  // Notify the host and write to their conversation history so the agent
+  // knows about this RSVP on the next turn (RSVP happens out-of-band).
   const host = db.getUser(invitation.host_user_id);
-  if (host?.phone) {
+  if (host) {
     const emoji = isYes ? '✅' : '❌';
     const msg = isYes
       ? `${emoji} ${contact.name} is in for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at)}!`
       : `${emoji} ${contact.name} can't make it for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at)}.`;
-    await sms.notifyUser(host.phone, msg).catch(() => {});
+
+    // Persist RSVP into host's conversation history so agent has full context
+    db.appendConversation(host.id, 'assistant',
+      `[System] RSVP received: ${contact.name} has ${status} the invite for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at)}.`
+    );
+
+    if (host.phone) {
+      await sms.notifyUser(host.phone, msg).catch(() => {});
+    }
   }
 
   return isYes
