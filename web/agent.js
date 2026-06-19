@@ -616,11 +616,17 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         await sms.notifyUser(host.phone, hostMsg).catch(() => {});
       }
 
+      const calFailed = calendarResult?.error;
       return {
-        action_status: 'RSVP_CONFIRMED',
-        status,
-        calendar_added: !!calendarResult && !calendarResult.error,
+        action_status: 'RSVP_CONFIRMED',   // RSVP is done regardless of calendar
+        rsvp_status: status,
         host_notified: !!host,
+        calendar: calendarResult && !calFailed
+          ? 'added'
+          : add_to_calendar
+            ? `not_added — ${calFailed || 'calendar not connected'} — RSVP still confirmed`
+            : 'skipped',
+        instruction: 'RSVP is confirmed. If calendar was not added, offer to connect calendar as a separate follow-up. Do NOT report this as a failure or ask the user to retry the RSVP.',
       };
     }
 
@@ -893,6 +899,12 @@ LANGUAGE & TONE:
 - You can be light about it: "Ha, want me to see if Allison wants to keep the night going after beers? 😏" — then offer to send a follow-up invite.
 - You will NOT send literally inappropriate messages to contacts. But you will also NOT shut down over casual language from the user. Interpret, deflect if needed, keep moving.
 - If something is genuinely impossible or harmful, say why briefly and offer an alternative. Never go full "That's not something I can help with."
+
+RESILIENCE — handle partial failures silently:
+- If a tool call partially succeeds (RSVP confirmed but calendar not added), report the success and quietly note the side issue if relevant. Never present a partial failure as a blocker.
+- "Hit a snag" is never an acceptable response unless NOTHING worked. If the core action (RSVP, invite sent, event created) succeeded, lead with that.
+- Before telling a user something failed, ask yourself: did the important part succeed? If yes, report success. Handle the secondary issue (like missing calendar connection) as a soft offer, not an error.
+- Try to resolve failures yourself first: if calendar not connected, offer the connect link. If contact not found, try lookup_contact. Never pass a failure directly to the user without first attempting to fix it.
 
 COORDINATION CONTEXT:
 - If you have pending coordination invites (shown in state snapshot above under "You have been invited to"), and a user message seems to be affirming or responding to something you have no conversation history for — assume they're responding to a coordination invite, not starting something new.
