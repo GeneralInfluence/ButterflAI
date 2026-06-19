@@ -106,21 +106,68 @@ Payload shapes:
 | 1 | `web/mcp-messages.js` | ✅ Done | Builder fns + outbound schema validator — covers both coordination + ambient |
 | 2 | `web/coordination.js` | ✅ Done | Session state machine, round logic, ambient intent, window intersection |
 | 3 | `web/db/migrations/003_coordination.sql` | ✅ Done | `desires`, `coord_desires` view, `coordination_sessions`, `coord_session_peers`, `ambient_signals` |
-| 4 | `web/desires.js` | ✅ Done | LLM parsing → structured records; sanitizer blocks free-text; tool wired into agent |
-| 5 | Agent loop hook | 🔲 | When desire is `pending` + `social`, ask user who to probe, then call `createSession` + `startProbing` |
+| 4 | `web/desires.js` | ✅ Done | LLM parsing → structured records; sanitizer blocks free-text; vague candidates; horizons; hard delete |
+| 5 | Agent loop hook | 🔲 Next | When desire is `pending` + `social`, resolve candidates then call `createSession` + `startProbing` |
 | 6 | SMS escalation | 🔲 | `notifyUser` implementation — sends SMS when `ESCALATE_HUMAN` fires or plan is ready |
 | 7 | Ambient query handler | 🔲 | Agent responds to "what's happening tonight?" using `getAmbientSummary` + venue lookup |
+| 8 | Per-user SQLite migration | 🔲 | Split single DB into `main.sqlite` + `users/{user_id}.sqlite` before public launch — see §Storage below |
+
+---
+
+## Storage Architecture
+
+### Current (MVP)
+Single SQLite file: `/data/butterflai.sqlite`
+All users share one file. Isolation is logical (`WHERE user_id = ?`).
+
+### Target (pre-public-launch)
+```
+/data/
+  main.sqlite              ← users, invites, sms_optouts, consent_records, agent_messages
+  users/
+    {user_id}.sqlite       ← desires, coord_sessions, preferences, private_data, contacts, conversation_history
+```
+- Agent resolves `user_id` from phone via `main.sqlite`, then opens `users/{user_id}.sqlite`
+- A bug in one user's session cannot touch another's file system
+- Per-user DB can be independently backed up, exported, or deleted (GDPR erasure = delete the file)
+- Existing `crypto.js` encryption stays for `private_data` within the per-user DB
+
+### Wallet Encryption for Desires — Decision
+
+**Revisited and still not viable for desires.** Same problem as the deprecated NFT approach:
+
+The agent must act autonomously over SMS when the user's device is offline (sleeping, etc.).
+If desire decryption requires a live wallet signature, the agent can't probe peers at 2am.
+
+A delegated session key model (wallet signs once → derives session key → agent holds it) solves the
+autonomy problem but recreates the "server holds the key" situation — same trust model as the current
+KMS approach, just with extra steps.
+
+**What the wallet IS used for (unchanged):**
+- Identity (agent's MCP public key maps to wallet address)
+- Future social budget (ClawBank / card)
+
+**What protects desires instead:**
+1. `raw_text` zeroed immediately after parsing (the most sensitive field is gone)
+2. Remaining fields are enums + dates (low sensitivity)
+3. Per-user SQLite (physical isolation — different attack surface from logic bugs)
+4. `private_data` table encrypted at rest under KMS (for truly sensitive blobs)
+5. Hard delete returns a receipt (GDPR erasure)
+6. Access audit log (every read of private data logged)
+
+The honest statement: ButterflAI holds the keys and can technically read desire metadata.
+This is disclosed, controlled by audit + minimization, and is the deliberate tradeoff for agent autonomy.
 
 ---
 
 ## Open Questions
 
-- How does the receiving agent check consent before responding to a probe? (Is `from_user_id` on the contact's allow-list?)
-- Politeness limit: 3 rounds / 5 days — where is this enforced? coordination.js or mcp-messages.js?
-- When a user says "a friend or two" — does the agent ask who to probe, or does it pull from the top of the contact list?
+- Politeness limit: 3 rounds / 5 days — enforced in coordination.js session creation
+- Recurring desires: agent loop checks `getDueRecurringTemplates()` on each tick; spawns instances
+- Consent gate on inbound probes: `handleProbeInbound` checks `from_user_id` against contact allow-list
 
 ---
 
 ## Resume Prompt
 
-> "Let's continue building the desire coordination system. Start with `web/mcp-messages.js` — the builder functions and outbound schema validator. See COORDINATION_PLAN.md for context."
+> "Continue the coordination plan — see COORDINATION_PLAN.md. Next: agent loop hook (item 5) — when a desire is pending + social, resolve candidates and start probing."
