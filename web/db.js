@@ -26,17 +26,34 @@ db.pragma('foreign_keys = ON');
 const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
 db.exec(schema);
 
-// Apply any pending migrations that aren't yet in the live schema
-// (safe to run multiple times — they'll throw on column-already-exists and we catch)
+// Migration tracking table — ensures each migration file runs exactly once
+db.exec(`CREATE TABLE IF NOT EXISTS _migrations (
+  name TEXT PRIMARY KEY,
+  applied_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+)`);
+
+// Apply any pending migrations (skips already-applied ones)
 const migrationsDir = path.join(__dirname, 'db', 'migrations');
 if (fs.existsSync(migrationsDir)) {
   const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
   for (const file of files) {
+    const alreadyApplied = db.prepare('SELECT 1 FROM _migrations WHERE name = ?').get(file);
+    if (alreadyApplied) continue;
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-    // Run each statement individually so one failure doesn't block the rest
     const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
+    let allOk = true;
     for (const stmt of statements) {
-      try { db.exec(stmt + ';'); } catch (_) { /* column/table already exists — ok */ }
+      try { db.exec(stmt + ';'); } catch (err) {
+        // Only swallow "already exists" errors; log real failures
+        if (!err.message.includes('already exists') && !err.message.includes('duplicate column')) {
+          console.error(`[migration] ${file}: ${err.message}`);
+          allOk = false;
+        }
+      }
+    }
+    if (allOk) {
+      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
+      console.log(`[migration] applied ${file}`);
     }
   }
 }
