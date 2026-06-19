@@ -568,6 +568,129 @@ module.exports = {
     db.prepare('UPDATE agent_messages SET processed = 1 WHERE id = ?').run(id);
   },
 
+  // ── Desires ───────────────────────────────────────────────────────────────
+
+  createDesire({ id, userId, rawText, category, activityType, socialSizeMin, socialSizeMax, windowStart, windowEnd, priority }) {
+    return db.prepare(`
+      INSERT INTO desires (id, user_id, raw_text, category, activity_type,
+        social_size_min, social_size_max, time_window_start, time_window_end, priority)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, userId, rawText, category, activityType || 'any',
+           socialSizeMin || 1, socialSizeMax || 1,
+           windowStart, windowEnd, priority || 'want');
+  },
+
+  // Returns coord-safe fields only — raw_text excluded
+  getCoordDesire(id) {
+    return db.prepare('SELECT * FROM coord_desires WHERE id = ?').get(id);
+  },
+
+  getPendingSocialDesires(userId) {
+    return db.prepare(`
+      SELECT * FROM coord_desires
+      WHERE user_id = ? AND status = 'pending'
+      AND category IN ('social','dining','outdoor','live_music','dancing','drinks','sports','culture')
+      ORDER BY created_at ASC
+    `).all(userId);
+  },
+
+  updateDesireStatus(id, status) {
+    return db.prepare(`
+      UPDATE desires SET status = ?, updated_at = strftime('%s','now') WHERE id = ?
+    `).run(status, id);
+  },
+
+  // ── Coordination sessions ─────────────────────────────────────────────────
+
+  createCoordSession({ id, desireId, initiatorUserId, role, expiresAt, purgeAfter }) {
+    return db.prepare(`
+      INSERT INTO coordination_sessions
+        (id, desire_id, initiator_user_id, role, expires_at, purge_after)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, desireId, initiatorUserId, role || 'initiator', expiresAt, purgeAfter);
+  },
+
+  getCoordSession(id) {
+    return db.prepare('SELECT * FROM coordination_sessions WHERE id = ?').get(id);
+  },
+
+  updateCoordSession(id, fields) {
+    const allowed = ['state', 'round', 'agreed_slot_start', 'agreed_slot_duration',
+                     'agreed_activity', 'escalation_reason'];
+    const sets = Object.keys(fields).filter(k => allowed.includes(k)).map(k => `${k} = ?`);
+    if (!sets.length) return;
+    db.prepare(`
+      UPDATE coordination_sessions SET ${sets.join(', ')}, updated_at = strftime('%s','now')
+      WHERE id = ?
+    `).run(...sets.map(s => fields[s.split(' ')[0]]), id);
+  },
+
+  // ── Coordination session peers ────────────────────────────────────────────
+
+  createCoordPeer({ id, sessionId, peerAgentId, peerUserId }) {
+    return db.prepare(`
+      INSERT INTO coord_session_peers (id, session_id, peer_agent_id, peer_user_id)
+      VALUES (?, ?, ?, ?)
+    `).run(id, sessionId, peerAgentId, peerUserId || null);
+  },
+
+  getCoordPeers(sessionId) {
+    return db.prepare('SELECT * FROM coord_session_peers WHERE session_id = ?').all(sessionId);
+  },
+
+  getCoordPeer(sessionId, peerAgentId) {
+    return db.prepare('SELECT * FROM coord_session_peers WHERE session_id = ? AND peer_agent_id = ?')
+      .get(sessionId, peerAgentId);
+  },
+
+  updateCoordPeer(id, fields) {
+    const allowed = ['state', 'available_days', 'offered_windows', 'matched_windows',
+                     'proposed_slot_start', 'proposed_slot_dur', 'rounds_used', 'last_msg_at'];
+    const sets = Object.keys(fields).filter(k => allowed.includes(k)).map(k => `${k} = ?`);
+    if (!sets.length) return;
+    // Stringify JSON fields
+    const values = sets.map(s => {
+      const k = s.split(' ')[0];
+      return (k === 'available_days' || k === 'offered_windows' || k === 'matched_windows')
+        ? JSON.stringify(fields[k]) : fields[k];
+    });
+    db.prepare(`
+      UPDATE coord_session_peers SET ${sets.join(', ')}, updated_at = strftime('%s','now')
+      WHERE id = ?
+    `).run(...values, id);
+  },
+
+  getCoordPeerByAgentId(peerAgentId, sessionId) {
+    return db.prepare('SELECT * FROM coord_session_peers WHERE peer_agent_id = ? AND session_id = ?')
+      .get(peerAgentId, sessionId);
+  },
+
+  // ── Ambient signals ───────────────────────────────────────────────────────
+
+  upsertAmbientSignal({ id, fromAgentId, category, area, date, period, certainty, openToCompany, expiresAt }) {
+    return db.prepare(`
+      INSERT INTO ambient_signals (id, from_agent_id, category, area, date, period, certainty, open_to_company, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        certainty = excluded.certainty,
+        open_to_company = excluded.open_to_company,
+        expires_at = excluded.expires_at
+    `).run(id, fromAgentId, category, area || null, date, period, certainty, openToCompany ? 1 : 0, expiresAt);
+  },
+
+  getAmbientSignalsForDate(date) {
+    return db.prepare(`
+      SELECT * FROM ambient_signals
+      WHERE date = ? AND expires_at > datetime('now')
+      ORDER BY received_at DESC
+    `).all(date);
+  },
+
+  deleteAmbientSignal(fromAgentId, date, category) {
+    return db.prepare('DELETE FROM ambient_signals WHERE from_agent_id = ? AND date = ? AND category = ?')
+      .run(fromAgentId, date, category);
+  },
+
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
 
   getWallet(userId) {
