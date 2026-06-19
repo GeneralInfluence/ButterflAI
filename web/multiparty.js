@@ -335,6 +335,8 @@ module.exports = {
   createEvent,
   inviteContacts,
   handleRsvpReply,
+  // Exposed for eval harness only
+  _classifyRsvpPublic: (reply, inviteContext) => classifyRsvp(inviteContext, reply),
   getEvent,
   getEventsByHost,
   cancelEvent,
