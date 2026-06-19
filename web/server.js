@@ -122,21 +122,10 @@ app.post(['/sms', '/inbound'], sms.validateTwilioRequest, async (req, res) => {
         ORDER BY ei.notified_at DESC LIMIT 1
       `).get(existingContact.id);
 
-      if (recentInvitation) {
-        // Route reply to the host's agent with coordination context
-        const host = db.getUser(recentInvitation.host_user_id);
-        if (host) {
-          const contextNote = `[System] ${existingContact.name} (who was invited to "${recentInvitation.title}") replied: "${body}"`;
-          db.appendConversation(host.id, 'user', contextNote);
-          db.storeInboundMessage({
-            from_phone: from, from_type: 'contact', from_id: existingContact.id,
-            channel: 'sms', text: body,
-          });
-          // ACK back to the contact so they know it landed
-          await sms.sendUnchecked(from, `Got it! 🦋`);
-          return;
-        }
-      }
+      // If they have recent coordination context but are also a user,
+      // fall through to their own agent — it now has the coordination context injected
+      // via the pending_coordination state snapshot. Their agent will call
+      // confirm_coordination_invite and notify the host agent directly.
 
       // Pure contact with no coordination context — store and ACK
       if (!db.getUserByPhone(from)) {

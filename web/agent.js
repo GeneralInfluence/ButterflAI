@@ -139,6 +139,19 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'confirm_coordination_invite',
+    description: 'Respond to an event invitation from another ButterflAI user. Updates your RSVP status, optionally adds the event to YOUR calendar, and notifies the host\'s agent in the background — without sharing your private preferences.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        invitation_id: { type: 'string', description: 'inv_id from the coordination invite in your state snapshot' },
+        status: { type: 'string', enum: ['accepted', 'declined'], description: 'Your response' },
+        add_to_calendar: { type: 'boolean', description: 'Whether to add this event to your own Google Calendar' },
+      },
+      required: ['invitation_id', 'status'],
+    },
+  },
+  {
     name: 'record_rsvp',
     description: 'Record an RSVP for a contact on an event when the confirmation happened outside the system (in person, verbally, via another channel). Use when the user says "Allison said she\'s in" or similar.',
     input_schema: {
@@ -498,6 +511,62 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       }
     }
 
+    case 'confirm_coordination_invite': {
+      const { invitation_id, status, add_to_calendar } = toolInput;
+      const inv = db._raw().prepare(`
+        SELECT ei.*, se.title, se.activity_type, se.scheduled_at, se.venue_name,
+               se.host_user_id, se.id as event_id
+        FROM event_invitations ei
+        JOIN social_events se ON se.id = ei.event_id
+        WHERE ei.id = ?
+      `).get(invitation_id);
+      if (!inv) return { error: 'Invitation not found' };
+
+      // Update RSVP status
+      db._raw().prepare(`
+        UPDATE event_invitations SET status = ?, responded_at = strftime('%s','now') WHERE id = ?
+      `).run(status, invitation_id);
+
+      // Add to this user's own calendar if requested
+      let calendarResult = null;
+      if (add_to_calendar && status === 'accepted') {
+        try {
+          const startISO = new Date(inv.scheduled_at * 1000).toISOString();
+          const endISO = new Date((inv.scheduled_at + 3600) * 1000).toISOString();
+          calendarResult = await calendar.createEvent(userId, {
+            summary: inv.title,
+            description: `Invited by ${db.getUser(inv.host_user_id)?.name || 'a friend'} via ButterflAI`,
+            start: { dateTime: startISO, timeZone: userTimezone },
+            end: { dateTime: endISO, timeZone: userTimezone },
+          });
+        } catch (err) {
+          calendarResult = { error: err.message };
+        }
+      }
+
+      // Notify the host's agent (agent-to-agent: share only RSVP result, not private prefs)
+      const host = db.getUser(inv.host_user_id);
+      const contact = db.getContactByPhone(user.phone);
+      if (host) {
+        const emoji = status === 'accepted' ? '✅' : '❌';
+        const ts = new Date(inv.scheduled_at * 1000).toLocaleString('en-US', { timeZone: host.timezone || 'America/Los_Angeles', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const hostNote = `[Agent-to-Agent] ${emoji} ${contact?.name || user.name} has ${status} the invite for "${inv.title}" on ${ts}.`;
+        db.appendConversation(inv.host_user_id, 'assistant', hostNote);
+        // Proactively notify host via SMS
+        const hostMsg = status === 'accepted'
+          ? `${emoji} ${contact?.name || user.name} is in for ${inv.activity_type} on ${ts}!`
+          : `${emoji} ${contact?.name || user.name} can't make ${inv.activity_type} on ${ts}.`;
+        await sms.notifyUser(host.phone, hostMsg).catch(() => {});
+      }
+
+      return {
+        action_status: 'RSVP_CONFIRMED',
+        status,
+        calendar_added: !!calendarResult && !calendarResult.error,
+        host_notified: !!host,
+      };
+    }
+
     case 'record_rsvp': {
       const { event_id, contact_phone, status, source } = toolInput;
       const contact = db.getContactByPhone(contact_phone);
@@ -696,6 +765,31 @@ async function processMessage(msg) {
   })();
 
   const userLocalTime = new Date().toLocaleString('en-US', { timeZone: userTimezone, weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  // Pending coordination: events this user was invited to by OTHER users' agents
+  // Injected so this agent can act on them (update own calendar, notify host agent)
+  const pendingCoordination = (() => {
+    try {
+      const contact = db.getContactByPhone(user.phone);
+      if (!contact) return '';
+      const rows = db._raw().prepare(`
+        SELECT ei.id as inv_id, ei.status, se.id as event_id, se.title, se.activity_type,
+               se.scheduled_at, se.venue_name, u.name as host_name
+        FROM event_invitations ei
+        JOIN social_events se ON se.id = ei.event_id
+        JOIN users u ON u.id = se.host_user_id
+        WHERE ei.contact_id = ? AND ei.notified_at > strftime('%s','now') - 604800
+        ORDER BY ei.notified_at DESC LIMIT 5
+      `).all(contact.id);
+      if (!rows.length) return '';
+      const lines = rows.map(r => {
+        const ts = new Date(r.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const venue = r.venue_name ? ` at ${r.venue_name}` : '';
+        return `  - inv_id="${r.inv_id}" | "${r.title}" hosted by ${r.host_name} | ${ts}${venue} | your status: ${r.status}`;
+      }).join('\n');
+      return `\n## You have been invited to (by other ButterflAI users)\n${lines}\n- Use confirm_coordination_invite to RSVP and optionally add to your calendar`;
+    } catch (_) { return ''; }
+  })();
+
   const agentNotes = user.agent_notes?.trim();
   const stateSnapshot = [
     `## Current state`,
@@ -703,6 +797,7 @@ async function processMessage(msg) {
     `- Calendar: ${calendarConnected ? '✅ connected (can check availability & create events)' : '❌ not connected'}`,
     `- Contacts: ${contactCount} in address book`,
     `- Open events:\n${pendingEvents}`,
+    pendingCoordination,
     agentNotes ? `\n## Remembered facts (use these — don't ask again)\n${agentNotes}` : '',
   ].filter(Boolean).join('\n');
 
