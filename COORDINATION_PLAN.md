@@ -103,13 +103,13 @@ Payload shapes:
 
 | # | File | Status | Notes |
 |---|------|--------|-------|
-| 1 | `web/mcp-messages.js` | 🔲 Next | Builder fns + outbound schema validator — the keystone |
-| 2 | `web/coordination.js` | 🔲 | Session state machine, round logic |
-| 3 | `web/desires.js` | 🔲 | Parse free-text desires → structured records, `coord_desires` view |
-| 4 | DB migration | 🔲 | `desires` table + `coord_desires` view + `coordination_sessions` table |
-| 5 | Agent loop hook | 🔲 | When desire is `pending` + `social`, spawn coordination session |
-| 6 | SMS escalation | 🔲 | Push question to user when `ESCALATE_HUMAN` fires |
-| 7 | Inbound MCP handler | 🔲 | Receive + validate incoming coordination messages, advance state machine |
+| 1 | `web/mcp-messages.js` | ✅ Done | Builder fns + outbound schema validator — covers both coordination + ambient |
+| 2 | `web/coordination.js` | ✅ Done | Session state machine, round logic, ambient intent, window intersection |
+| 3 | `web/db/migrations/003_coordination.sql` | ✅ Done | `desires`, `coord_desires` view, `coordination_sessions`, `coord_session_peers`, `ambient_signals` |
+| 4 | `web/desires.js` | 🔲 Next | Parse free-text desires (via LLM) → structured records; stores to `desires` table |
+| 5 | Agent loop hook | 🔲 | When desire is `pending` + `social`, ask user who to probe, then call `createSession` + `startProbing` |
+| 6 | SMS escalation | 🔲 | `notifyUser` implementation — sends SMS when `ESCALATE_HUMAN` fires or plan is ready |
+| 7 | Ambient query handler | 🔲 | Agent responds to "what's happening tonight?" using `getAmbientSummary` + venue lookup |
 
 ---
 
