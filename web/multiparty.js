@@ -192,9 +192,8 @@ async function inviteContacts(eventId, contactIds) {
 function buildInviteMessage(hostName, contactName, activityType, dateStr, venueStr, invitationId) {
   return (
     `Hi ${contactName}! This is ${hostName}'s ButterflAI.\n\n` +
-    `${hostName} is having ${activityType}${venueStr} on ${dateStr} and would love you to join.\n\n` +
-    `Reply YES to join, NO if you can't make it.\n` +
-    `Reply STOP to opt out of all messages.`
+    `${hostName} is having ${activityType}${venueStr} on ${dateStr} and would love you to join — you in?\n\n` +
+    `Reply STOP to opt out.`
   );
 }
 
