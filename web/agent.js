@@ -139,6 +139,17 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'save_agent_note',
+    description: 'Save a durable fact you have learned about the user — resolved contact disambiguations, preferences, standing instructions. These persist forever and appear in every future conversation. Use after confirming something that you\'d otherwise forget (e.g. "Allison = Allison McLaine ...7976", "user prefers evening events").',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note: { type: 'string', description: 'Short, factual note to remember permanently' },
+      },
+      required: ['note'],
+    },
+  },
+  {
     name: 'check_contact_consent',
     description: 'Check whether a contact has opted in to receive messages from ButterflAI. Always check this before attempting to send a logistics SMS to a contact for the first time.',
     input_schema: {
@@ -473,6 +484,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       }
     }
 
+    case 'save_agent_note': {
+      const current = user.agent_notes || '';
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const updated = [current, `[${timestamp}] ${toolInput.note}`].filter(Boolean).join('\n');
+      db.updateUser(userId, { agent_notes: updated });
+      return { saved: true, note: toolInput.note };
+    }
+
     case 'check_contact_consent': {
       const contact = db.getContact(toolInput.contact_id);
       if (!contact) return { error: 'Contact not found' };
@@ -627,12 +646,14 @@ async function processMessage(msg) {
     } catch (_) { return '  (none)'; }
   })();
 
+  const agentNotes = user.agent_notes?.trim();
   const stateSnapshot = [
     `## Current state`,
     `- Calendar: ${calendarConnected ? '✅ connected (can check availability & create events)' : '❌ not connected'}`,
     `- Contacts: ${contactCount} in address book`,
     `- Open events:\n${pendingEvents}`,
-  ].join('\n');
+    agentNotes ? `\n## Remembered facts (use these — don't ask again)\n${agentNotes}` : '',
+  ].filter(Boolean).join('\n');
 
   // Build system prompt (lean — context comes from tools, not prompt stuffing)
   const systemPrompt = `You are ButterflAI, a personal social agent for ${user.name}.
@@ -665,6 +686,7 @@ COORDINATING PLANS:
 CONTACT MANAGEMENT:
 - If the user mentions a person by name AND provides a phone number, ALWAYS call add_contact immediately before responding. Don't ask permission.
 - If the user mentions a person by name without a phone number, use lookup_contact first. Try the nickname they used AND common full-name variants (e.g. "Allie" → also try "Allison"; "Liz" → "Elizabeth"; "Mike" → "Michael"). If multiple contacts match, show the top options with names and last 4 digits of phone only — never the full number unprompted.
+- After the user disambiguates a contact ("the one ending in 7976"), ALWAYS call save_agent_note to record it (e.g. "Allison = Allison McLaine ...7976"). This prevents asking the same disambiguation question again.
 - If the user gives enough context (e.g. "my college friend Allie" or "Allie McLaine"), narrow down before asking.
 - Ingesting a contact (add_contact) never sends them any message — it's just your address book.
 - Whether a contact uses ButterflAI is their private information. Don't claim to know or not know. Instead: offer to reach out to them on the user's behalf, which works whether or not they're a user.
@@ -673,7 +695,7 @@ CONTACT MANAGEMENT:
 STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
 
   // Load recent conversation history so the agent has context across SMS turns
-  const history = db.getRecentConversation(userId, 20);
+  const history = db.getRecentConversation(userId, 50);
   const messages = [
     ...history.map(h => ({ role: h.role, content: h.text })),
     { role: 'user', content: msg.text },
