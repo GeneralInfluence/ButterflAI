@@ -190,9 +190,11 @@ async function inviteContacts(eventId, contactIds) {
  * Contact is given a simple reply mechanism (YES/NO to a shortcode-style reply).
  */
 function buildInviteMessage(hostName, contactName, activityType, dateStr, venueStr, invitationId) {
+  const baseUrl = process.env.BASE_URL || 'https://butterflai.social';
   return (
     `Hi ${contactName}! This is ${hostName}'s ButterflAI.\n\n` +
     `${hostName} is having ${activityType}${venueStr} on ${dateStr} and would love you to join — you in?\n\n` +
+    `Want your own ButterflAI? → ${baseUrl}\n\n` +
     `Reply STOP to opt out.`
   );
 }

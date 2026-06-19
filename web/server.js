@@ -826,6 +826,11 @@ app.get('/auth/google/callback', async (req, res) => {
 
       await calendar.handleOAuthCallback(code, userId);
 
+      // Write to conversation history so the agent knows on the next turn
+      db.appendConversation(userId, 'assistant',
+        '[System] Google Calendar successfully connected. You can now ask me to check your availability, find free slots, or create calendar events.'
+      );
+
       if (user.phone) {
         await sms.notifyUser(user.phone,
           `📅 Your Google Calendar is connected! I can now check your real availability when coordinating plans.`
