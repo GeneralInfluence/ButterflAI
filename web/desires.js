@@ -231,7 +231,7 @@ async function parseAndStore(userId, rawText, windowStart, windowEnd, candidateI
     });
 
     // Zero raw_text immediately — we have everything we need in structured fields
-    db.zeroDesireRawText(userId, id);
+    db.zeroDesireRawText(id);
 
     stored.push({ id, ...d });
 
@@ -259,14 +259,14 @@ async function parseAndStore(userId, rawText, windowStart, windowEnd, candidateI
  * @param {string} windowEnd   YYYY-MM-DD
  * @returns {string} new desire id
  */
-function spawnRecurringInstance(userId, templateId, windowStart, windowEnd) {
-  const template = db.getCoordDesire(userId, templateId);
+function spawnRecurringInstance(templateId, windowStart, windowEnd) {
+  const template = db.getCoordDesire(templateId);
   if (!template) throw new Error(`Template desire ${templateId} not found`);
 
   const id = uuidv4();
   db.createDesire({
     id,
-    userId,
+    userId:           template.user_id,
     rawText:          '',               // instances have no raw_text
     category:         template.category,
     activityType:     template.activity_type,
@@ -282,7 +282,7 @@ function spawnRecurringInstance(userId, templateId, windowStart, windowEnd) {
     horizon:          'one_off',
     parentDesireId:   templateId
   });
-  db.zeroDesireRawText(userId, id); // already empty, but consistent
+  db.zeroDesireRawText(id); // already empty, but consistent
 
   return id;
 }
@@ -371,12 +371,11 @@ async function deleteDesire(userId, desireId, transport) {
 }
 
 async function _deleteDesires(userId, desireId, transport) {
-  const udb = db._userDb(userId);
-
-  // Get desires to delete (from per-user DB)
+  // Get desires to delete
   const toDelete = desireId
-    ? [udb.prepare('SELECT * FROM desires WHERE id = ?').get(desireId)].filter(Boolean)
-    : udb.prepare('SELECT * FROM desires').all();
+    ? [db._raw().prepare('SELECT * FROM desires WHERE id = ? AND user_id = ?').get(desireId, userId)]
+        .filter(Boolean)
+    : db._raw().prepare('SELECT * FROM desires WHERE user_id = ?').all(userId);
 
   if (!toDelete.length) {
     return { deleted: 0, sessionsCancelled: 0, receiptId: null };
@@ -385,7 +384,7 @@ async function _deleteDesires(userId, desireId, transport) {
   const desireIds = toDelete.map(d => d.id);
   let sessionsCancelled = 0;
 
-  // Cancel any in-flight coordination sessions for these desires (sessions are in main)
+  // Cancel any in-flight coordination sessions for these desires
   for (const did of desireIds) {
     const sessions = db._raw().prepare(
       "SELECT * FROM coordination_sessions WHERE desire_id = ? AND state NOT IN ('scheduled','dropped','cancelled')"
@@ -416,20 +415,20 @@ async function _deleteDesires(userId, desireId, transport) {
 
       db._raw().prepare(
         "UPDATE coordination_sessions SET state = 'cancelled', updated_at = strftime('%s','now') WHERE id = ?"
-      ).run(session.id);  // sessions stay in main
+      ).run(session.id);
       sessionsCancelled++;
     }
   }
 
-  // Hard-delete the desire records from per-user DB
+  // Hard-delete the desire records
   const placeholders = desireIds.map(() => '?').join(',');
-  udb.prepare(`DELETE FROM desires WHERE id IN (${placeholders})`).run(...desireIds);
+  db._raw().prepare(`DELETE FROM desires WHERE id IN (${placeholders})`).run(...desireIds);
 
-  // Write deletion receipt to per-user DB
+  // Write deletion receipt
   const receiptId = uuidv4();
-  udb.prepare(
-    'INSERT INTO desire_deletions (id, desire_id, reason) VALUES (?, ?, ?)'
-  ).run(receiptId, desireIds.join(','), 'user_requested');
+  db._raw().prepare(
+    'INSERT INTO desire_deletions (id, user_id, desire_count, session_count) VALUES (?, ?, ?, ?)'
+  ).run(receiptId, userId, desireIds.length, sessionsCancelled);
 
   return { deleted: desireIds.length, sessionsCancelled, receiptId };
 }

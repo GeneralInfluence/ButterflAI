@@ -9,10 +9,9 @@ WORKDIR /app
 COPY web/package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy app source, DB schema/migrations, and scripts
+# Copy app source and DB schema/migrations
 COPY web/ ./
 COPY db/ ./db/
-COPY scripts/ ./scripts/
 
 # Persistent volume mount point for SQLite
 RUN mkdir -p /data
@@ -22,7 +21,7 @@ RUN addgroup -S butterflai && adduser -S butterflai -G butterflai
 RUN chown -R butterflai:butterflai /app /data
 USER butterflai
 
-ENV DATA_DIR=/data
+ENV DB_PATH=/data/butterflai.sqlite
 ENV PORT=3000
 ENV NODE_ENV=production
 
