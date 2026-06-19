@@ -134,6 +134,12 @@ function createEvent(hostUserId, { title, activity_type, venue_name, venue_addre
  * @returns {{ sent: number, skipped: number }}
  */
 async function inviteContacts(eventId, contactIds) {
+  // Guard: refuse to send invites for events that have already passed
+  const eventCheck = db._raw().prepare('SELECT scheduled_at FROM social_events WHERE id = ?').get(eventId);
+  if (eventCheck && eventCheck.scheduled_at < Math.floor(Date.now() / 1000)) {
+    return { sent: 0, skipped: contactIds.length, error: 'EVENT_ALREADY_PASSED', message: 'Event time has already passed — reschedule before sending invites.' };
+  }
+
   const event = db._raw().prepare('SELECT * FROM social_events WHERE id = ?').get(eventId);
   if (!event) throw new Error('Event not found');
 

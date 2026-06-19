@@ -139,6 +139,20 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'record_rsvp',
+    description: 'Record an RSVP for a contact on an event when the confirmation happened outside the system (in person, verbally, via another channel). Use when the user says "Allison said she\'s in" or similar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        event_id: { type: 'string', description: 'Event ID from the state snapshot' },
+        contact_phone: { type: 'string', description: 'Contact phone number (E.164)' },
+        status: { type: 'string', enum: ['accepted', 'declined'], description: 'Their response' },
+        source: { type: 'string', description: 'How they confirmed, e.g. "in person", "phone call"' },
+      },
+      required: ['event_id', 'contact_phone', 'status'],
+    },
+  },
+  {
     name: 'save_agent_note',
     description: 'Save a durable fact you have learned about the user — resolved contact disambiguations, preferences, standing instructions. These persist forever and appear in every future conversation. Use after confirming something that you\'d otherwise forget (e.g. "Allison = Allison McLaine ...7976", "user prefers evening events").',
     input_schema: {
@@ -482,6 +496,30 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         }
         throw err;
       }
+    }
+
+    case 'record_rsvp': {
+      const { event_id, contact_phone, status, source } = toolInput;
+      const contact = db.getContactByPhone(contact_phone);
+      if (!contact) return { error: 'Contact not found' };
+      // Upsert invitation record
+      const existing = db._raw().prepare(
+        'SELECT id FROM event_invitations WHERE event_id = ? AND contact_id = ?'
+      ).get(event_id, contact.id);
+      if (existing) {
+        db._raw().prepare(
+          'UPDATE event_invitations SET status = ?, responded_at = strftime(\'%s\',\'now\') WHERE id = ?'
+        ).run(status, existing.id);
+      } else {
+        const { v4: uuidv4 } = require('uuid');
+        db._raw().prepare(
+          'INSERT INTO event_invitations (id, event_id, contact_id, status, responded_at) VALUES (?, ?, ?, ?, strftime(\'%s\',\'now\'))'
+        ).run(uuidv4(), event_id, contact.id, status);
+      }
+      db.appendConversation(userId, 'assistant',
+        `[System] RSVP recorded (${source || 'out of band'}): ${contact.name} has ${status} the event.`
+      );
+      return { action_status: 'RSVP_RECORDED', contact: contact.name, status, source };
     }
 
     case 'save_agent_note': {
