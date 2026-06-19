@@ -34,6 +34,7 @@ const contactsImport = require('./contacts-import');
 const venues = require('./venues');
 const multiparty = require('./multiparty');
 const desires    = require('./desires');
+const coord      = require('./coordination');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -403,6 +404,24 @@ const TOOL_DEFINITIONS = [
   },
   desires.TOOL_DEFINITION,
   desires.DELETE_TOOL_DEFINITION,
+
+  {
+    name: 'whats_happening',
+    description: [
+      'Answer "what\'s happening tonight?" or "what\'s going on this weekend?"',
+      'Aggregates ambient social signals from contacts\' agents (who broadcast intent without revealing specifics),',
+      'then fetches popular venue suggestions for the active categories.',
+      'Never reveals who specifically is going where — only that there\'s interest in a category + area.',
+      'Use when the user asks what friends are up to, what\'s going on tonight, or similar.'
+    ].join(' '),
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' }
+      },
+      required: []
+    }
+  },
 
   {
     name: 'store_pending_confirm',
@@ -861,6 +880,41 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'parse_desires': {
       return desires.handleParseTool(toolInput, userId);
+    }
+
+    case 'whats_happening': {
+      const date    = toolInput.date || new Date().toISOString().slice(0, 10);
+      const signals = coord.getAmbientSummary(date);
+
+      if (!signals.length) {
+        return { date, summary: 'Nothing in the signal yet — no one\'s broadcast intent for tonight.' };
+      }
+
+      // Build a venue suggestion for each active category+area
+      // (venue names come from our lookup, NOT from the broadcast — severs the identity link)
+      const withVenues = await Promise.all(signals.map(async s => {
+        let venueOptions = [];
+        try {
+          const result = await venues.suggestVenues(userId, {
+            activity_type: s.category,
+            neighborhood:  s.area || undefined
+          });
+          venueOptions = (result.options || []).slice(0, 3).map(v => v.name);
+        } catch { /* venue lookup optional */ }
+
+        return {
+          category:       s.category,
+          area:           s.area,
+          period:         s.period,
+          certainty:      s.certainty,
+          open_to_company: s.openToCompany,
+          count:          s.count,
+          venue_suggestions: venueOptions
+          // deliberately absent: who, exact venue they mentioned, group size
+        };
+      }));
+
+      return { date, signals: withVenues };
     }
 
     case 'delete_desires': {
