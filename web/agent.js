@@ -139,6 +139,40 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'update_preferences',
+    description: 'Save something you learned about the user\'s preferences — allergies, dietary needs, activity likes/dislikes, vibe, budget, neighborhood, availability. Call this whenever the user mentions anything about their preferences, even casually ("I hate sushi", "I\'m usually free after 7", "I\'m allergic to nuts"). Do NOT wait to be asked — just save it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        food_allergies:        { type: 'array', items: { type: 'string' }, description: 'Life-threatening allergies, e.g. ["shellfish","peanuts"]' },
+        dietary_restrictions:  { type: 'array', items: { type: 'string' }, description: 'e.g. ["vegetarian","gluten-free"]' },
+        cuisine_loves:         { type: 'array', items: { type: 'string' } },
+        cuisine_avoids:        { type: 'array', items: { type: 'string' } },
+        activity_loves:        { type: 'array', items: { type: 'string' }, description: 'e.g. ["bars","hiking","live music"]' },
+        activity_avoids:       { type: 'array', items: { type: 'string' } },
+        vibe:                  { type: 'array', items: { type: 'string' }, description: 'e.g. ["low-key","dive bars","foodie","outdoorsy"]' },
+        budget_low:            { type: 'number', description: 'Minimum spend per outing in USD' },
+        budget_high:           { type: 'number', description: 'Maximum spend per outing in USD' },
+        neighborhood:          { type: 'string' },
+        city:                  { type: 'string' },
+        availability_notes:    { type: 'string', description: 'Free-form, e.g. "weeknight evenings after 7, weekend afternoons"' },
+        comm_style:            { type: 'string', enum: ['brief', 'detailed', 'just handle it'] },
+        extra_notes:           { type: 'string', description: 'Anything else worth remembering' },
+      },
+    },
+  },
+  {
+    name: 'get_contact_hard_constraints',
+    description: 'Get the hard constraints (allergies, dietary restrictions) for a contact who is also a ButterflAI user — for agent-to-agent coordination. Only returns non-private constraint data, not soft preferences.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_id: { type: 'string', description: 'Contact ID from lookup_contact' },
+      },
+      required: ['contact_id'],
+    },
+  },
+  {
     name: 'confirm_coordination_invite',
     description: 'Respond to an event invitation from another ButterflAI user. Updates your RSVP status, optionally adds the event to YOUR calendar, and notifies the host\'s agent in the background — without sharing your private preferences.',
     input_schema: {
@@ -511,6 +545,29 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       }
     }
 
+    case 'update_preferences': {
+      db.upsertPreferences(userId, toolInput);
+      return { saved: true, fields: Object.keys(toolInput) };
+    }
+
+    case 'get_contact_hard_constraints': {
+      // Agent-to-agent: fetch only hard constraints (allergies, diet) for a contact who is a user
+      // Never exposes soft preferences or private notes
+      const contact = db.getContact(toolInput.contact_id);
+      if (!contact?.phone) return { error: 'Contact not found or no phone' };
+      const contactUser = db.getUserByPhone(contact.phone);
+      if (!contactUser) return { is_butterflai_user: false, note: 'Contact is not a ButterflAI user — ask them directly' };
+      const contactPrefs = db.getPreferences(contactUser.id);
+      if (!contactPrefs) return { is_butterflai_user: true, constraints_known: false };
+      return {
+        is_butterflai_user: true,
+        constraints_known: true,
+        food_allergies: contactPrefs.food_allergies || [],
+        dietary_restrictions: contactPrefs.dietary_restrictions || [],
+        // Deliberately omit: vibe, budget, soft preferences — those are private
+      };
+    }
+
     case 'confirm_coordination_invite': {
       const { invitation_id, status, add_to_calendar } = toolInput;
       const inv = db._raw().prepare(`
@@ -742,6 +799,7 @@ async function processMessage(msg) {
   // always has current context regardless of conversation history window.
   const userTimezone = user.timezone || 'America/Los_Angeles';
   const calendarConnected = calendar.hasCalendarConnected(userId);
+  const prefs = db.getPreferences(userId);
   const contactCount = db.getContactsByUser(userId).length;
   const pendingEvents = (() => {
     try {
@@ -791,12 +849,31 @@ async function processMessage(msg) {
   })();
 
   const agentNotes = user.agent_notes?.trim();
+  const prefsSection = (() => {
+    if (!prefs) return '- Preferences: not set yet (ask conversationally to learn them)';
+    const parts = [];
+    if (prefs.food_allergies?.length)       parts.push(`⚠️  Allergies: ${prefs.food_allergies.join(', ')}`);
+    if (prefs.dietary_restrictions?.length) parts.push(`Diet: ${prefs.dietary_restrictions.join(', ')}`);
+    if (prefs.cuisine_loves?.length)        parts.push(`Loves: ${prefs.cuisine_loves.join(', ')}`);
+    if (prefs.cuisine_avoids?.length)       parts.push(`Avoids: ${prefs.cuisine_avoids.join(', ')}`);
+    if (prefs.activity_loves?.length)       parts.push(`Activities: ${prefs.activity_loves.join(', ')}`);
+    if (prefs.activity_avoids?.length)      parts.push(`Dislikes: ${prefs.activity_avoids.join(', ')}`);
+    if (prefs.vibe?.length)                 parts.push(`Vibe: ${prefs.vibe.join(', ')}`);
+    if (prefs.budget_low || prefs.budget_high) parts.push(`Budget: $${prefs.budget_low || 0}–$${prefs.budget_high || '?'}/outing`);
+    if (prefs.neighborhood)                 parts.push(`Location: ${prefs.neighborhood}${prefs.city ? ', ' + prefs.city : ''}`);
+    if (prefs.availability_notes)           parts.push(`Usually free: ${prefs.availability_notes}`);
+    if (prefs.comm_style)                   parts.push(`Comm style: ${prefs.comm_style}`);
+    if (prefs.extra_notes)                  parts.push(`Notes: ${prefs.extra_notes}`);
+    return parts.length ? parts.map(p => `- ${p}`).join('\n') : '- Preferences: set but empty — keep learning through conversation';
+  })();
+
   const stateSnapshot = [
     `## Current state`,
     `- User timezone: ${userTimezone} (current local time: ${userLocalTime})`,
     `- Calendar: ${calendarConnected ? '✅ connected (can check availability & create events)' : '❌ not connected'}`,
     `- Contacts: ${contactCount} in address book`,
-    `- Open events:\n${pendingEvents}`,
+    `\n## ${user.name}'s preferences\n${prefsSection}`,
+    `\n## Open events\n${pendingEvents}`,
     pendingCoordination,
     agentNotes ? `\n## Remembered facts (use these — don't ask again)\n${agentNotes}` : '',
   ].filter(Boolean).join('\n');
@@ -862,6 +939,14 @@ LOGISTICS vs EXPRESSIVE (the send gate):
 - EXPRESSIVE (needs user approval before sending): messages that speak AS the user with genuine personal feeling — a heartfelt apology, a confession, something that would be embarrassing or harmful if the user hadn't intended it.
 - Use your judgment. "Want to hang after beers?" is obviously logistics. "I've been thinking about you a lot lately" is obviously expressive. Most things are logistics.
 - When in doubt, lean logistics. The cost of an extra approval is higher than the cost of sending a slightly imperfect logistics message.
+
+LEARNING THE USER — build their profile over time:
+- You are their long-term agent. Every conversation teaches you something. Save it.
+- When the user mentions anything about preferences — food, activities, schedule, budget, vibe — call update_preferences immediately. Don't wait for a natural pause. Just save it.
+- Examples: "I hate sushi" → cuisine_avoids; "I'm usually free after 7" → availability_notes; "I'm allergic to peanuts" → food_allergies; "I'm more of a dive bar person" → vibe; "I try to keep nights under $50" → budget_high.
+- Food allergies are the most important — always save them and always factor them in when suggesting venues.
+- After the first week, you should know their neighborhood, rough availability, dietary constraints, and vibe. Build this naturally through conversation, not with a form.
+- When planning something with a group, call get_contact_hard_constraints for each ButterflAI contact — this is agent-to-agent, no SMS needed. Factor their allergies and restrictions into venue suggestions before anyone is asked anything.
 
 CONTACT MANAGEMENT:
 - If the user mentions a person by name AND provides a phone number, ALWAYS call add_contact immediately before responding. Don't ask permission.

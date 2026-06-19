@@ -489,6 +489,44 @@ module.exports = {
     return !!row;
   },
 
+  // ── User preferences ──────────────────────────────────────────────────────
+
+  getPreferences(userId) {
+    const row = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
+    if (!row) return null;
+    // Parse JSON columns
+    const jsonCols = ['dietary_restrictions','food_allergies','cuisine_loves','cuisine_avoids',
+                      'activity_loves','activity_avoids','vibe'];
+    for (const col of jsonCols) {
+      try { row[col] = JSON.parse(row[col] || '[]'); } catch { row[col] = []; }
+    }
+    return row;
+  },
+
+  upsertPreferences(userId, fields) {
+    // Stringify any array/object fields before writing
+    const jsonCols = ['dietary_restrictions','food_allergies','cuisine_loves','cuisine_avoids',
+                      'activity_loves','activity_avoids','vibe'];
+    const toWrite = { ...fields };
+    for (const col of jsonCols) {
+      if (col in toWrite && Array.isArray(toWrite[col])) {
+        toWrite[col] = JSON.stringify(toWrite[col]);
+      }
+    }
+    const existing = db.prepare('SELECT user_id FROM user_preferences WHERE user_id = ?').get(userId);
+    if (!existing) {
+      const cols = ['user_id', ...Object.keys(toWrite)].join(', ');
+      const placeholders = ['?', ...Object.keys(toWrite).map(() => '?')].join(', ');
+      db.prepare(`INSERT INTO user_preferences (${cols}) VALUES (${placeholders})`)
+        .run(userId, ...Object.values(toWrite));
+    } else {
+      const sets = Object.keys(toWrite).map(k => `${k} = ?`).join(', ');
+      db.prepare(`UPDATE user_preferences SET ${sets}, updated_at = strftime('%s','now') WHERE user_id = ?`)
+        .run(...Object.values(toWrite), userId);
+    }
+    return this.getPreferences(userId);
+  },
+
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
 
   getWallet(userId) {
