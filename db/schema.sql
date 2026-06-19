@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     from_telegram_id TEXT,             -- set for Telegram messages
     from_type TEXT NOT NULL CHECK (from_type IN ('contact', 'user')),
     from_id TEXT NOT NULL,
-    channel TEXT NOT NULL DEFAULT 'sms' CHECK (channel IN ('sms', 'telegram')),
+    channel TEXT NOT NULL DEFAULT 'sms' CHECK (channel IN ('sms', 'telegram', 'webchat', 'eval', 'agent', 'agent_query', 'agent_reply')),
     text TEXT NOT NULL,
     processed INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
@@ -177,13 +177,13 @@ CREATE TABLE IF NOT EXISTS budgets (
 -- Agent-to-agent message log (MCP; purged after coordination resolves)
 CREATE TABLE IF NOT EXISTS agent_messages (
     id TEXT PRIMARY KEY,
-    from_pubkey TEXT NOT NULL,
-    to_pubkey TEXT NOT NULL,
-    message_type TEXT NOT NULL,        -- 'propose' | 'counter' | 'confirm' | 'decline'
-    payload TEXT NOT NULL,             -- JSON (never contains exclusion reasons)
-    signature TEXT,
-    processed INTEGER DEFAULT 0,
-    purge_after INTEGER,               -- unix ts: hard-delete after coordination ends
+    from_user TEXT NOT NULL REFERENCES users(id),
+    to_user TEXT NOT NULL REFERENCES users(id),
+    thread_id TEXT NOT NULL,
+    kind TEXT NOT NULL,                -- 'query' | 'reply' | 'notification'
+    topic TEXT NOT NULL,               -- 'availability' | 'constraints' | 'rsvp' | 'coordination'
+    body TEXT NOT NULL,                -- never contains exclusion reasons or private prefs
+    processed INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
@@ -204,7 +204,7 @@ CREATE INDEX IF NOT EXISTS idx_contacts_invited_by  ON contacts(invited_by_user_
 CREATE INDEX IF NOT EXISTS idx_contacts_phone       ON contacts(phone);
 CREATE INDEX IF NOT EXISTS idx_cadences_relationship ON cadences(relationship_id);
 CREATE INDEX IF NOT EXISTS idx_activities_cadence   ON activities(cadence_id);
-CREATE INDEX IF NOT EXISTS idx_agent_messages_to    ON agent_messages(to_pubkey, processed);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_to    ON agent_messages(to_user, processed, created_at);
 CREATE INDEX IF NOT EXISTS idx_access_audit_user    ON access_audit(user_id, accessed_at);
 CREATE INDEX IF NOT EXISTS idx_inbound_unprocessed  ON inbound_messages(processed, created_at);
 
