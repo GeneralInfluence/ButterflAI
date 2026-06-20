@@ -231,6 +231,7 @@
 
     // ── SSE ────────────────────────────────────────────────────────────────────
     function connectSSE() {
+      if (eventSource) { eventSource.close(); }
       eventSource = new EventSource('/api/chat/stream');
       eventSource.onmessage = e => {
         const data = JSON.parse(e.data);
@@ -240,9 +241,11 @@
           appendMessage('bot', data.text, data.ts);
           scrollToBottom();
         }
+        if (data.redirect) { location.href = data.redirect; }
       };
       eventSource.onerror = () => {
-        setTimeout(connectSSE, 3000);
+        // Back off before reconnecting
+        setTimeout(connectSSE, 5000);
       };
     }
 

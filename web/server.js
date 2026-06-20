@@ -685,8 +685,32 @@ app.get('/api/chat/messages', webAuth.requireAuth, (req, res) => {
 });
 
 // GET /api/chat/stream — SSE stream for real-time agent responses
-app.get('/api/chat/stream', webAuth.requireAuth, (req, res) => {
-  sse.register(req.user.id, res);
+// Note: EventSource can't read 401 body, so we send a redirect event instead
+app.get('/api/chat/stream', (req, res) => {
+  const token = req.cookies?.[webAuth.COOKIE_NAME];
+  if (!token) {
+    // Send one event telling client to redirect, then close
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.flushHeaders();
+    res.write(`data: ${JSON.stringify({ redirect: '/app/login' })}\n\n`);
+    return res.end();
+  }
+  const payload = webAuth.verifyToken(token);
+  if (!payload) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.flushHeaders();
+    res.write(`data: ${JSON.stringify({ redirect: '/app/login' })}\n\n`);
+    return res.end();
+  }
+  const user = db.getUser(payload.userId);
+  if (!user) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.flushHeaders();
+    res.write(`data: ${JSON.stringify({ redirect: '/app/login' })}\n\n`);
+    return res.end();
+  }
+  req.user = user;
+  sse.register(user.id, res);
 });
 
 // POST /api/chat/send — inbound message from web UI
