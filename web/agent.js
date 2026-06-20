@@ -436,6 +436,28 @@ const TOOL_DEFINITIONS = [
       required: ['summary', 'payload'],
     },
   },
+  {
+    name: 'fetch_url',
+    description: 'Fetch and read the contents of a URL — a web page, article, event listing, menu, or any link the user shares. Use this whenever the user sends a URL or asks about something on the web.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'The URL to fetch' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'web_search',
+    description: 'Search the web for current information — restaurants, venues, events, business hours, news, or anything the user asks about that may require up-to-date info.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 // ── Tool execution (all scoped to userId) ─────────────────────────────────────
@@ -933,6 +955,63 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         ttl_secs: 24 * 3600,
       });
       return { stored: true, note: `Confirmation request stored. Tell the user: "${toolInput.summary} — reply yes to confirm."` };
+    }
+
+    case 'fetch_url': {
+      const { url } = toolInput;
+      if (!url || !/^https?:\/\//i.test(url)) return { error: 'Invalid URL.' };
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 10000);
+        const response = await fetch(url, {
+          signal: ctrl.signal,
+          headers: { 'User-Agent': 'ButterflAI/1.0 (social assistant; +https://butterflai.social)' },
+        });
+        clearTimeout(timer);
+        const contentType = response.headers.get('content-type') || '';
+        if (!response.ok) return { error: `HTTP ${response.status}` };
+        let text = await response.text();
+        // Strip HTML tags for readability
+        text = text
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s{3,}/g, '\n\n')
+          .trim()
+          .slice(0, 6000);  // cap at 6k chars
+        return { url, content_type: contentType, text };
+      } catch (err) {
+        return { error: err.name === 'AbortError' ? 'Request timed out.' : err.message };
+      }
+    }
+
+    case 'web_search': {
+      const { query } = toolInput;
+      if (!query) return { error: 'query required' };
+      const apiKey = process.env.BRAVE_SEARCH_API_KEY;
+      if (!apiKey) return { error: 'Web search not configured.' };
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(
+          `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`,
+          {
+            signal: ctrl.signal,
+            headers: { 'Accept': 'application/json', 'X-Subscription-Token': apiKey },
+          }
+        );
+        clearTimeout(timer);
+        if (!r.ok) return { error: `Search API error: ${r.status}` };
+        const data = await r.json();
+        const results = (data.web?.results || []).map(item => ({
+          title: item.title,
+          url:   item.url,
+          snippet: item.description,
+        }));
+        return { query, results };
+      } catch (err) {
+        return { error: err.name === 'AbortError' ? 'Search timed out.' : err.message };
+      }
     }
 
     default:
