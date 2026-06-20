@@ -1200,6 +1200,15 @@ app.post('/api/contacts/invite', async (req, res) => {
   }
 });
 
+// ── Global error safety net — prevent process crashes from unhandled errors ───
+process.on('uncaughtException', (err) => {
+  console.error('[server] uncaughtException:', err.message, err.stack);
+  // Do not exit — keep serving
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandledRejection:', reason);
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {

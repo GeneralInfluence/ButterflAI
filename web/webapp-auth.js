@@ -65,14 +65,19 @@ function verifyToken(token) {
 // ── Middleware ────────────────────────────────────────────────────────────────
 
 function requireAuth(req, res, next) {
-  const token = req.cookies?.[COOKIE_NAME];
-  if (!token) return res.status(401).json({ error: 'Not authenticated.' });
-  const payload = verifyToken(token);
-  if (!payload) return res.status(401).json({ error: 'Session expired.' });
-  const user = db.getUser(payload.userId);
-  if (!user) return res.status(401).json({ error: 'User not found.' });
-  req.user = user;
-  next();
+  try {
+    const token = req.cookies?.[COOKIE_NAME];
+    if (!token) return res.status(401).json({ error: 'Not authenticated.' });
+    const payload = verifyToken(token);
+    if (!payload) return res.status(401).json({ error: 'Session expired.' });
+    const user = db.getUser(payload.userId);
+    if (!user) return res.status(401).json({ error: 'User not found.' });
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error('[auth] requireAuth error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Auth error.' });
+  }
 }
 
 function requireAuthPage(req, res, next) {
