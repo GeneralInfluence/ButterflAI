@@ -100,15 +100,18 @@ function _setDb(mockDb) {
  * @param {string} body - Message text
  * @throws {ConsentRequired} if no consent record exists for `to`
  */
-async function send(to, body) {
+async function send(to, body, opts = {}) {
   // ── GATE: opt-out checked first (explicit STOP always wins), then consent ─
   const db = _getDb();
   if (db.isOptedOut(to)) {
     throw new RecipientOptedOut(to);
   }
-  const consent = db.getConsent(to);
-  if (!consent) {
-    throw new ConsentRequired(to);
+  // skipConsentCheck allowed for OTP sends (OTP is itself the consent mechanism)
+  if (!opts.skipConsentCheck) {
+    const consent = db.getConsent(to);
+    if (!consent) {
+      throw new ConsentRequired(to);
+    }
   }
   // ─────────────────────────────────────────────────────────────────────────
 

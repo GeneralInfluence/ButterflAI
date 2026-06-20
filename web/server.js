@@ -23,9 +23,12 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 
+const cookieParser = require('cookie-parser');
 const db = require('./db');
 const sms = require('./sms');
 const { ConsentRequired, RecipientOptedOut } = require('./sms');
+const sse      = require('./sse');
+const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
 const { startNudgeLoop } = require('./cadence');
@@ -48,6 +51,7 @@ try {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
@@ -658,6 +662,55 @@ function escapeXml(str) {
 
 // ── Admin routes (auth-gated via X-Admin-Secret header) ──────────────────────
 app.use('/admin', express.json(), adminRouter);
+
+// ── Web app pages ─────────────────────────────────────────────────────────────
+app.get('/app/login',    (req, res) => res.sendFile(path.join(__dirname, 'public/app/login.html')));
+app.get('/app/chat',     webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/chat.html')));
+app.get('/app/contacts', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/contacts.html')));
+app.get('/app',          (req, res) => res.redirect('/app/chat'));
+
+// ── OTP auth ──────────────────────────────────────────────────────────────────
+app.post('/auth/otp/send',   express.json(), webAuth.sendOtp);
+app.post('/auth/otp/verify', express.json(), webAuth.verifyOtpHandler);
+app.get('/auth/logout',      webAuth.logout);
+
+// ── Web chat API ──────────────────────────────────────────────────────────────
+// GET /api/chat/messages — last 50 conversation messages
+app.get('/api/chat/messages', webAuth.requireAuth, (req, res) => {
+  const msgs = db._raw().prepare(
+    `SELECT role, text, created_at FROM conversation_history
+     WHERE user_id = ? ORDER BY created_at ASC LIMIT 50`
+  ).all(req.user.id);
+  res.json({ messages: msgs });
+});
+
+// GET /api/chat/stream — SSE stream for real-time agent responses
+app.get('/api/chat/stream', webAuth.requireAuth, (req, res) => {
+  sse.register(req.user.id, res);
+});
+
+// POST /api/chat/send — inbound message from web UI
+app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res) => {
+  const text = req.body?.text?.trim();
+  if (!text) return res.status(400).json({ error: 'text required' });
+
+  // Store as inbound message and let the agent loop process it
+  db.storeInboundMessage({
+    from_phone: req.user.phone,
+    from_type: 'web',
+    from_id: req.user.id,
+    channel: 'web',
+    text,
+  });
+
+  res.json({ ok: true });
+});
+
+// GET /api/contacts/list — contacts for the authenticated user
+app.get('/api/contacts/list', webAuth.requireAuth, (req, res) => {
+  const contacts = db.getContactsByUser(req.user.id);
+  res.json({ contacts });
+});
 
 app.get('/health', (req, res) => {
   // Verify DB is reachable

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>ButterflAI — Chat</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --purple: #6c47ff;
+      --bg: #f2f2f7;
+      --bubble-me: #6c47ff;
+      --bubble-bot: #fff;
+      --text-me: #fff;
+      --text-bot: #1a1a1a;
+      --header-h: 60px;
+      --input-h: 72px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    /* Header */
+    header {
+      height: var(--header-h);
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 12px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .avatar {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6c47ff, #a78bfa);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; flex-shrink: 0;
+    }
+    .header-info h2 { font-size: 16px; font-weight: 700; }
+    .header-info p { font-size: 12px; color: #888; }
+    .header-actions { margin-left: auto; display: flex; gap: 12px; }
+    .header-actions a {
+      font-size: 13px; color: var(--purple); text-decoration: none; font-weight: 500;
+    }
+
+    /* Messages */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .msg { display: flex; flex-direction: column; max-width: 80%; }
+    .msg.me { align-self: flex-end; align-items: flex-end; }
+    .msg.bot { align-self: flex-start; align-items: flex-start; }
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 18px;
+      font-size: 15px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.me .bubble {
+      background: var(--bubble-me);
+      color: var(--text-me);
+      border-bottom-right-radius: 4px;
+    }
+    .msg.bot .bubble {
+      background: var(--bubble-bot);
+      color: var(--text-bot);
+      border-bottom-left-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .ts { font-size: 11px; color: #bbb; margin-top: 2px; padding: 0 4px; }
+
+    /* Typing indicator */
+    .typing { display: none; align-self: flex-start; }
+    .typing.visible { display: flex; }
+    .typing .bubble { padding: 12px 16px; display: flex; gap: 5px; align-items: center; }
+    .typing .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #bbb; animation: bounce .8s infinite;
+    }
+    .typing .dot:nth-child(2) { animation-delay: .15s; }
+    .typing .dot:nth-child(3) { animation-delay: .3s; }
+    @keyframes bounce {
+      0%,60%,100% { transform: translateY(0); }
+      30% { transform: translateY(-5px); }
+    }
+
+    /* Input */
+    .input-row {
+      height: var(--input-h);
+      background: #fff;
+      border-top: 1px solid #e5e5e5;
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    #msg-input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1.5px solid #e5e5e5;
+      border-radius: 22px;
+      font-size: 15px;
+      outline: none;
+      resize: none;
+      font-family: inherit;
+      max-height: 100px;
+      line-height: 1.4;
+      background: #fafafa;
+      transition: border-color .15s;
+    }
+    #msg-input:focus { border-color: var(--purple); background: #fff; }
+    #send-btn {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: var(--purple);
+      border: none;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: opacity .15s;
+    }
+    #send-btn:disabled { opacity: .4; }
+    #send-btn svg { width: 18px; height: 18px; fill: #fff; }
+
+    .date-divider {
+      text-align: center;
+      font-size: 12px;
+      color: #bbb;
+      margin: 8px 0;
+    }
+
+    /* Empty state */
+    .empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #bbb;
+      gap: 8px;
+      font-size: 14px;
+    }
+    .empty .emoji { font-size: 40px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="avatar">🦋</div>
+    <div class="header-info">
+      <h2>ButterflAI</h2>
+      <p id="status-text">Your social assistant</p>
+    </div>
+    <div class="header-actions">
+      <a href="/app/contacts">Contacts</a>
+      <a href="/auth/logout">Sign out</a>
+    </div>
+  </header>
+
+  <div id="messages">
+    <div class="empty" id="empty-state">
+      <div class="emoji">🦋</div>
+      <p>Start chatting with your ButterflAI</p>
+    </div>
+  </div>
+  <div class="msg bot typing" id="typing">
+    <div class="bubble">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+  </div>
+
+  <div class="input-row">
+    <textarea id="msg-input" placeholder="Message your ButterflAI…" rows="1"></textarea>
+    <button id="send-btn" onclick="send()" disabled>
+      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+    </button>
+  </div>
+
+  <script>
+    const messagesEl = document.getElementById('messages');
+    const inputEl    = document.getElementById('msg-input');
+    const sendBtn    = document.getElementById('send-btn');
+    const typingEl   = document.getElementById('typing');
+    const emptyEl    = document.getElementById('empty-state');
+    let eventSource  = null;
+
+    // ── Input auto-resize ──────────────────────────────────────────────────────
+    inputEl.addEventListener('input', () => {
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
+      sendBtn.disabled = !inputEl.value.trim();
+    });
+    inputEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+
+    // ── Load history ───────────────────────────────────────────────────────────
+    async function loadHistory() {
+      try {
+        const r = await fetch('/api/chat/messages');
+        if (!r.ok) { if (r.status === 401) location.href = '/app/login'; return; }
+        const { messages } = await r.json();
+        if (messages.length) {
+          emptyEl.remove();
+          messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at));
+          scrollToBottom();
+        }
+      } catch {}
+    }
+
+    // ── SSE ────────────────────────────────────────────────────────────────────
+    function connectSSE() {
+      eventSource = new EventSource('/api/chat/stream');
+      eventSource.onmessage = e => {
+        const data = JSON.parse(e.data);
+        if (data.role === 'assistant') {
+          typingEl.classList.remove('visible');
+          if (emptyEl.parentNode) emptyEl.remove();
+          appendMessage('bot', data.text, data.ts);
+          scrollToBottom();
+        }
+      };
+      eventSource.onerror = () => {
+        setTimeout(connectSSE, 3000);
+      };
+    }
+
+    // ── Send ───────────────────────────────────────────────────────────────────
+    async function send() {
+      const text = inputEl.value.trim();
+      if (!text) return;
+      inputEl.value = '';
+      inputEl.style.height = 'auto';
+      sendBtn.disabled = true;
+
+      if (emptyEl.parentNode) emptyEl.remove();
+      appendMessage('me', text, Date.now() / 1000);
+      scrollToBottom();
+      typingEl.classList.add('visible');
+      scrollToBottom();
+
+      try {
+        const r = await fetch('/api/chat/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        if (r.status === 401) location.href = '/app/login';
+      } catch {}
+    }
+
+    // ── DOM helpers ────────────────────────────────────────────────────────────
+    function appendMessage(role, text, ts) {
+      const div  = document.createElement('div');
+      div.className = `msg ${role}`;
+      const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+      div.innerHTML = `<div class="bubble">${escHtml(text)}</div><div class="ts">${time}</div>`;
+      messagesEl.appendChild(div);
+    }
+
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function escHtml(t) {
+      return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    }
+
+    // ── Init ───────────────────────────────────────────────────────────────────
+    loadHistory();
+    connectSSE();
+  </script>
+</body>
+</html>

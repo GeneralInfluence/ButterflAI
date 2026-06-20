@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>ButterflAI — Sign In</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #faf9f7;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px;
+    }
+    .logo { font-size: 56px; margin-bottom: 12px; }
+    h1 { font-size: 22px; font-weight: 700; color: #1a1a1a; margin-bottom: 6px; }
+    .tagline { font-size: 14px; color: #888; margin-bottom: 40px; text-align: center; }
+    .card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 28px 24px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 2px 20px rgba(0,0,0,0.07);
+    }
+    label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 6px; }
+    input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 1.5px solid #e5e5e5;
+      border-radius: 12px;
+      font-size: 17px;
+      outline: none;
+      transition: border-color .15s;
+      background: #fafafa;
+      -webkit-appearance: none;
+    }
+    input:focus { border-color: #6c47ff; background: #fff; }
+    input[type="tel"] { letter-spacing: .5px; }
+    input[type="number"] {
+      letter-spacing: 6px;
+      font-size: 24px;
+      font-weight: 700;
+      text-align: center;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 15px;
+      margin-top: 16px;
+      background: #6c47ff;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn:active { opacity: .8; }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .error { color: #e53e3e; font-size: 13px; margin-top: 10px; text-align: center; display: none; }
+    .step { display: none; }
+    .step.active { display: block; }
+    .back-btn {
+      background: none;
+      border: none;
+      color: #6c47ff;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 0;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .hint { font-size: 13px; color: #999; margin-top: 10px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="logo">🦋</div>
+  <h1>ButterflAI</h1>
+  <p class="tagline">Your social life, handled.</p>
+
+  <div class="card">
+    <!-- Step 1: phone -->
+    <div class="step active" id="step-phone">
+      <label for="phone">Phone number</label>
+      <input type="tel" id="phone" placeholder="+1 (555) 000-0000" autocomplete="tel" inputmode="tel">
+      <button class="btn" id="send-btn" onclick="sendCode()">Send code</button>
+      <div class="error" id="phone-error"></div>
+    </div>
+
+    <!-- Step 2: OTP -->
+    <div class="step" id="step-otp">
+      <button class="back-btn" onclick="goBack()">← Change number</button>
+      <label for="code">Enter the 6-digit code</label>
+      <input type="number" id="code" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+      <p class="hint" id="otp-hint"></p>
+      <button class="btn" id="verify-btn" onclick="verifyCode()">Sign in</button>
+      <div class="error" id="otp-error"></div>
+    </div>
+  </div>
+
+  <script>
+    let phoneValue = '';
+
+    document.getElementById('phone').addEventListener('keydown', e => {
+      if (e.key === 'Enter') sendCode();
+    });
+    document.getElementById('code').addEventListener('keydown', e => {
+      if (e.key === 'Enter') verifyCode();
+    });
+    document.getElementById('code').addEventListener('input', e => {
+      if (e.target.value.length === 6) verifyCode();
+    });
+
+    function showError(id, msg) {
+      const el = document.getElementById(id);
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+    function clearError(id) {
+      document.getElementById(id).style.display = 'none';
+    }
+
+    async function sendCode() {
+      clearError('phone-error');
+      phoneValue = document.getElementById('phone').value.trim();
+      if (!phoneValue) return showError('phone-error', 'Enter your phone number.');
+
+      const btn = document.getElementById('send-btn');
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+
+      try {
+        const r = await fetch('/auth/otp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: phoneValue })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed to send code.');
+
+        document.getElementById('otp-hint').textContent = `Code sent to ${phoneValue}`;
+        document.getElementById('step-phone').classList.remove('active');
+        document.getElementById('step-otp').classList.add('active');
+        setTimeout(() => document.getElementById('code').focus(), 100);
+      } catch (err) {
+        showError('phone-error', err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send code';
+      }
+    }
+
+    async function verifyCode() {
+      clearError('otp-error');
+      const code = document.getElementById('code').value.trim();
+      if (code.length !== 6) return showError('otp-error', 'Enter the 6-digit code.');
+
+      const btn = document.getElementById('verify-btn');
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+
+      try {
+        const r = await fetch('/auth/otp/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: phoneValue, code })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Invalid code.');
+        window.location.href = '/app/chat';
+      } catch (err) {
+        showError('otp-error', err.message);
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      }
+    }
+
+    function goBack() {
+      document.getElementById('step-otp').classList.remove('active');
+      document.getElementById('step-phone').classList.add('active');
+      document.getElementById('code').value = '';
+    }
+  </script>
+</body>
+</html>

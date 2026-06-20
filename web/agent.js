@@ -35,6 +35,7 @@ const venues = require('./venues');
 const multiparty = require('./multiparty');
 const desires    = require('./desires');
 const coord      = require('./coordination');
+const sse        = require('./sse');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -1185,6 +1186,9 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
       if (replyText) {
         // Store reply in conversation history before sending
         db.appendConversation(userId, 'assistant', replyText);
+        // Push to web UI via SSE if connected
+        sse.push(userId, { role: 'assistant', text: replyText, ts: Math.floor(Date.now() / 1000) });
+        // Send via SMS if user has a phone (may be web-only user)
         if (userPhone) {
           console.log(`[agent] replying to ${userPhone}: "${replyText.slice(0, 60)}"`);
           await sms.sendUnchecked(userPhone, replyText);
