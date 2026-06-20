@@ -244,7 +244,7 @@
         if (data.redirect) { location.href = data.redirect; }
       };
       eventSource.onerror = () => {
-        // Back off before reconnecting
+        typingEl.classList.remove('visible'); // clear stuck dots on disconnect
         setTimeout(connectSSE, 5000);
       };
     }
@@ -269,8 +269,14 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text })
         });
-        if (r.status === 401) location.href = '/app/login';
-      } catch {}
+        if (r.status === 401) { location.href = '/app/login'; return; }
+        if (!r.ok) throw new Error('send failed');
+      } catch {
+        // Send failed — hide typing indicator and show error
+        typingEl.classList.remove('visible');
+        appendMessage('bot', '⚠️ Something went wrong. Try sending again.', Date.now() / 1000);
+        scrollToBottom();
+      }
     }
 
     // ── DOM helpers ────────────────────────────────────────────────────────────
