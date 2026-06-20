@@ -712,6 +712,47 @@ app.get('/api/contacts/list', webAuth.requireAuth, (req, res) => {
   res.json({ contacts });
 });
 
+// POST /api/user/location — store GPS coords + reverse-geocode to city
+app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, res) => {
+  const { lat, lng } = req.body;
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ error: 'lat and lng required as numbers' });
+  }
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return res.status(400).json({ error: 'Invalid coordinates' });
+  }
+
+  let city = null;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      { headers: { 'User-Agent': 'ButterflAI/1.0 (+https://butterflai.social)' } }
+    );
+    if (r.ok) {
+      const data = await r.json();
+      const a = data.address || {};
+      city = a.city || a.town || a.village || a.county || a.state || null;
+    }
+  } catch (err) {
+    console.warn('[location] reverse geocode failed:', err.message);
+  }
+
+  db.updateUser(req.user.id, {
+    lat,
+    lng,
+    city:                city || req.user.city,
+    location_updated_at: Math.floor(Date.now() / 1000),
+  });
+
+  res.json({ ok: true, lat, lng, city });
+});
+
+// GET /api/user/me — current user profile
+app.get('/api/user/me', webAuth.requireAuth, (req, res) => {
+  const { id, name, phone, city, lat, lng } = req.user;
+  res.json({ id, name, phone, city, lat, lng });
+});
+
 app.get('/health', (req, res) => {
   // Verify DB is reachable
   try {

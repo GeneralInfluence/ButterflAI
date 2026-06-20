@@ -975,7 +975,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'get_user_location': {
       const user = db.getUser(userId);
-      return { city: user?.city || null, region: user?.region || null, country: user?.country || 'US' };
+      return {
+        city:    user?.city    || null,
+        lat:     user?.lat     || null,
+        lng:     user?.lng     || null,
+        country: user?.country || 'US',
+      };
     }
 
     case 'set_user_location': {

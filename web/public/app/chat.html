@@ -170,6 +170,7 @@
       <p id="status-text">Your social assistant</p>
     </div>
     <div class="header-actions">
+      <button id="loc-btn" onclick="shareLocation()" title="Share your location" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px;display:none;">📍</button>
       <a href="/app/contacts">Contacts</a>
       <a href="/auth/logout">Sign out</a>
     </div>
@@ -286,9 +287,44 @@
       return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
     }
 
+    // ── Location ───────────────────────────────────────────────────────────────
+    async function shareLocation() {
+      const btn = document.getElementById('loc-btn');
+      if (!navigator.geolocation) return;
+      btn.textContent = '⏳';
+      navigator.geolocation.getCurrentPosition(async pos => {
+        try {
+          const r = await fetch('/api/user/location', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+          });
+          const d = await r.json();
+          btn.textContent = '✅';
+          btn.title = d.city ? `Location: ${d.city}` : 'Location saved';
+          setTimeout(() => { btn.style.display = 'none'; }, 2000);
+        } catch { btn.textContent = '📍'; }
+      }, () => { btn.textContent = '📍'; });
+    }
+
+    async function checkLocationNeeded() {
+      try {
+        const r = await fetch('/api/user/me');
+        if (!r.ok) return;
+        const u = await r.json();
+        if (!u.lat && navigator.geolocation) {
+          // No location stored — show the pin button
+          document.getElementById('loc-btn').style.display = 'block';
+          document.getElementById('status-text').textContent = 'Tap 📍 to share your location';
+          setTimeout(() => { document.getElementById('status-text').textContent = 'Your social assistant'; }, 5000);
+        }
+      } catch {}
+    }
+
     // ── Init ───────────────────────────────────────────────────────────────────
     loadHistory();
     connectSSE();
+    checkLocationNeeded();
   </script>
 </body>
 </html>
