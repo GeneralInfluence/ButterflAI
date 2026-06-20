@@ -15,6 +15,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 const sms = require('./sms');
+const { cityFromPhone } = require('./areacode');
 
 // ── State machine entry point ─────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ async function handleOnboarding(phone, body, db) {
   const state = user.onboarding_state;
 
   if (state === 'awaiting_name') return handleAwaitingName(user, body, db);
+  if (state === 'awaiting_location') return handleAwaitingLocation(user, body, db);
   if (state === 'awaiting_contacts') return handleAwaitingContacts(user, body, db);
   if (state === 'confirming_contacts') return handleConfirmingContacts(user, body, db);
 
@@ -66,10 +68,40 @@ function handleAwaitingName(user, body, db) {
     return `I didn't catch a name there. What should I call you?`;
   }
 
-  db.updateUser(user.id, { name, onboarding_state: 'awaiting_contacts' });
+  // Seed city from area code, then ask user to confirm/correct
+  const cityGuess = cityFromPhone(user.phone);
+  db.updateUser(user.id, {
+    name,
+    onboarding_state: 'awaiting_location',
+    ...(cityGuess ? { city: cityGuess } : {}),
+  });
+
+  if (cityGuess) {
+    return `Nice to meet you, ${name}! 👋\n\nAre you based in ${cityGuess}? (yes / or tell me your city)`;
+  }
+  return `Nice to meet you, ${name}! 👋\n\nWhat city are you based in?`;
+}
+
+function handleAwaitingLocation(user, body, db) {
+  const text = body.trim();
+  const lower = text.toLowerCase();
+
+  let city;
+  if (/^y(es)?$/i.test(lower) && user.city) {
+    // Confirmed the guess
+    city = user.city;
+  } else if (lower.length > 1 && !/^no?$/i.test(lower)) {
+    // They typed a city name
+    city = text;
+  } else {
+    // "no" or empty — ask again
+    return `What city are you based in? (e.g. "New York", "Chicago", "London")`;
+  }
+
+  db.updateUser(user.id, { city, onboarding_state: 'awaiting_contacts' });
 
   return (
-    `Nice to meet you, ${name}! 👋\n\n` +
+    `Got it — ${city}! 🗺️\n\n` +
     `Who do you want to stay in touch with regularly? Just tell me names and how often — like:\n\n` +
     `"Kaylee quarterly, Adam monthly, dinner with Kaylee and her partner every quarter"\n\n` +
     `You can list as many people as you like.`

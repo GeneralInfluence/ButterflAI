@@ -437,6 +437,22 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'get_user_location',
+    description: "Get the user's current city/region. Use this when looking up local events, venues, or anything location-specific.",
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'set_user_location',
+    description: "Update the user's city. Use when the user tells you they've moved or mentions a different city.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        city: { type: 'string', description: 'City or region name' },
+      },
+      required: ['city'],
+    },
+  },
+  {
     name: 'fetch_url',
     description: 'Fetch and read the contents of a URL — a web page, article, event listing, menu, or any link the user shares. Use this whenever the user sends a URL or asks about something on the web.',
     input_schema: {
@@ -955,6 +971,17 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         ttl_secs: 24 * 3600,
       });
       return { stored: true, note: `Confirmation request stored. Tell the user: "${toolInput.summary} — reply yes to confirm."` };
+    }
+
+    case 'get_user_location': {
+      const user = db.getUser(userId);
+      return { city: user?.city || null, region: user?.region || null, country: user?.country || 'US' };
+    }
+
+    case 'set_user_location': {
+      const { city } = toolInput;
+      db.updateUser(userId, { city });
+      return { updated: true, city };
     }
 
     case 'fetch_url': {
