@@ -13,6 +13,7 @@ primary_region = "ewr"   # Newark / US East — move to "lax" or "ord" to follow
   NODE_ENV    = "production"
   KMS_PROVIDER = "local"   # swap to "aws" before public launch
   APP_URL     = "https://butterflai.social"
+  BASE_URL    = "https://butterflai.social"
 
 # All secrets are set via `fly secrets set` — never in this file.
 # See scripts/set-secrets.sh for the full list.
