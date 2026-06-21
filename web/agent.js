@@ -1299,8 +1299,8 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
         db.appendConversation(userId, 'assistant', replyText);
         // Push to web UI via SSE if connected
         sse.push(userId, { role: 'assistant', text: replyText, ts: Math.floor(Date.now() / 1000) });
-        // Send via SMS if user has a phone (may be web-only user)
-        if (userPhone) {
+        // Send via SMS only if the message came in via SMS, not web chat
+        if (userPhone && msg.channel !== 'webchat') {
           console.log(`[agent] replying to ${userPhone}: "${replyText.slice(0, 60)}"`);
           await sms.sendUnchecked(userPhone, replyText);
         }
@@ -1340,7 +1340,7 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
 
   if (iterations >= MAX_ITERATIONS) {
     console.error(`[agent] hit MAX_ITERATIONS for message ${msg.id}`);
-    if (userPhone) {
+    if (userPhone && msg.channel !== 'webchat') {
       await sms.notifyUser(userPhone, `Something went wrong on my end — I'll try again shortly. Sorry!`);
     }
   }
