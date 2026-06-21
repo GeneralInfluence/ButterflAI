@@ -718,16 +718,20 @@ app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res)
   const text = req.body?.text?.trim();
   if (!text) return res.status(400).json({ error: 'text required' });
 
-  // Store as inbound message and let the agent loop process it
-  db.storeInboundMessage({
-    from_phone: req.user.phone,
-    from_type: 'web',
-    from_id: req.user.id,
-    channel: 'web',
-    text,
-  });
-
-  res.json({ ok: true });
+  try {
+    // Store as inbound message and let the agent loop process it
+    db.storeInboundMessage({
+      from_phone: req.user.phone,
+      from_type: 'user',
+      from_id: req.user.id,
+      channel: 'webchat',
+      text,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[chat/send] failed to store message:', err.message);
+    res.status(500).json({ error: 'Failed to send message.' });
+  }
 });
 
 // GET /api/contacts/list — contacts for the authenticated user
