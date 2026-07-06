@@ -136,7 +136,7 @@ async function tickDesires(transport) {
   `).all();
 
   for (const { user_id } of rows) {
-    const pendingDesires = desires.getPendingSocialDesires(user_id);
+    const pendingDesires = db.getPendingSocialDesires(user_id);
 
     for (const desire of pendingDesires) {
       await processDesire(transport, desire);
