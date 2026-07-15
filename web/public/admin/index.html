@@ -142,6 +142,10 @@
       setTimeout(() => { el.style.display = 'none'; }, 3000);
     }
 
+    function esc(s) {
+      if (s == null) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
     function fmt(n) { return n == null ? '0' : Number(n).toLocaleString(); }
     function fmtTs(ts) {
       if (!ts) return '—';
@@ -149,7 +153,7 @@
     }
     function reasonPill(r) {
       const cls = r?.startsWith('burn') ? 'burn' : r?.includes('admin') ? 'admin' : 'grant';
-      return `<span class="pill ${cls}">${r || '?'}</span>`;
+      return `<span class="pill ${cls}">${esc(r) || '?'}</span>`;
     }
 
     async function loadData() {
@@ -173,10 +177,10 @@
         const tr = document.createElement('tr');
         const balClass = u.balance >= 50 ? 'pos' : u.balance < 10 ? 'neg' : '';
         tr.innerHTML = `
-          <td>${u.name || '—'}</td>
-          <td class="mono">${u.phone}</td>
+          <td>${esc(u.name) || '—'}</td>
+          <td class="mono">${esc(u.phone)}</td>
           <td class="${balClass}" style="font-weight:600">${fmt(u.balance)}</td>
-          <td><span style="font-size:11px;color:var(--muted)">${u.onboarding_state || '—'}</span></td>
+          <td><span style="font-size:11px;color:var(--muted)">${esc(u.onboarding_state) || '—'}</span></td>
         `;
         tbody.appendChild(tr);
         const opt = document.createElement('option');
@@ -191,11 +195,11 @@
       for (const row of recent) {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td class="mono">${fmtTs(row.created_at)}</td>
-          <td>${row.name || row.user_id?.slice(0,8) || '—'}</td>
-          <td class="${row.delta > 0 ? 'pos' : 'neg'}" style="font-weight:600">${row.delta > 0 ? '+' : ''}${row.delta}</td>
+          <td class="mono">${esc(fmtTs(row.created_at))}</td>
+          <td>${esc(row.name) || esc(row.user_id?.slice(0,8)) || '—'}</td>
+          <td class="${row.delta > 0 ? 'pos' : 'neg'}" style="font-weight:600">${row.delta > 0 ? '+' : ''}${Number(row.delta)}</td>
           <td>${reasonPill(row.reason)}</td>
-          <td class="mono" style="font-size:11px">${row.ref_id?.slice(0,12) || '—'}</td>
+          <td class="mono" style="font-size:11px">${esc(row.ref_id?.slice(0,12)) || '—'}</td>
         `;
         lb.appendChild(tr);
       }

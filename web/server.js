@@ -78,6 +78,60 @@ app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] })
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
 app.use(limiter);
 
+// Stricter rate limits for write endpoints bots like to hammer.
+// Skipped in NODE_ENV=test so test suites aren't blocked by their own requests.
+const skipInTest = () => process.env.NODE_ENV === 'test';
+const joinLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 8,
+  skip: skipInTest,
+  message: { error: 'Too many signup attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 10,
+  skip: skipInTest,
+  message: { error: 'Too many OTP requests. Please wait before trying again.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// ── Input validation helpers ──────────────────────────────────────────────────
+
+const { toE164 } = require('./phoneUtils');
+
+/**
+ * Validate and normalize a phone number.
+ * Returns { ok: true, phone } or { ok: false, error }.
+ */
+function validatePhone(raw) {
+  if (!raw || typeof raw !== 'string') return { ok: false, error: 'Phone number is required.' };
+  const trimmed = raw.trim();
+  if (trimmed.length > 30) return { ok: false, error: 'Invalid phone number.' };
+  let phone;
+  try { phone = toE164(trimmed); } catch { return { ok: false, error: 'Invalid phone number.' }; }
+  if (!/^\+\d{7,15}$/.test(phone)) return { ok: false, error: 'Invalid phone number.' };
+  return { ok: true, phone };
+}
+
+/**
+ * Validate a display name.
+ * Returns { ok: true, name } or { ok: false, error }.
+ */
+function validateName(raw) {
+  if (!raw || typeof raw !== 'string') return { ok: false, error: 'Name is required.' };
+  const name = raw.trim().slice(0, 100); // hard cap at 100 chars
+  if (!name) return { ok: false, error: 'Name is required.' };
+  if (name.length < 1) return { ok: false, error: 'Name is required.' };
+  // Reject names with HTML tags or common injection patterns
+  if (/<[^>]+>|javascript:|on\w+\s*=|SELECT\s+.*FROM|INSERT\s+INTO|DROP\s+TABLE|UNION\s+SELECT/i.test(name)) {
+    return { ok: false, error: 'Invalid name.' };
+  }
+  return { ok: true, name };
+}
+
 // ── SMS webhook (primary human channel) ─────────────────────────────────────
 
 // Empty TwiML — we send replies via REST API (outbound-api) to avoid A2P 10DLC
@@ -466,17 +520,17 @@ app.post('/api/contact/:token/edit', async (req, res) => {
 // Standalone opt-in endpoint — no invite token required.
 // Consent source: INVITE_PAGE (same as the invite-page flow, distinct from SELF_START).
 
-app.post('/api/join', async (req, res) => {
-  const { name, phone, ref } = req.body;
+app.post('/api/join', joinLimiter, async (req, res) => {
+  const { name: rawName, phone: rawPhone, ref } = req.body;
 
-  if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'Name is required.' });
-  }
-  if (!phone || !phone.trim()) {
-    return res.status(400).json({ error: 'Mobile number is required.' });
-  }
+  const nameResult = validateName(rawName);
+  if (!nameResult.ok) return res.status(400).json({ error: nameResult.error });
 
-  const normalizedPhone = phone.trim();
+  const phoneResult = validatePhone(rawPhone);
+  if (!phoneResult.ok) return res.status(400).json({ error: phoneResult.error });
+
+  const normalizedPhone = phoneResult.phone;
+  const name = nameResult.name;
 
   // Reject if previously opted out
   if (db.isOptedOut(normalizedPhone)) {
@@ -495,7 +549,7 @@ app.post('/api/join', async (req, res) => {
     newUserId = uuidv4();
     db.createUser({
       id: newUserId,
-      name: name.trim(),
+      name,
       phone: normalizedPhone,
       onboarding_state: 'complete',
     });
@@ -838,11 +892,21 @@ app.post('/api/onboarding/setup', webAuth.requireAuth, express.json(), async (re
   try {
     for (const c of contacts) {
       if (!c.name) continue;
+      const nameResult = validateName(c.name);
+      if (!nameResult.ok) continue; // skip invalid contact names silently
+
+      // Validate phone if provided
+      let contactPhone = null;
+      if (c.phone) {
+        const phoneResult = validatePhone(c.phone);
+        contactPhone = phoneResult.ok ? phoneResult.phone : null;
+      }
+
       const contactId = uuidv4();
       db.upsertContact({
         invited_by_user_id: req.user.id,
-        name: c.name,
-        phone: c.phone || null,
+        name: nameResult.name,
+        phone: contactPhone,
         tier: 0,
       });
       // Find the contact we just upserted (by name + invited_by)
@@ -1002,8 +1066,8 @@ app.get('/app/onboarding', webAuth.requireAuthPage, (req, res) => res.sendFile(p
 app.get('/app',            (req, res) => res.redirect('/app/dashboard'));
 
 // ── OTP auth ──────────────────────────────────────────────────────────────────
-app.post('/auth/otp/send',   express.json(), webAuth.sendOtp);
-app.post('/auth/otp/verify', express.json(), webAuth.verifyOtpHandler);
+app.post('/auth/otp/send',   otpLimiter, express.json(), webAuth.sendOtp);
+app.post('/auth/otp/verify', otpLimiter, express.json(), webAuth.verifyOtpHandler);
 app.get('/auth/logout',      webAuth.logout);
 
 // ── Web chat API ──────────────────────────────────────────────────────────────
