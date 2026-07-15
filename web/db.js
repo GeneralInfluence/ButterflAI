@@ -926,4 +926,41 @@ module.exports = {
     );
   },
 
+  // ── Admin helpers ──────────────────────────────────────────────────────────
+
+  getAllUsers() {
+    return db.prepare('SELECT id, name, phone, onboarding_state, created_at FROM users ORDER BY created_at DESC').all();
+  },
+
+  getFlaiLedgerSummary() {
+    return db.prepare(`
+      SELECT
+        SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END) AS total_granted,
+        SUM(CASE WHEN delta < 0 THEN delta ELSE 0 END) AS total_burned,
+        SUM(delta)                                      AS net_circulation,
+        COUNT(DISTINCT user_id)                         AS users_with_activity
+      FROM flai_ledger
+    `).get();
+  },
+
+  getFlaiLedgerRecent(limit = 50) {
+    return db.prepare(`
+      SELECT l.id, l.user_id, u.name, u.phone, l.delta, l.reason, l.ref_id, l.created_at
+      FROM flai_ledger l
+      LEFT JOIN users u ON u.id = l.user_id
+      ORDER BY l.created_at DESC LIMIT ?
+    `).all(limit);
+  },
+
+  getUsersWithBalances() {
+    return db.prepare(`
+      SELECT u.id, u.name, u.phone, u.onboarding_state,
+             COALESCE(SUM(l.delta), 0) AS balance
+      FROM users u
+      LEFT JOIN flai_ledger l ON l.user_id = u.id
+      GROUP BY u.id
+      ORDER BY balance DESC
+    `).all();
+  },
+
 };

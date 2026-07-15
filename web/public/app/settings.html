@@ -171,6 +171,18 @@
     </div>
   </section>
 
+  <!-- Agent capacity -->
+  <section id="capacity-section" style="display:none">
+    <h2>Agent capacity</h2>
+    <div class="card">
+      <div id="capacity-content" style="display:flex;align-items:center;gap:12px;">
+        <span id="capacity-emoji" style="font-size:28px">⏳</span>
+        <p id="capacity-msg" style="font-size:14px;color:#555;line-height:1.5;">Loading…</p>
+      </div>
+      <p style="font-size:12px;color:#aaa;margin-top:12px;">Inviting friends increases your agent's capacity.</p>
+    </div>
+  </section>
+
   <!-- Account -->
   <section>
     <h2>Account</h2>
@@ -213,6 +225,26 @@
     } catch (_) {
       document.getElementById('profile-name').textContent = 'Could not load.';
     }
+
+    // Show admin link if this user is admin
+    try {
+      const adminCheck = await fetch('/api/admin/flai/summary');
+      if (adminCheck.ok) {
+        const adminLink = document.createElement('a');
+        adminLink.href = '/admin';
+        adminLink.textContent = 'Admin';
+        adminLink.style.cssText = 'font-size:13px;color:#ef4444;font-weight:600;text-decoration:none;';
+        document.querySelector('nav').appendChild(adminLink);
+      }
+    } catch (_) {}
+
+    // Agent capacity (capability language — never shows balance number)
+    try {
+      const cap = await fetch('/api/user/capacity').then(r => r.json());
+      document.getElementById('capacity-emoji').textContent = cap.emoji || '🦋';
+      document.getElementById('capacity-msg').textContent   = cap.message || '';
+      document.getElementById('capacity-section').style.display = '';
+    } catch (_) {}
 
     // Referral
     try {

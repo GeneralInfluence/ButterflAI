@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ButterflAI Admin</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --purple: #6c47ff; --bg: #0f0f13; --card: #1a1a24; --border: #2e2e3e; --text: #f0f0f0; --muted: #888; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 16px; font-weight: 700; }
+    header .badge { font-size: 11px; background: #7c3aed; color: #fff; padding: 2px 8px; border-radius: 999px; }
+    nav { margin-left: auto; display: flex; gap: 16px; }
+    nav a { color: #a78bfa; font-size: 13px; text-decoration: none; }
+    main { max-width: 1100px; margin: 0 auto; padding: 28px 20px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+    @media (max-width: 700px) { .grid-3 { grid-template-columns: 1fr; } .grid-2 { grid-template-columns: 1fr; } }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+    .stat-value { font-size: 28px; font-weight: 700; }
+    .stat-value.green { color: #34d399; }
+    .stat-value.red { color: #f87171; }
+    .stat-value.yellow { color: #fbbf24; }
+    section { margin-bottom: 32px; }
+    h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 12px 10px 0; border-bottom: 1px solid var(--border); }
+    td { padding: 10px 12px 10px 0; border-bottom: 1px solid #1e1e2e; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    .pos { color: #34d399; } .neg { color: #f87171; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .pill.grant { background: #064e3b; color: #34d399; }
+    .pill.burn  { background: #450a0a; color: #f87171; }
+    .pill.admin { background: #312e81; color: #a5b4fc; }
+    .grant-form { display: grid; gap: 12px; }
+    .grant-form select, .grant-form input { width: 100%; padding: 10px 12px; background: #0f0f1a; border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; }
+    .grant-form label { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: block; }
+    .grant-form button { padding: 10px; background: var(--purple); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .grant-form button:hover { background: #5a3de6; }
+    .backfill-btn { padding: 10px 20px; background: #064e3b; color: #34d399; border: 1px solid #065f46; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .backfill-btn:hover { background: #065f46; }
+    .msg { font-size: 13px; margin-top: 8px; padding: 8px 12px; border-radius: 6px; }
+    .msg.ok  { background: #064e3b; color: #34d399; }
+    .msg.err { background: #450a0a; color: #f87171; }
+    #toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; background: #7c3aed; color: #fff; border-radius: 10px; font-size: 14px; display: none; z-index: 99; }
+    .mono { font-family: monospace; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <span style="font-size:22px">🦋</span>
+    <h1>ButterflAI Admin</h1>
+    <span class="badge">Internal</span>
+    <nav>
+      <a href="/app/dashboard">← App</a>
+      <a href="/auth/logout">Sign out</a>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- Circulation stats -->
+    <div class="grid-3" id="stats-grid">
+      <div class="stat-card"><div class="stat-label">Net in circulation</div><div class="stat-value" id="s-circ">—</div></div>
+      <div class="stat-card"><div class="stat-label">Total granted</div><div class="stat-value green" id="s-granted">—</div></div>
+      <div class="stat-card"><div class="stat-label">Total burned</div><div class="stat-value red" id="s-burned">—</div></div>
+    </div>
+
+    <div class="grid-2">
+
+      <!-- Users table -->
+      <section>
+        <h2>Users &amp; balances</h2>
+        <div class="card" style="overflow-x:auto">
+          <table id="users-table">
+            <thead><tr><th>Name</th><th>Phone</th><th>Balance</th><th>Status</th></tr></thead>
+            <tbody id="users-body"><tr><td colspan="4" style="color:var(--muted)">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Grant form + backfill -->
+      <div>
+        <section>
+          <h2>Grant FLAI</h2>
+          <div class="card">
+            <form class="grant-form" id="grant-form">
+              <div>
+                <label>User</label>
+                <select id="grant-user" required></select>
+              </div>
+              <div>
+                <label>Amount (positive = grant, negative = deduct)</label>
+                <input type="number" id="grant-amount" placeholder="e.g. 100" required>
+              </div>
+              <div>
+                <label>Reason</label>
+                <input type="text" id="grant-reason" placeholder="e.g. admin_grant" value="admin_grant" required>
+              </div>
+              <button type="submit">Grant →</button>
+              <div id="grant-msg"></div>
+            </form>
+          </div>
+        </section>
+
+        <section style="margin-top:20px">
+          <h2>Backfill baseline grants</h2>
+          <div class="card">
+            <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Credits the baseline grant to any user who doesn't already have one. Idempotent — safe to run multiple times.</p>
+            <button class="backfill-btn" id="backfill-btn">Run backfill</button>
+            <div id="backfill-msg"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Recent ledger entries -->
+    <section>
+      <h2>Recent ledger entries</h2>
+      <div class="card" style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Time</th><th>User</th><th>Delta</th><th>Reason</th><th>Ref</th></tr></thead>
+          <tbody id="ledger-body"><tr><td colspan="5" style="color:var(--muted)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="toast"></div>
+
+  <script>
+    function toast(msg, ok = true) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.style.background = ok ? '#7c3aed' : '#dc2626';
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 3000);
+    }
+
+    function fmt(n) { return n == null ? '0' : Number(n).toLocaleString(); }
+    function fmtTs(ts) {
+      if (!ts) return '—';
+      return new Date(ts * 1000).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+    }
+    function reasonPill(r) {
+      const cls = r?.startsWith('burn') ? 'burn' : r?.includes('admin') ? 'admin' : 'grant';
+      return `<span class="pill ${cls}">${r || '?'}</span>`;
+    }
+
+    async function loadData() {
+      const res = await fetch('/api/admin/flai/summary');
+      if (!res.ok) { document.body.innerHTML = '<p style="color:red;padding:40px">Access denied or not logged in.</p>'; return; }
+      const { summary, users, recent } = await res.json();
+
+      // Stats
+      const circ = summary.net_circulation || 0;
+      document.getElementById('s-circ').textContent    = fmt(circ);
+      document.getElementById('s-circ').className      = 'stat-value ' + (circ >= 0 ? 'green' : 'red');
+      document.getElementById('s-granted').textContent = fmt(summary.total_granted);
+      document.getElementById('s-burned').textContent  = fmt(summary.total_burned);
+
+      // Users table + grant select
+      const tbody  = document.getElementById('users-body');
+      const select = document.getElementById('grant-user');
+      tbody.innerHTML  = '';
+      select.innerHTML = '';
+      for (const u of users) {
+        const tr = document.createElement('tr');
+        const balClass = u.balance >= 50 ? 'pos' : u.balance < 10 ? 'neg' : '';
+        tr.innerHTML = `
+          <td>${u.name || '—'}</td>
+          <td class="mono">${u.phone}</td>
+          <td class="${balClass}" style="font-weight:600">${fmt(u.balance)}</td>
+          <td><span style="font-size:11px;color:var(--muted)">${u.onboarding_state || '—'}</span></td>
+        `;
+        tbody.appendChild(tr);
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = `${u.name || u.phone} (${fmt(u.balance)} FLAI)`;
+        select.appendChild(opt);
+      }
+
+      // Ledger
+      const lb = document.getElementById('ledger-body');
+      lb.innerHTML = '';
+      for (const row of recent) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${fmtTs(row.created_at)}</td>
+          <td>${row.name || row.user_id?.slice(0,8) || '—'}</td>
+          <td class="${row.delta > 0 ? 'pos' : 'neg'}" style="font-weight:600">${row.delta > 0 ? '+' : ''}${row.delta}</td>
+          <td>${reasonPill(row.reason)}</td>
+          <td class="mono" style="font-size:11px">${row.ref_id?.slice(0,12) || '—'}</td>
+        `;
+        lb.appendChild(tr);
+      }
+    }
+
+    // Grant form
+    document.getElementById('grant-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const userId = document.getElementById('grant-user').value;
+      const delta  = parseInt(document.getElementById('grant-amount').value);
+      const reason = document.getElementById('grant-reason').value.trim();
+      const msgEl  = document.getElementById('grant-msg');
+      msgEl.className = 'msg';
+      msgEl.textContent = '';
+
+      const res = await fetch('/api/admin/flai/grant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, delta, reason }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        msgEl.className = 'msg ok';
+        msgEl.textContent = `Done. New balance: ${fmt(data.newBalance)} FLAI`;
+        toast('Grant applied ✓');
+        setTimeout(loadData, 500);
+      } else {
+        msgEl.className = 'msg err';
+        msgEl.textContent = data.error || 'Failed';
+        toast(data.error || 'Failed', false);
+      }
+    });
+
+    // Backfill
+    document.getElementById('backfill-btn').addEventListener('click', async () => {
+      const btn   = document.getElementById('backfill-btn');
+      const msgEl = document.getElementById('backfill-msg');
+      btn.disabled = true;
+      btn.textContent = 'Running…';
+      const res  = await fetch('/api/admin/flai/backfill', { method: 'POST' });
+      const data = await res.json();
+      btn.disabled = false;
+      btn.textContent = 'Run backfill';
+      if (res.ok) {
+        msgEl.className = 'msg ok';
+        msgEl.textContent = `Credited ${data.credited} user(s), skipped ${data.skipped} (already had grant). Baseline: ${data.baseline_grant} FLAI each.`;
+        toast(`Backfill complete: ${data.credited} credited`);
+        setTimeout(loadData, 500);
+      } else {
+        msgEl.className = 'msg err';
+        msgEl.textContent = data.error || 'Failed';
+        toast('Backfill failed', false);
+      }
+    });
+
+    loadData();
+    setInterval(loadData, 30000); // auto-refresh every 30s
+  </script>
+</body>
+</html>

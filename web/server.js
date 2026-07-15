@@ -898,6 +898,99 @@ app.post('/api/onboarding/setup', webAuth.requireAuth, express.json(), async (re
 // ── Admin routes (auth-gated via X-Admin-Secret header) ──────────────────────
 app.use('/admin', express.json(), adminRouter);
 
+// ── Admin middleware ──────────────────────────────────────────────────────────
+// Admin = authenticated user whose phone matches ADMIN_PHONE env var.
+// Set ADMIN_PHONE in Fly secrets: flyctl secrets set ADMIN_PHONE=+1xxxxxxxxxx
+function requireAdmin(req, res, next) {
+  const token = req.cookies?.[webAuth.COOKIE_NAME];
+  const payload = token ? webAuth.verifyToken(token) : null;
+  if (!payload) return res.status(401).json({ error: 'Not authenticated.' });
+  const user = db.getUser(payload.userId);
+  if (!user) return res.status(401).json({ error: 'User not found.' });
+  const adminPhone = process.env.ADMIN_PHONE;
+  if (!adminPhone || user.phone !== adminPhone) {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  req.user = user;
+  next();
+}
+
+function requireAdminPage(req, res, next) {
+  const token = req.cookies?.[webAuth.COOKIE_NAME];
+  const payload = token ? webAuth.verifyToken(token) : null;
+  if (!payload) return res.redirect('/app/login');
+  const user = db.getUser(payload.userId);
+  if (!user) return res.redirect('/app/login');
+  const adminPhone = process.env.ADMIN_PHONE;
+  if (!adminPhone || user.phone !== adminPhone) return res.status(403).send('Admin access required.');
+  req.user = user;
+  next();
+}
+
+// ── Admin page ────────────────────────────────────────────────────────────────
+app.get('/admin', requireAdminPage, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/admin/index.html'));
+});
+
+// ── Admin API ─────────────────────────────────────────────────────────────────
+
+// GET /api/admin/flai/summary — circulation stats
+app.get('/api/admin/flai/summary', requireAdmin, (req, res) => {
+  const summary = db.getFlaiLedgerSummary();
+  const users   = db.getUsersWithBalances();
+  const recent  = db.getFlaiLedgerRecent(50);
+  res.json({ summary, users, recent });
+});
+
+// POST /api/admin/flai/grant — grant FLAI to a user
+app.post('/api/admin/flai/grant', requireAdmin, express.json(), (req, res) => {
+  const { userId, delta, reason } = req.body;
+  if (!userId || typeof delta !== 'number' || !Number.isInteger(delta)) {
+    return res.status(400).json({ error: 'userId and integer delta required' });
+  }
+  if (!reason || !reason.trim()) return res.status(400).json({ error: 'reason required' });
+  const target = db.getUser(userId);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  db.appendFlaiLedger({ user_id: userId, delta, reason: reason.trim(), ref_id: req.user.id, metadata: { admin_grant: true } });
+  const newBalance = db.getFlaiBalance(userId);
+  console.log(`[admin] FLAI grant: ${delta} to ${target.name} (${userId}) by admin — new balance: ${newBalance}`);
+  res.json({ ok: true, userId, delta, newBalance });
+});
+
+// ── Backfill baseline grants for existing users ───────────────────────────────
+// POST /api/admin/flai/backfill — idempotent, skips users who already have a baseline_grant
+app.post('/api/admin/flai/backfill', requireAdmin, (req, res) => {
+  const { BASELINE_GRANT } = require('./flai');
+  const users = db.getAllUsers();
+  let credited = 0;
+  let skipped  = 0;
+  for (const user of users) {
+    const hasGrant = db._raw().prepare(
+      `SELECT 1 FROM flai_ledger WHERE user_id = ? AND reason = 'baseline_grant' LIMIT 1`
+    ).get(user.id);
+    if (hasGrant) { skipped++; continue; }
+    db.appendFlaiLedger({ user_id: user.id, delta: BASELINE_GRANT, reason: 'baseline_grant', ref_id: 'backfill', metadata: { backfill: true } });
+    credited++;
+  }
+  console.log(`[admin] FLAI backfill: ${credited} credited, ${skipped} skipped`);
+  res.json({ ok: true, credited, skipped, baseline_grant: BASELINE_GRANT });
+});
+
+// ── User-facing capacity API (capability language only — never exposes balance) ──
+// Returns a level and message suitable for display. Never returns the raw number.
+app.get('/api/user/capacity', webAuth.requireAuth, (req, res) => {
+  const balance = db.getFlaiBalance(req.user.id) || 0;
+  let level, message, emoji;
+  if (balance >= 50) {
+    level = 'full';    emoji = '🟢'; message = 'Your agent has full capacity to help you this month.';
+  } else if (balance >= 10) {
+    level = 'moderate'; emoji = '🟡'; message = 'Your agent has moderate capacity. Invite a friend to give it more room.';
+  } else {
+    level = 'low';     emoji = '🔴'; message = 'Your agent is running lean. Invite a friend to boost its capacity.';
+  }
+  res.json({ level, emoji, message });
+});
+
 // ── Web app pages ─────────────────────────────────────────────────────────────
 app.get('/app/login',      (req, res) => res.sendFile(path.join(__dirname, 'public/app/login.html')));
 app.get('/app/chat',       webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/chat.html')));
