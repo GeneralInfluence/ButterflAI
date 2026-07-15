@@ -1169,6 +1169,7 @@ app.post('/auth/apple/calendar', async (req, res) => {
         <div style="font-size:3rem">🦋✅</div>
         <h2>Apple Calendar Connected!</h2>
         <p style="color:#aaa">ButterflAI can now check your availability and add events to your iCloud Calendar.</p>
+        <a href="/app/settings" style="display:inline-block;margin-top:20px;padding:12px 28px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;font-size:15px;font-weight:600;border-radius:12px;text-decoration:none;">← Back to settings</a>
       </div>
     </body></html>`);
   } catch (err) {
@@ -1360,7 +1361,7 @@ app.get('/auth/google/callback', async (req, res) => {
     <h1>Calendar connected!</h1>
     <p class="sub">I can now check your real availability when coordinating plans — no more double-booking.</p>
     <div class="pill">🦋 You'll get a text shortly</div>
-    <p class="hint">You can close this window and go back to your conversation.</p>
+    <a href="/app/settings" style="display:inline-block;margin-top:4px;margin-bottom:20px;padding:12px 28px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;font-size:15px;font-weight:600;border-radius:12px;text-decoration:none;">← Back to settings</a>
     <div class="brand">ButterflAI</div>
   </div>
 </body>
