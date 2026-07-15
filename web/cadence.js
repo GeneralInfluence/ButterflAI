@@ -26,6 +26,7 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 const sms = require('./sms');
+const lift = require('./lift');
 
 const NUDGE_THRESHOLD = parseFloat(process.env.NUDGE_THRESHOLD || '0.9');
 const NUDGE_INTERVAL_MS = parseInt(process.env.NUDGE_INTERVAL_MS || String(4 * 60 * 60 * 1000), 10); // 4h
@@ -157,6 +158,20 @@ async function nudgeUser(user) {
         ttl_secs: 48 * 3600,  // expires in 48h
       });
 
+      // Record proposal provenance (§2.2)
+      try {
+        db.createProposal({
+          id: uuidv4(),
+          user_id: user.id,
+          cadence_id: cadence.id,
+          origin: 'cadence_nudge',
+          activity_type: cadence.activity_type,
+          surfaced_slots: null,
+        });
+      } catch (proposalErr) {
+        console.error(`[cadence] proposal record failed (non-fatal):`, proposalErr.message);
+      }
+
       console.log(`[cadence] nudged user=${user.id} cadence=${cadence.id} contact=${contactName}`);
     } catch (err) {
       console.error(`[cadence] nudge failed user=${user.id}:`, err.message);
@@ -164,13 +179,102 @@ async function nudgeUser(user) {
   }
 }
 
+// ── Attendance gate (FLAI §2.1) ───────────────────────────────────────────────
+
+/**
+ * Run the attendance confirmation gate.
+ * For each user, batch all pending events into ONE SMS.
+ * Ask once only; never hard-block; skip = NULL (not failure).
+ */
+async function runAttendanceGate() {
+  const allUsers = db._raw()
+    .prepare(`SELECT * FROM users WHERE onboarding_state = 'complete' AND phone IS NOT NULL`)
+    .all();
+
+  for (const user of allUsers) {
+    try {
+      const pendingEvents = db.getPendingAttendanceConfirmations(user.id);
+      if (!pendingEvents.length) continue;
+
+      const now = Math.floor(Date.now() / 1000);
+      const confirmations = [];
+
+      for (const event of pendingEvents) {
+        // Guard: never send a second confirmation for the same event
+        const existing = db.getAttendanceConfirmation(event.id, user.id);
+        if (existing) continue; // already asked
+
+        const eventLabel = formatEventLabel(event);
+        confirmations.push({
+          id: uuidv4(),
+          event_id: event.id,
+          event_label: eventLabel,
+        });
+      }
+
+      if (!confirmations.length) continue;
+
+      // Build SMS message (batch all into one)
+      let smsBody;
+      if (confirmations.length === 1) {
+        const c = confirmations[0];
+        smsBody = `Did you make it to ${c.event_label}? (Y / N / skip)`;
+      } else {
+        const lines = confirmations.map((c, i) => `${i + 1}. ${c.event_label}`);
+        smsBody = `Quick check-ins:\n${lines.join('\n')}\nReply 1Y 2N or skip`;
+      }
+
+      // Create attendance_confirmation rows first (ask_count=1)
+      for (const c of confirmations) {
+        db.createAttendanceConfirmation({
+          id: c.id,
+          event_id: c.event_id,
+          user_id: user.id,
+          asked_at: now,
+          source: 'sms_gate',
+        });
+      }
+
+      // Create pending_action so server.js can correlate the reply
+      db.createPendingAction({
+        id: uuidv4(),
+        user_id: user.id,
+        action_type: 'attendance_confirm',
+        payload: { confirmations },
+        ttl_secs: 7 * 24 * 3600, // 7 days
+      });
+
+      // Send SMS
+      await sms.notifyUser(user.phone, smsBody);
+
+      console.log(`[cadence] attendance gate sent user=${user.id} events=${confirmations.length}`);
+    } catch (err) {
+      console.error(`[cadence] attendance gate error user=${user.id}:`, err.message);
+    }
+  }
+}
+
+function formatEventLabel(event) {
+  const type = event.activity_type || 'activity';
+  if (event.scheduled_at) {
+    const d = new Date(event.scheduled_at * 1000);
+    const day = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    return `${type} on ${day}`;
+  }
+  return type;
+}
+
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 
 function startNudgeLoop() {
   ensureNudgeColumn();
   console.log(`[cadence] nudge loop starting (interval=${NUDGE_INTERVAL_MS / 3600000}h)`);
-  setInterval(runNudgeScan, NUDGE_INTERVAL_MS);
-  runNudgeScan(); // immediate first run
+  setInterval(async () => {
+    await runNudgeScan();
+    await runAttendanceGate();
+  }, NUDGE_INTERVAL_MS);
+  // immediate first run
+  runNudgeScan().then(() => runAttendanceGate()).catch(err => console.error('[cadence] initial run error:', err));
 }
 
-module.exports = { startNudgeLoop, runNudgeScan, isNudgeDue, buildNudgeText };
+module.exports = { startNudgeLoop, runNudgeScan, runAttendanceGate, isNudgeDue, buildNudgeText };

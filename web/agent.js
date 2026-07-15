@@ -36,11 +36,47 @@ const multiparty = require('./multiparty');
 const desires    = require('./desires');
 const coord      = require('./coordination');
 const sse        = require('./sse');
+const flai       = require('./flai');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const POLL_INTERVAL_MS = parseInt(process.env.AGENT_POLL_MS || '5000', 10);
 const MODEL = process.env.AGENT_MODEL || 'claude-3-5-haiku-20241022';  // fast + cheap for agent loop
+
+// ── Proposal provenance helpers (FLAI §2.2) ───────────────────────────────────
+
+/**
+ * Record a proposal provenance row.
+ * TODO(human): distinguish 'agent_discovery' (unprompted) from 'user_request'
+ * (user explicitly asked). Currently defaulted at each call site — needs
+ * context from upstream to distinguish reliably.
+ */
+async function recordProposal(userId, origin, opts = {}) {
+  try {
+    const { v4: uuidv4 } = require('uuid');
+    db.createProposal({
+      id: uuidv4(),
+      user_id: userId,
+      cadence_id: opts.cadenceId || null,
+      origin,
+      activity_type: opts.activityType || null,
+      surfaced_slots: opts.surfacedSlots || null,
+    });
+  } catch (err) {
+    console.error('[agent] recordProposal error (non-fatal):', err.message);
+  }
+}
+
+/**
+ * Convert a proposal to a confirmed event.
+ */
+async function convertProposal(proposalId, eventId) {
+  try {
+    db.updateProposalOutcome(proposalId, { outcome: 'converted', event_id: eventId });
+  } catch (err) {
+    console.error('[agent] convertProposal error (non-fatal):', err.message);
+  }
+}
 
 // ── Tool definitions (passed to Claude) ──────────────────────────────────────
 // Each tool is resolved at call-time against the current userId.
@@ -874,6 +910,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'suggest_venues': {
       const result = await venues.suggestVenues(userId, toolInput);
+      // Record proposal provenance.
+      // TODO(human): use 'user_request' when the user explicitly asked (vs unprompted cadence flow).
+      // For now defaulting to 'agent_discovery' — needs upstream context to distinguish reliably.
+      await recordProposal(userId, 'agent_discovery', { activityType: toolInput.activity_type });
       return {
         ...result,
         formatted: venues.formatOptionsForSMS(result.options),
@@ -896,6 +936,44 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (contact_ids?.length) {
         inviteResult = await multiparty.inviteContacts(eventId, contact_ids);
       }
+
+      // Record proposal provenance for user-initiated event creation.
+      // TODO(human): distinguish user_request (explicit ask) from cadence-driven creation.
+      // Default origin='user_request' when there is no prior proposal to convert.
+      // Try to convert any existing proposal linked to the cadence or event.
+      try {
+        const cadenceId = eventData.cadence_id || null;
+        let converted = false;
+        if (cadenceId) {
+          // Look for a recent cadence_nudge proposal to convert
+          const proposals = db._raw()
+            .prepare(`SELECT * FROM proposals WHERE cadence_id = ? AND outcome IS NULL ORDER BY proposed_at DESC LIMIT 1`)
+            .get(cadenceId);
+          if (proposals) {
+            await convertProposal(proposals.id, eventId);
+            converted = true;
+          }
+        }
+        if (!converted) {
+          // No prior proposal — record a new user_request provenance
+          await recordProposal(userId, 'user_request', {
+            cadenceId,
+            activityType: eventData.activity_type || null,
+          });
+          // Link it to the event
+          const newProposal = db.getProposalByEvent(null); // won't find by event yet
+          // Update by fetching latest for this user
+          const latest = db._raw()
+            .prepare(`SELECT * FROM proposals WHERE user_id = ? AND event_id IS NULL ORDER BY proposed_at DESC LIMIT 1`)
+            .get(userId);
+          if (latest) {
+            db.updateProposalOutcome(latest.id, { outcome: 'converted', event_id: eventId });
+          }
+        }
+      } catch (proposalErr) {
+        console.error('[agent] proposal provenance error (non-fatal):', proposalErr.message);
+      }
+
       return {
         action_status: inviteResult.sent > 0 ? 'EVENT_CREATED_INVITES_SENT' : 'EVENT_CREATED_NO_INVITES_SENT',
         eventId,
@@ -1285,6 +1363,11 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
       tools: TOOL_DEFINITIONS,
       messages,
     });
+
+    // FLAI burn instrumentation — STUB, always permissive (§2.3)
+    try {
+      flai.burnForUser(userId, 'burn:llm', { ref_id: response.id });
+    } catch (_) { /* non-fatal */ }
 
     // Accumulate assistant turn
     messages.push({ role: 'assistant', content: response.content });

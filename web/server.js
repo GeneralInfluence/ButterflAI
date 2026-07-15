@@ -39,6 +39,7 @@ const adminRouter = require('./admin');
 const contactsImport = require('./contacts-import');
 const venues = require('./venues');
 const multiparty = require('./multiparty');
+const lift = require('./lift');
 
 // Telegram bot — optional, retained for future use
 let telegramBot = null;
@@ -625,6 +626,74 @@ async function handlePendingAction(user, body, pending) {
       from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'sms', text: body,
     });
     return `Got it. 🦋`;
+  }
+
+  if (pending.action_type === 'attendance_confirm') {
+    // Parse attendance reply: "Y", "N", "skip", "1Y 2N", "1Y 2N 3skip", etc.
+    // Do NOT re-prompt — ask once only (spec rule).
+    db.deletePendingAction(pending.id);
+
+    const confirmations = payload.confirmations || [];
+    const nowSecs = Math.floor(Date.now() / 1000);
+
+    if (confirmations.length === 1) {
+      // Single-event reply: Y / N / skip
+      const c = confirmations[0];
+      const trimmed = body.trim().toLowerCase();
+      let attended = null;
+      let confirmedAt = null;
+      if (/^y(es|ep|eah)?[.!]?$/i.test(trimmed) || trimmed === 'yes') {
+        attended = 1; confirmedAt = nowSecs;
+      } else if (/^n(o|ope)?[.!]?$/i.test(trimmed) || trimmed === 'no') {
+        attended = 0; confirmedAt = nowSecs;
+      }
+      // skip or anything else → attended stays null, no confirmed_at
+      db.updateAttendanceConfirmation(c.id, { attended, confirmed_at: confirmedAt });
+
+      // Wire lift after Y/N (not skip)
+      if (attended !== null) {
+        lift.computeAndLogLift(c.event_id, user.id).catch(err =>
+          console.error('[server] lift compute error:', err.message)
+        );
+      }
+    } else {
+      // Multi-event reply: "1Y 2N 3skip" etc.
+      // Build a map: position (1-based) → intent
+      const tokens = body.trim().toUpperCase().split(/\s+/);
+      const intentMap = {};
+      for (const token of tokens) {
+        const m = token.match(/^(\d+)(Y|YES|N|NO|SKIP)$/i);
+        if (m) {
+          const idx = parseInt(m[1], 10) - 1; // 0-based
+          intentMap[idx] = m[2].toUpperCase();
+        }
+      }
+
+      // If no numbered tokens, try treating the whole body as a single answer for all
+      const isBulkYes = /^y(es|ep|eah)?[.!]?$/i.test(body.trim());
+      const isBulkNo  = /^n(o|ope)?[.!]?$/i.test(body.trim());
+
+      for (let i = 0; i < confirmations.length; i++) {
+        const c = confirmations[i];
+        const intent = intentMap[i] || (isBulkYes ? 'Y' : isBulkNo ? 'N' : 'SKIP');
+        let attended = null;
+        let confirmedAt = null;
+        if (intent === 'Y' || intent === 'YES') {
+          attended = 1; confirmedAt = nowSecs;
+        } else if (intent === 'N' || intent === 'NO') {
+          attended = 0; confirmedAt = nowSecs;
+        }
+        db.updateAttendanceConfirmation(c.id, { attended, confirmed_at: confirmedAt });
+
+        if (attended !== null) {
+          lift.computeAndLogLift(c.event_id, user.id).catch(err =>
+            console.error('[server] lift compute error:', err.message)
+          );
+        }
+      }
+    }
+
+    return `Got it — thanks for confirming! 🦋`;
   }
 
   // Unknown action type — fall through to generic

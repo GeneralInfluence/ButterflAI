@@ -14,8 +14,8 @@
 process.chdir(__dirname + '/../..');  // root of app
 require('dotenv').config({ path: '.env' });
 
-const { processMessage } = require('./agent');
-const db = require('./db');
+const { processMessage } = require('../agent');
+const db = require('../db');
 
 // ── Test harness ──────────────────────────────────────────────────────────────
 
@@ -55,13 +55,13 @@ async function runTest(user, text) {
 
   // Capture reply without sending SMS
   let capturedReply = null;
-  const origSend = require('./sms').sendUnchecked;
-  require('./sms').sendUnchecked = async (to, body) => { capturedReply = body; return { sid: 'eval' }; };
+  const origSend = require('../sms').sendUnchecked;
+  require('../sms').sendUnchecked = async (to, body) => { capturedReply = body; return { sid: 'eval' }; };
 
   try {
     await processMessage(msg);
   } finally {
-    require('./sms').sendUnchecked = origSend;
+    require('../sms').sendUnchecked = origSend;
     db.markMessageProcessed(msg.id);
   }
 
@@ -133,7 +133,7 @@ async function runStaticTests() {
   console.log('\nStatic module tests:');
 
   // RSVP classifier
-  const multiparty = require('./multiparty');
+  const multiparty = require('../multiparty');
 
   const rsvpCases = [
     ['yes', 'yes'],
@@ -162,7 +162,7 @@ async function runStaticTests() {
   }
 
   // Phone normalization
-  const { toE164 } = require('./phoneUtils');
+  const { toE164 } = require('../phoneUtils');
   const phoneCases = [
     ['(570) 267-7976', '+15702677976'],
     ['+1 202 555 0147', '+12025550147'],

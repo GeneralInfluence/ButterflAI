@@ -79,7 +79,7 @@ module.exports = {
   },
 
   createUser({ id, phone, name, onboarding_state, telegram_id, telegram_username, clawbank_pubkey }) {
-    return db.prepare(`
+    const result = db.prepare(`
       INSERT INTO users (id, phone, name, onboarding_state, telegram_id, telegram_username, clawbank_pubkey)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -91,6 +91,19 @@ module.exports = {
       telegram_username || null,
       clawbank_pubkey || null,
     );
+
+    // Grant baseline FLAI on user creation — ledger failure must never break signup
+    try {
+      const { BASELINE_GRANT } = require('./flai');
+      db.prepare(`
+        INSERT INTO flai_ledger (user_id, delta, reason, metadata)
+        VALUES (?, ?, 'baseline_grant', '{}')
+      `).run(id, BASELINE_GRANT);
+    } catch (ledgerErr) {
+      console.error('[db] baseline_grant ledger write failed (non-fatal):', ledgerErr.message);
+    }
+
+    return result;
   },
 
   updateUser(id, fields) {
@@ -749,6 +762,107 @@ module.exports = {
         clawbank_account_id = excluded.clawbank_account_id,
         updated_at = strftime('%s','now')
     `).run(userId, wallet_address || null, clawbank_account_id || null);
+  },
+
+  // ── Attendance confirmations (FLAI §2.1) ──────────────────────────────────
+
+  createAttendanceConfirmation({ id, event_id, user_id, asked_at, source }) {
+    return db.prepare(`
+      INSERT INTO attendance_confirmations (id, event_id, user_id, asked_at, source)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, event_id, user_id, asked_at, source || 'sms_gate');
+  },
+
+  updateAttendanceConfirmation(id, { attended, confirmed_at }) {
+    const sets = [];
+    const values = [];
+    if (attended !== undefined) { sets.push('attended = ?'); values.push(attended); }
+    if (confirmed_at !== undefined) { sets.push('confirmed_at = ?'); values.push(confirmed_at); }
+    if (!sets.length) return;
+    db.prepare(`UPDATE attendance_confirmations SET ${sets.join(', ')} WHERE id = ?`)
+      .run(...values, id);
+  },
+
+  getAttendanceConfirmation(event_id, user_id) {
+    return db.prepare(`
+      SELECT * FROM attendance_confirmations WHERE event_id = ? AND user_id = ?
+    `).get(event_id, user_id);
+  },
+
+  /**
+   * Return events >12h past that the user accepted (responded YES to invite)
+   * but have no attendance_confirmations row yet.
+   * Uses the 'activities' table (see schema.sql).
+   */
+  getPendingAttendanceConfirmations(userId) {
+    const twelveHoursAgo = Math.floor(Date.now() / 1000) - 43200;
+    return db.prepare(`
+      SELECT a.*, r.user_id as organizer_user_id
+      FROM activities a
+      JOIN cadences c ON a.cadence_id = c.id
+      JOIN relationships r ON c.relationship_id = r.id
+      WHERE r.user_id = ?
+        AND a.status = 'completed'
+        AND a.scheduled_at < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM attendance_confirmations ac
+          WHERE ac.event_id = a.id AND ac.user_id = ?
+        )
+    `).all(userId, twelveHoursAgo, userId);
+  },
+
+  // ── Proposals (FLAI §2.2) ─────────────────────────────────────────────────
+
+  createProposal({ id, user_id, cadence_id, origin, activity_type, surfaced_slots }) {
+    return db.prepare(`
+      INSERT INTO proposals (id, user_id, cadence_id, origin, activity_type, surfaced_slots)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      id, user_id, cadence_id || null, origin, activity_type || null,
+      surfaced_slots ? JSON.stringify(surfaced_slots) : null,
+    );
+  },
+
+  updateProposalOutcome(proposalId, { outcome, event_id }) {
+    db.prepare(`
+      UPDATE proposals SET outcome = ?, event_id = ? WHERE id = ?
+    `).run(outcome || null, event_id || null, proposalId);
+  },
+
+  getProposalByEvent(event_id) {
+    return db.prepare('SELECT * FROM proposals WHERE event_id = ? LIMIT 1').get(event_id);
+  },
+
+  // ── FLAI ledger (FLAI §2.3) ───────────────────────────────────────────────
+
+  appendFlaiLedger({ user_id, delta, reason, ref_id, metadata }) {
+    return db.prepare(`
+      INSERT INTO flai_ledger (user_id, delta, reason, ref_id, metadata)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      user_id || null, delta, reason, ref_id || null,
+      metadata ? JSON.stringify(metadata) : '{}',
+    );
+  },
+
+  getFlaiBalance(user_id) {
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(delta), 0) as balance FROM flai_ledger WHERE user_id = ?
+    `).get(user_id);
+    return row?.balance || 0;
+  },
+
+  // ── Lift observations (FLAI §2.4) ────────────────────────────────────────
+
+  appendLiftObservation({ event_id, user_id, estimator, value, confidence, inputs }) {
+    return db.prepare(`
+      INSERT INTO lift_observations (event_id, user_id, estimator, value, confidence, inputs)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      event_id || null, user_id || null, estimator,
+      value ?? null, confidence ?? null,
+      inputs ? JSON.stringify(inputs) : '{}',
+    );
   },
 
 };

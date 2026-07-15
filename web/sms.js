@@ -123,6 +123,9 @@ async function send(to, body, opts = {}) {
   try {
     const msg = await client.messages.create({ from: FROM_NUMBER, to, body });
     console.log(`[SMS] sent sid=${msg.sid} to=${to}`);
+    // FLAI burn instrumentation — STUB, always permissive (§2.3)
+    // TODO: sms.js doesn't always know the userId — using null here; wire userId when call site provides it
+    try { require('./flai').burnForUser(null, 'burn:sms', { ref_id: msg.sid }); } catch (_) {}
     return msg;
   } catch (err) {
     console.error(`[SMS] failed to=${to}:`, err.message);
@@ -184,6 +187,9 @@ async function sendUnchecked(to, body) {
   }
   const msg = await client.messages.create({ from: FROM_NUMBER, to, body });
   console.log(`[SMS] sendUnchecked sid=${msg.sid} to=${to}`);
+  // FLAI burn instrumentation — STUB, always permissive (§2.3)
+  // TODO: sms.js doesn't always know the userId — using null here; wire userId when call site provides it
+  try { require('./flai').burnForUser(null, 'burn:sms', { ref_id: msg.sid }); } catch (_) {}
   return msg;
 }
 

@@ -101,6 +101,10 @@ async function searchPlaces({ query, max_results = 5 }) {
     body
   );
 
+  // FLAI burn instrumentation — STUB, always permissive (§2.3)
+  // TODO: venues.js doesn't receive userId at this call site; wire it when the call chain provides it
+  try { require('./flai').burnForUser(null, 'burn:places', {}); } catch (_) {}
+
   const parsed = JSON.parse(data);
   return (parsed.places || []).map(p => ({
     google_place_id: p.id,

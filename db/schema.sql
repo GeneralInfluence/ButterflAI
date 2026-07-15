@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS activities (
     proposed_slots TEXT,               -- JSON array of ISO datetime strings
     scheduled_at INTEGER,
     cost_actual REAL,
-    fun_score REAL,                    -- 0.0–1.0
+    fun_score REAL,                    -- 0.0–1.0 DEPRECATED: see TOKEN.md §5
     responses TEXT DEFAULT '{}',       -- JSON: { phone: 'accepted'|'declined' }
     time_choices TEXT DEFAULT '{}',    -- JSON: { phone: slotIndex }
     notes TEXT,
