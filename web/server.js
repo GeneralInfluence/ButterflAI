@@ -1077,17 +1077,30 @@ app.get('/api/events/:userId/:eventId', (req, res) => {
 
 // ── Google OAuth callbacks ────────────────────────────────────────────────────
 
-// Initiate Google Calendar OAuth for a user (linked from SMS: "Connect your calendar: <url>")
+// Initiate Google Calendar OAuth for a user.
+// Accepts ?userId= (SMS link) or falls back to the authenticated session cookie.
 app.get('/auth/google/calendar', (req, res) => {
-  const { userId } = req.query;
+  let userId = req.query.userId;
+  if (!userId) {
+    // Try session cookie
+    const token = req.cookies?.[webAuth.COOKIE_NAME];
+    const payload = token ? webAuth.verifyToken(token) : null;
+    userId = payload?.userId;
+  }
   if (!userId || !db.getUser(userId)) return res.status(400).send('Invalid userId');
   const url = calendar.getAuthUrl(userId);
   res.redirect(url);
 });
 
-// Apple Calendar connect — user submits Apple ID + app-specific password
+// Apple Calendar connect — user submits Apple ID + app-specific password.
+// Accepts ?userId= (SMS link) or falls back to the authenticated session cookie.
 app.get('/auth/apple/calendar', (req, res) => {
-  const { userId } = req.query;
+  let userId = req.query.userId;
+  if (!userId) {
+    const token = req.cookies?.[webAuth.COOKIE_NAME];
+    const payload = token ? webAuth.verifyToken(token) : null;
+    userId = payload?.userId;
+  }
   if (!userId || !db.getUser(userId)) return res.status(400).send('Invalid userId');
   res.send(`<!DOCTYPE html>
 <html lang="en"><head>
