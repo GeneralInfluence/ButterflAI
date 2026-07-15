@@ -219,3 +219,79 @@ describe('POST /api/join — route existence check', () => {
     assert.ok(res.status < 500 || res.status === 500, 'Should not completely crash');
   });
 });
+
+describe('GET /api/chat/messages — history ordering', () => {
+  let cookie;
+  let userId;
+
+  before(async () => {
+    const phone = '+12025550510';
+    cookie = await getAuthedCookie(phone);
+    userId = db.getUserByPhone(phone)?.id;
+
+    // Insert 60 messages with incrementing timestamps so we can verify
+    // which ones come back (should be the most recent 50, in chron order).
+    const now = Math.floor(Date.now() / 1000);
+    for (let i = 0; i < 60; i++) {
+      db._raw().prepare(
+        `INSERT INTO conversation_history (id, user_id, role, text, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(uuidv4(), userId, i % 2 === 0 ? 'user' : 'assistant', `Message ${i}`, now - (60 - i));
+    }
+  });
+
+  test('returns 200 with messages array', async () => {
+    const res = await request
+      .get('/api/chat/messages')
+      .set('Cookie', cookie);
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body.messages), 'messages should be an array');
+  });
+
+  test('returns at most 50 messages by default', async () => {
+    const res = await request
+      .get('/api/chat/messages')
+      .set('Cookie', cookie);
+    assert.ok(res.body.messages.length <= 50, `Should return ≤50, got ${res.body.messages.length}`);
+  });
+
+  test('returns MOST RECENT messages, not oldest (regression: ASC bug)', async () => {
+    const res = await request
+      .get('/api/chat/messages')
+      .set('Cookie', cookie);
+    const msgs = res.body.messages;
+    assert.ok(msgs.length > 0, 'Should have messages');
+    // We inserted 60 messages labelled "Message 0" through "Message 59".
+    // The last message is "Message 59". It must appear in the response.
+    const texts = msgs.map(m => m.text);
+    assert.ok(texts.includes('Message 59'), `Most recent message "Message 59" must be present. Got: ${texts.slice(-3).join(', ')}`);
+    // The very first message "Message 0" should NOT be present (it was cut off by LIMIT 50)
+    assert.ok(!texts.includes('Message 0'), `Oldest message "Message 0" should be excluded by LIMIT 50`);
+  });
+
+  test('messages are in chronological order (oldest-first in array)', async () => {
+    const res = await request
+      .get('/api/chat/messages')
+      .set('Cookie', cookie);
+    const ts = res.body.messages.map(m => m.created_at);
+    for (let i = 1; i < ts.length; i++) {
+      assert.ok(ts[i] >= ts[i - 1], `Messages should be oldest-first: index ${i} (${ts[i]}) < ${i-1} (${ts[i-1]})`);
+    }
+  });
+
+  test('?limit= param is respected', async () => {
+    const res = await request
+      .get('/api/chat/messages?limit=5')
+      .set('Cookie', cookie);
+    assert.equal(res.status, 200);
+    assert.ok(res.body.messages.length <= 5, `limit=5 should return ≤5, got ${res.body.messages.length}`);
+    // Should still be the most recent ones
+    const texts = res.body.messages.map(m => m.text);
+    assert.ok(texts.includes('Message 59'), 'With limit=5 should still see most recent message');
+  });
+
+  test('unauthenticated → 401', async () => {
+    const res = await request.get('/api/chat/messages');
+    assert.equal(res.status, 401);
+  });
+});

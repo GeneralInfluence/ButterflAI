@@ -914,12 +914,14 @@ app.post('/auth/otp/verify', express.json(), webAuth.verifyOtpHandler);
 app.get('/auth/logout',      webAuth.logout);
 
 // ── Web chat API ──────────────────────────────────────────────────────────────
-// GET /api/chat/messages — last 50 conversation messages
+// GET /api/chat/messages — last 50 conversation messages, newest-first then reversed
+// Uses DESC + reverse so we get the most recent 50 (not the oldest 50).
 app.get('/api/chat/messages', webAuth.requireAuth, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const msgs = db._raw().prepare(
     `SELECT role, text, created_at FROM conversation_history
-     WHERE user_id = ? ORDER BY created_at ASC LIMIT 50`
-  ).all(req.user.id);
+     WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`
+  ).all(req.user.id, limit).reverse(); // reverse → chronological for the client
   res.json({ messages: msgs });
 });
 
