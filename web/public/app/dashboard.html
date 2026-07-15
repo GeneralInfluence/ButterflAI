@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ButterflAI — Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --purple: #6c47ff; --bg: #f2f2f7; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+    }
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      height: 56px;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .logo { font-size: 22px; font-weight: 700; color: #1a1a1a; text-decoration: none; }
+    nav { margin-left: auto; display: flex; gap: 20px; }
+    nav a { font-size: 14px; color: var(--purple); text-decoration: none; font-weight: 500; }
+    nav a:hover { text-decoration: underline; }
+    main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+    .banner {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .banner p { font-size: 14px; color: #92400e; }
+    .banner a {
+      font-size: 13px;
+      color: #92400e;
+      font-weight: 600;
+      text-decoration: underline;
+      white-space: nowrap;
+    }
+    section { margin-bottom: 32px; }
+    h2 { font-size: 17px; font-weight: 700; color: #1a1a1a; margin-bottom: 12px; }
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      margin-bottom: 10px;
+    }
+    .card-title { font-size: 15px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
+    .card-sub { font-size: 13px; color: #888; }
+    .empty-state { font-size: 14px; color: #aaa; text-align: center; padding: 24px 0; }
+    .referral-box {
+      background: #fff;
+      border-radius: 14px;
+      padding: 20px 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .referral-url {
+      font-size: 13px;
+      color: #555;
+      background: #f5f5f7;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin: 12px 0;
+      word-break: break-all;
+      font-family: monospace;
+    }
+    .copy-btn {
+      background: var(--purple);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .copy-btn:hover { opacity: 0.85; }
+    .referral-sub { font-size: 13px; color: #888; margin-top: 10px; }
+    .joined-count { font-size: 13px; color: #555; margin-top: 6px; }
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/app/dashboard">🦋 ButterflAI</a>
+  <nav>
+    <a href="/app/chat">Chat</a>
+    <a href="/app/contacts">Contacts</a>
+    <a href="/app/events">Events</a>
+    <a href="/app/settings">Settings</a>
+  </nav>
+</header>
+
+<main>
+  <!-- Finish setup banner (shown if onboarding incomplete) -->
+  <div class="banner" id="onboarding-banner" style="display:none;">
+    <p>⚙️ Your agent isn't fully set up yet.</p>
+    <a href="/app/onboarding">Finish setup →</a>
+  </div>
+
+  <!-- Overdue check-ins -->
+  <section>
+    <h2>Overdue check-ins</h2>
+    <div id="overdue-list"><div class="empty-state">Loading…</div></div>
+  </section>
+
+  <!-- Coming up -->
+  <section>
+    <h2>Coming up</h2>
+    <div id="upcoming-list"><div class="empty-state">Loading…</div></div>
+  </section>
+
+  <!-- Invite a friend -->
+  <section>
+    <h2>Invite a friend</h2>
+    <div class="referral-box">
+      <p style="font-size:14px;color:#333;">Share your link to bring someone onboard.</p>
+      <div class="referral-url" id="referral-url">Loading…</div>
+      <button class="copy-btn" id="copy-btn">Copy invite link</button>
+      <p class="referral-sub">When they join, your agent works harder.</p>
+      <p class="joined-count" id="joined-count"></p>
+    </div>
+  </section>
+</main>
+
+<script>
+  function fmtDate(ts) {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  async function load() {
+    // Check onboarding state
+    try {
+      const me = await fetch('/api/user/me').then(r => r.json());
+      if (me.onboarding_state && me.onboarding_state !== 'complete') {
+        document.getElementById('onboarding-banner').style.display = 'flex';
+      }
+    } catch (_) {}
+
+    // Overdue
+    try {
+      const { overdue } = await fetch('/api/dashboard/overdue').then(r => r.json());
+      const el = document.getElementById('overdue-list');
+      if (!overdue || overdue.length === 0) {
+        el.innerHTML = '<div class="empty-state">All caught up! No overdue check-ins.</div>';
+      } else {
+        el.innerHTML = overdue.map(c => `
+          <div class="card">
+            <div class="card-title">${c.contact_name || 'Someone'}</div>
+            <div class="card-sub">${c.frequency || ''} ${c.activity_type || ''} · due ${fmtDate(c.next_target_at)}</div>
+          </div>
+        `).join('');
+      }
+    } catch (_) {
+      document.getElementById('overdue-list').innerHTML = '<div class="empty-state">Could not load.</div>';
+    }
+
+    // Upcoming
+    try {
+      const { upcoming } = await fetch('/api/dashboard/upcoming').then(r => r.json());
+      const el = document.getElementById('upcoming-list');
+      if (!upcoming || upcoming.length === 0) {
+        el.innerHTML = '<div class="empty-state">Nothing on the calendar yet.</div>';
+      } else {
+        el.innerHTML = upcoming.map(a => `
+          <div class="card">
+            <div class="card-title">${a.activity_type || 'Event'}</div>
+            <div class="card-sub">${a.venue_name || ''} · ${fmtDate(a.scheduled_at)} · ${a.status || ''}</div>
+          </div>
+        `).join('');
+      }
+    } catch (_) {
+      document.getElementById('upcoming-list').innerHTML = '<div class="empty-state">Could not load.</div>';
+    }
+
+    // Referral
+    try {
+      const { url, joined } = await fetch('/api/user/referral').then(r => r.json());
+      document.getElementById('referral-url').textContent = url || '';
+      if (joined > 0) {
+        document.getElementById('joined-count').textContent = `${joined} friend${joined === 1 ? '' : 's'} joined via your link.`;
+      }
+      document.getElementById('copy-btn').addEventListener('click', () => {
+        navigator.clipboard.writeText(url).then(() => {
+          document.getElementById('copy-btn').textContent = 'Copied!';
+          setTimeout(() => { document.getElementById('copy-btn').textContent = 'Copy invite link'; }, 2000);
+        });
+      });
+    } catch (_) {
+      document.getElementById('referral-url').textContent = 'Could not load link.';
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>

@@ -21,8 +21,9 @@ const BURN_RATES = {
   'burn:places': 2, // FLAI per Places API call
 };
 
-const BASELINE_GRANT = 100;  // tokens granted to new users on creation
-const EARN_RATE_CAP  = 500;  // stub only — not enforced yet
+const BASELINE_GRANT  = 100;  // tokens granted to new users on creation
+const EARN_RATE_CAP   = 500;  // stub only — not enforced yet
+const REFERRAL_GRANT  = 50;   // FLAI credited to referrer when referred user completes onboarding
 
 // ── DB reference (lazy to avoid circular deps) ────────────────────────────────
 
@@ -105,13 +106,58 @@ function capEarnRate(userId, proposed) {
   return proposed;
 }
 
+// ── grantReferral ─────────────────────────────────────────────────────────────
+
+/**
+ * Credit referrer when a referred user completes onboarding.
+ * SMS copy is capability language only — never mentions FLAI by name or amount.
+ * @param {string} referrerUserId
+ * @param {string} referredUserId
+ */
+async function grantReferral(referrerUserId, referredUserId) {
+  try {
+    const db = _getDb();
+
+    // 1. Credit referrer's ledger
+    db.appendFlaiLedger({
+      user_id:  referrerUserId,
+      delta:    REFERRAL_GRANT,
+      reason:   'referral_grant',
+      ref_id:   referredUserId,
+      metadata: {},
+    });
+
+    // 2. Mark referral as rewarded
+    const referral = db._raw()
+      .prepare('SELECT * FROM referrals WHERE referrer_user_id = ? AND referred_user_id = ?')
+      .get(referrerUserId, referredUserId);
+    if (referral) db.rewardReferral(referral.id);
+
+    // 3. Notify referrer via SMS — capability language ONLY, no FLAI mention
+    const referrer = db.getUser(referrerUserId);
+    const referred = db.getUser(referredUserId);
+    if (referrer?.phone) {
+      const sms = require('./sms');
+      const name = referred?.name || 'Your friend';
+      await sms.notifyUser(
+        referrer.phone,
+        `${name} just joined ButterflAI. 🦋 Your agent has more room to work this month — thanks for spreading the word!`,
+      ).catch(err => console.error('[referral] SMS notify failed:', err.message));
+    }
+  } catch (err) {
+    console.error('[referral] grantReferral error (non-fatal):', err.message);
+  }
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
   BURN_RATES,
   BASELINE_GRANT,
   EARN_RATE_CAP,
+  REFERRAL_GRANT,
   burnForUser,
   checkThrottle,
   capEarnRate,
+  grantReferral,
 };

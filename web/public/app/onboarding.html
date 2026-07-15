@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ButterflAI — Setup</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --purple: #6c47ff; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f2f2f7;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 32px 16px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 20px;
+      max-width: 520px;
+      width: 100%;
+      padding: 36px 32px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    }
+    .logo { font-size: 40px; display: block; text-align: center; margin-bottom: 20px; }
+    h1 { font-size: 22px; font-weight: 700; text-align: center; color: #1a1a1a; margin-bottom: 6px; }
+    .sub { font-size: 14px; color: #888; text-align: center; margin-bottom: 28px; }
+    /* Steps */
+    .step { display: none; }
+    .step.active { display: block; }
+    .step-label {
+      font-size: 12px;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+    h2 { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-bottom: 20px; }
+    /* Form */
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 13px; color: #888; margin-bottom: 5px; font-weight: 500; }
+    input[type="text"], input[type="tel"] {
+      width: 100%;
+      border: 1.5px solid #e5e5e5;
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 15px;
+      color: #1a1a1a;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: var(--purple); }
+    select {
+      width: 100%;
+      border: 1.5px solid #e5e5e5;
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 15px;
+      color: #1a1a1a;
+      outline: none;
+      font-family: inherit;
+      background: #fff;
+      transition: border-color 0.15s;
+      appearance: none;
+    }
+    select:focus { border-color: var(--purple); }
+    /* Contact blocks */
+    .contact-block {
+      border: 1px solid #f0f0f0;
+      border-radius: 12px;
+      padding: 16px 14px;
+      margin-bottom: 14px;
+      background: #fafafa;
+    }
+    .contact-num { font-size: 13px; font-weight: 600; color: var(--purple); margin-bottom: 12px; }
+    /* Buttons */
+    .btn-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+    .btn {
+      padding: 11px 22px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+      transition: opacity 0.15s;
+    }
+    .btn-primary { background: var(--purple); color: #fff; }
+    .btn-secondary { background: #f5f5f7; color: #555; }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    /* Progress dots */
+    .dots { display: flex; justify-content: center; gap: 8px; margin-bottom: 28px; }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #e5e5e5; transition: background 0.2s;
+    }
+    .dot.active { background: var(--purple); }
+    /* Done step */
+    .done-icon { font-size: 52px; text-align: center; display: block; margin-bottom: 16px; }
+    .done-msg { font-size: 15px; color: #555; text-align: center; line-height: 1.7; margin-bottom: 24px; }
+    .btn-chat {
+      display: block;
+      text-align: center;
+      background: var(--purple);
+      color: #fff;
+      border-radius: 12px;
+      padding: 13px 24px;
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: opacity 0.15s;
+    }
+    .btn-chat:hover { opacity: 0.85; }
+    .error { font-size: 13px; color: #dc2626; margin-top: 10px; text-align: center; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <span class="logo">🦋</span>
+
+  <!-- Progress dots -->
+  <div class="dots">
+    <div class="dot active" id="dot-0"></div>
+    <div class="dot" id="dot-1"></div>
+    <div class="dot" id="dot-2"></div>
+    <div class="dot" id="dot-3"></div>
+  </div>
+
+  <!-- Step 1: Name -->
+  <div class="step active" id="step-0">
+    <div class="step-label">Step 1 of 3</div>
+    <h2>What's your name?</h2>
+    <div class="form-group">
+      <label for="user-name">Your name</label>
+      <input type="text" id="user-name" placeholder="Jamie" autocomplete="given-name" />
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="goStep(1)">Next →</button>
+    </div>
+  </div>
+
+  <!-- Step 2: Contacts -->
+  <div class="step" id="step-1">
+    <div class="step-label">Step 2 of 3</div>
+    <h2>Who do you want to stay in touch with?</h2>
+    <p style="font-size:13px;color:#888;margin-bottom:16px;">Add up to 3 people. Phone is optional.</p>
+
+    <div class="contact-block">
+      <div class="contact-num">Contact 1</div>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" class="c-name" placeholder="Alex" />
+      </div>
+      <div class="form-group">
+        <label>Phone (optional)</label>
+        <input type="tel" class="c-phone" placeholder="+1 555 000 0000" />
+      </div>
+    </div>
+
+    <div class="contact-block">
+      <div class="contact-num">Contact 2</div>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" class="c-name" placeholder="Morgan" />
+      </div>
+      <div class="form-group">
+        <label>Phone (optional)</label>
+        <input type="tel" class="c-phone" placeholder="+1 555 000 0000" />
+      </div>
+    </div>
+
+    <div class="contact-block">
+      <div class="contact-num">Contact 3</div>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" class="c-name" placeholder="Riley" />
+      </div>
+      <div class="form-group">
+        <label>Phone (optional)</label>
+        <input type="tel" class="c-phone" placeholder="+1 555 000 0000" />
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="goStep(0)">← Back</button>
+      <button class="btn btn-primary" onclick="goStep(2)">Next →</button>
+    </div>
+  </div>
+
+  <!-- Step 3: Frequency -->
+  <div class="step" id="step-2">
+    <div class="step-label">Step 3 of 3</div>
+    <h2>How often for each?</h2>
+    <p style="font-size:13px;color:#888;margin-bottom:16px;">Your agent will nudge you when it's time to reach out.</p>
+    <div id="freq-list"></div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="goStep(1)">← Back</button>
+      <button class="btn btn-primary" id="finish-btn" onclick="finish()">Set up my agent →</button>
+    </div>
+    <p class="error" id="finish-error"></p>
+  </div>
+
+  <!-- Step 4: Done -->
+  <div class="step" id="step-3">
+    <span class="done-icon">✅</span>
+    <p class="done-msg">
+      Your agent is set up!<br>
+      I'll keep track of your connections and let you know when it's time to reach out.
+    </p>
+    <a class="btn-chat" href="/app/chat">Start chatting →</a>
+  </div>
+</div>
+
+<script>
+  let currentStep = 0;
+
+  function goStep(n) {
+    document.getElementById(`step-${currentStep}`).classList.remove('active');
+    document.getElementById(`dot-${currentStep}`).classList.remove('active');
+    currentStep = n;
+    document.getElementById(`step-${currentStep}`).classList.add('active');
+    document.getElementById(`dot-${currentStep}`).classList.add('active');
+
+    if (n === 2) renderFreqList();
+  }
+
+  function getContacts() {
+    const names = Array.from(document.querySelectorAll('.c-name')).map(i => i.value.trim());
+    const phones = Array.from(document.querySelectorAll('.c-phone')).map(i => i.value.trim());
+    return names.map((name, i) => ({ name, phone: phones[i] || '' })).filter(c => c.name);
+  }
+
+  function renderFreqList() {
+    const contacts = getContacts();
+    const el = document.getElementById('freq-list');
+    if (contacts.length === 0) {
+      el.innerHTML = '<p style="font-size:14px;color:#aaa;text-align:center;padding:12px;">No contacts added yet.</p>';
+      return;
+    }
+    el.innerHTML = contacts.map((c, i) => `
+      <div class="contact-block">
+        <div class="contact-num">${c.name}</div>
+        <div class="form-group">
+          <label>Frequency</label>
+          <select class="c-freq" id="freq-${i}">
+            <option value="weekly">Weekly</option>
+            <option value="monthly" selected>Monthly</option>
+            <option value="quarterly">Quarterly</option>
+          </select>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function finish() {
+    const btn = document.getElementById('finish-btn');
+    const errEl = document.getElementById('finish-error');
+    errEl.textContent = '';
+    btn.disabled = true;
+
+    const contacts = getContacts();
+    const freqs = Array.from(document.querySelectorAll('.c-freq')).map(s => s.value);
+    const payload = contacts.map((c, i) => ({
+      name: c.name,
+      phone: c.phone || null,
+      frequency: freqs[i] || 'monthly',
+    }));
+
+    try {
+      const res = await fetch('/api/onboarding/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contacts: payload }),
+      });
+      if (res.ok) {
+        goStep(3);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        errEl.textContent = data.error || 'Something went wrong. Please try again.';
+        btn.disabled = false;
+      }
+    } catch (_) {
+      errEl.textContent = 'Network error — please try again.';
+      btn.disabled = false;
+    }
+  }
+
+  // Pre-fill name if known
+  (async () => {
+    try {
+      const me = await fetch('/api/user/me').then(r => r.json());
+      if (me.name && me.name !== 'unknown') {
+        document.getElementById('user-name').value = me.name;
+      }
+    } catch (_) {}
+  })();
+</script>
+</body>
+</html>

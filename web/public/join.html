@@ -284,6 +284,7 @@
   const form     = document.getElementById('join-form');
   const errorMsg = document.getElementById('error-msg');
   const submitBtn = document.getElementById('submit-btn');
+  const ref = new URLSearchParams(location.search).get('ref') || '';
 
   form.addEventListener('submit', async function (e) {
     e.preventDefault();
@@ -303,7 +304,7 @@
       const res = await fetch('/api/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone }),
+        body: JSON.stringify({ name, phone, ref }),
       });
 
       if (res.ok) {

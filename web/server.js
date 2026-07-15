@@ -40,6 +40,7 @@ const contactsImport = require('./contacts-import');
 const venues = require('./venues');
 const multiparty = require('./multiparty');
 const lift = require('./lift');
+const flai = require('./flai');
 
 // Telegram bot — optional, retained for future use
 let telegramBot = null;
@@ -449,7 +450,7 @@ app.post('/api/contact/:token/edit', async (req, res) => {
 // Consent source: INVITE_PAGE (same as the invite-page flow, distinct from SELF_START).
 
 app.post('/api/join', async (req, res) => {
-  const { name, phone } = req.body;
+  const { name, phone, ref } = req.body;
 
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Name is required.' });
@@ -472,14 +473,31 @@ app.post('/api/join', async (req, res) => {
 
   // Create user account (or update if already exists)
   const existingUser = db.getUserByPhone(normalizedPhone);
+  let newUserId = existingUser?.id;
   if (!existingUser) {
-    const { v4: uuidv4 } = require('uuid');
+    newUserId = uuidv4();
     db.createUser({
-      id: uuidv4(),
+      id: newUserId,
       name: name.trim(),
       phone: normalizedPhone,
       onboarding_state: 'complete',
     });
+  }
+
+  // Handle referral — look up token, redeem if pending
+  let referral = null;
+  if (ref && newUserId) {
+    try {
+      referral = db.getReferralByToken(ref);
+      if (referral && referral.status === 'pending') {
+        db.redeemReferral(ref, newUserId);
+      } else {
+        referral = null; // already redeemed or invalid
+      }
+    } catch (err) {
+      console.error('[join] referral lookup failed:', err.message);
+      referral = null;
+    }
   }
 
   // Send welcome SMS
@@ -489,6 +507,12 @@ app.post('/api/join', async (req, res) => {
     `with the people who matter.\n\n` +
     `Text me anytime. Reply STOP to opt out, HELP for help.`
   ).catch(err => console.error('[join] welcome SMS failed:', err.message));
+
+  // Grant referral reward after welcome SMS
+  if (referral && newUserId) {
+    flai.grantReferral(referral.referrer_user_id, newUserId)
+      .catch(err => console.error('[join] grantReferral failed:', err.message));
+  }
 
   res.json({ ok: true });
 });
@@ -727,16 +751,145 @@ function escapeXml(str) {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
+// ── Referral routes ───────────────────────────────────────────────────────────
+
+// GET /r/:token — referral landing (redirect to join with ref param)
+app.get('/r/:token', (req, res) => {
+  const referral = db.getReferralByToken(req.params.token);
+  if (!referral) return res.redirect('/join');
+  res.redirect(`/join?ref=${req.params.token}`);
+});
+
+// GET /api/user/referral — get current user's referral token + stats
+app.get('/api/user/referral', webAuth.requireAuth, (req, res) => {
+  const token = db.getOrCreateReferralToken(req.user.id);
+  const baseUrl = process.env.BASE_URL || `https://butterflai.social`;
+  const url = `${baseUrl}/r/${token}`;
+  // Count joined referrals (never expose FLAI count)
+  const joined = db._raw()
+    .prepare(`SELECT COUNT(*) as n FROM referrals WHERE referrer_user_id = ? AND status IN ('joined','rewarded')`)
+    .get(req.user.id)?.n || 0;
+  res.json({ ok: true, url, joined });
+});
+
+// ── Dashboard API endpoints ───────────────────────────────────────────────────
+
+// GET /api/dashboard/overdue — cadences past due for this user
+app.get('/api/dashboard/overdue', webAuth.requireAuth, (req, res) => {
+  const now = Math.floor(Date.now() / 1000);
+  const rows = db._raw().prepare(`
+    SELECT c.*, r.contact_id,
+           COALESCE(ct.name, u2.name) as contact_name,
+           c.activity_type, c.frequency
+    FROM cadences c
+    JOIN relationships r ON c.relationship_id = r.id
+    LEFT JOIN contacts ct ON ct.id = r.contact_id AND r.contact_is_user = 0
+    LEFT JOIN users u2 ON u2.id = r.contact_id AND r.contact_is_user = 1
+    WHERE r.user_id = ? AND c.active = 1
+      AND (c.next_target_at IS NOT NULL AND c.next_target_at < ?)
+    ORDER BY c.next_target_at ASC
+    LIMIT 10
+  `).all(req.user.id, now);
+  res.json({ overdue: rows });
+});
+
+// GET /api/dashboard/upcoming — activities scheduled in next 30 days
+app.get('/api/dashboard/upcoming', webAuth.requireAuth, (req, res) => {
+  const now = Math.floor(Date.now() / 1000);
+  const in30 = now + 30 * 86400;
+  const rows = db._raw().prepare(`
+    SELECT a.*
+    FROM activities a
+    JOIN cadences c ON a.cadence_id = c.id
+    JOIN relationships r ON c.relationship_id = r.id
+    WHERE r.user_id = ?
+      AND a.scheduled_at BETWEEN ? AND ?
+      AND a.status IN ('proposed','confirmed')
+    ORDER BY a.scheduled_at ASC
+    LIMIT 10
+  `).all(req.user.id, now, in30);
+  res.json({ upcoming: rows });
+});
+
+// ── Onboarding setup API ──────────────────────────────────────────────────────
+
+// POST /api/onboarding/setup — web onboarding: create contacts/relationships/cadences
+app.post('/api/onboarding/setup', webAuth.requireAuth, express.json(), async (req, res) => {
+  const { contacts } = req.body;
+  if (!Array.isArray(contacts)) return res.status(400).json({ error: 'contacts array required' });
+
+  try {
+    for (const c of contacts) {
+      if (!c.name) continue;
+      const contactId = uuidv4();
+      db.upsertContact({
+        invited_by_user_id: req.user.id,
+        name: c.name,
+        phone: c.phone || null,
+        tier: 0,
+      });
+      // Find the contact we just upserted (by name + invited_by)
+      const contact = db._raw().prepare(
+        `SELECT * FROM contacts WHERE invited_by_user_id = ? AND name = ? ORDER BY created_at DESC LIMIT 1`
+      ).get(req.user.id, c.name);
+      if (!contact) continue;
+
+      // Create relationship if not exists
+      const existingRel = db._raw().prepare(
+        `SELECT * FROM relationships WHERE user_id = ? AND contact_id = ? LIMIT 1`
+      ).get(req.user.id, contact.id);
+      let relId;
+      if (existingRel) {
+        relId = existingRel.id;
+      } else {
+        relId = uuidv4();
+        db.createRelationship({
+          id: relId,
+          user_id: req.user.id,
+          contact_id: contact.id,
+          contact_is_user: 0,
+          nickname: null,
+          notes: null,
+        });
+      }
+
+      // Create cadence
+      const freq = c.frequency || 'monthly';
+      db.createCadence({
+        id: uuidv4(),
+        relationship_id: relId,
+        activity_type: 'hangout',
+        frequency: freq,
+        group_size: 2,
+        budget_per_person: null,
+        preferred_areas: null,
+        preferred_times: null,
+      });
+    }
+
+    // Mark onboarding complete
+    db.updateUser(req.user.id, { onboarding_state: 'complete' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[onboarding/setup] error:', err.message);
+    res.status(500).json({ error: 'Setup failed.' });
+  }
+});
+
 // ── Health check ─────────────────────────────────────────────────────────────
 
 // ── Admin routes (auth-gated via X-Admin-Secret header) ──────────────────────
 app.use('/admin', express.json(), adminRouter);
 
 // ── Web app pages ─────────────────────────────────────────────────────────────
-app.get('/app/login',    (req, res) => res.sendFile(path.join(__dirname, 'public/app/login.html')));
-app.get('/app/chat',     webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/chat.html')));
-app.get('/app/contacts', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/contacts.html')));
-app.get('/app',          (req, res) => res.redirect('/app/chat'));
+app.get('/app/login',      (req, res) => res.sendFile(path.join(__dirname, 'public/app/login.html')));
+app.get('/app/chat',       webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/chat.html')));
+app.get('/app/contacts',   webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/contacts.html')));
+app.get('/app/dashboard',  webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/dashboard.html')));
+app.get('/app/events',     webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/events.html')));
+app.get('/app/settings',   webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/settings.html')));
+app.get('/app/onboarding', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/onboarding.html')));
+app.get('/app',            (req, res) => res.redirect('/app/dashboard'));
 
 // ── OTP auth ──────────────────────────────────────────────────────────────────
 app.post('/auth/otp/send',   express.json(), webAuth.sendOtp);

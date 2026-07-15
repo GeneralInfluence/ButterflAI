@@ -852,6 +852,47 @@ module.exports = {
     return row?.balance || 0;
   },
 
+  // ── Referrals ─────────────────────────────────────────────────────────────
+
+  createReferral({ id, referrer_user_id, referral_token }) {
+    return db.prepare(`
+      INSERT INTO referrals (id, referrer_user_id, referral_token)
+      VALUES (?, ?, ?)
+    `).run(id, referrer_user_id, referral_token);
+  },
+
+  getReferralByToken(token) {
+    return db.prepare('SELECT * FROM referrals WHERE referral_token = ?').get(token);
+  },
+
+  redeemReferral(referral_token, referred_user_id) {
+    return db.prepare(`
+      UPDATE referrals SET status = 'joined', referred_user_id = ?
+      WHERE referral_token = ? AND status = 'pending'
+    `).run(referred_user_id, referral_token);
+  },
+
+  rewardReferral(id) {
+    return db.prepare(`
+      UPDATE referrals SET status = 'rewarded', rewarded_at = strftime('%s','now')
+      WHERE id = ?
+    `).run(id);
+  },
+
+  getUserByReferralToken(token) {
+    return db.prepare('SELECT * FROM users WHERE referral_token = ?').get(token);
+  },
+
+  getOrCreateReferralToken(userId) {
+    const user = db.prepare('SELECT referral_token FROM users WHERE id = ?').get(userId);
+    if (user?.referral_token) return user.referral_token;
+    // Generate an 8-char short token from a UUID
+    const { v4: uuidv4 } = require('uuid');
+    const token = uuidv4().replace(/-/g, '').slice(0, 8);
+    db.prepare('UPDATE users SET referral_token = ? WHERE id = ?').run(token, userId);
+    return token;
+  },
+
   // ── Lift observations (FLAI §2.4) ────────────────────────────────────────
 
   appendLiftObservation({ event_id, user_id, estimator, value, confidence, inputs }) {

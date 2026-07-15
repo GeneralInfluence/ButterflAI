@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ButterflAI — Events</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --purple: #6c47ff; --bg: #f2f2f7; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+    }
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e5e5e5;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      height: 56px;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .logo { font-size: 22px; font-weight: 700; color: #1a1a1a; text-decoration: none; }
+    nav { margin-left: auto; display: flex; gap: 20px; }
+    nav a { font-size: 14px; color: var(--purple); text-decoration: none; font-weight: 500; }
+    nav a:hover { text-decoration: underline; }
+    main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 20px; color: #1a1a1a; }
+    .tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #e5e5e5; }
+    .tab {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: #888;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab.active { color: var(--purple); border-bottom-color: var(--purple); }
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: box-shadow 0.15s;
+    }
+    .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .card-title { font-size: 15px; font-weight: 600; color: #1a1a1a; }
+    .card-sub { font-size: 13px; color: #888; margin-top: 3px; }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 20px;
+      text-transform: capitalize;
+    }
+    .badge.confirmed { background: #dcfce7; color: #166534; }
+    .badge.proposed  { background: #fef9c3; color: #713f12; }
+    .badge.cancelled { background: #fee2e2; color: #991b1b; }
+    .badge.completed { background: #e0e7ff; color: #3730a3; }
+    .detail {
+      display: none;
+      margin-top: 14px;
+      border-top: 1px solid #f0f0f0;
+      padding-top: 14px;
+      font-size: 13px;
+      color: #555;
+      line-height: 1.7;
+    }
+    .detail.open { display: block; }
+    .empty-state { font-size: 14px; color: #aaa; text-align: center; padding: 40px 0; }
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/app/dashboard">🦋 ButterflAI</a>
+  <nav>
+    <a href="/app/chat">Chat</a>
+    <a href="/app/contacts">Contacts</a>
+    <a href="/app/events">Events</a>
+    <a href="/app/settings">Settings</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Events</h1>
+  <div class="tabs">
+    <button class="tab active" id="tab-upcoming" onclick="showTab('upcoming')">Upcoming</button>
+    <button class="tab" id="tab-past" onclick="showTab('past')">Past</button>
+  </div>
+  <div id="events-list"><div class="empty-state">Loading…</div></div>
+</main>
+
+<script>
+  let allEvents = [];
+  let currentTab = 'upcoming';
+  const now = Math.floor(Date.now() / 1000);
+
+  function fmtDate(ts) {
+    if (!ts) return 'TBD';
+    const d = new Date(ts * 1000);
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function badgeClass(status) {
+    if (!status) return '';
+    const s = status.toLowerCase();
+    if (s === 'confirmed') return 'confirmed';
+    if (s === 'proposed') return 'proposed';
+    if (s === 'cancelled' || s === 'canceled') return 'cancelled';
+    if (s === 'completed') return 'completed';
+    return '';
+  }
+
+  function renderEvents(events) {
+    const el = document.getElementById('events-list');
+    if (!events || events.length === 0) {
+      el.innerHTML = '<div class="empty-state">No events yet — text your agent to get something on the calendar.</div>';
+      return;
+    }
+    el.innerHTML = events.map((e, i) => `
+      <div class="card" onclick="toggleDetail(${i})">
+        <div class="card-header">
+          <div>
+            <div class="card-title">${e.activity_type || 'Event'}</div>
+            <div class="card-sub">${e.venue_name || ''} · ${fmtDate(e.scheduled_at)}</div>
+          </div>
+          <span class="badge ${badgeClass(e.status)}">${e.status || 'unknown'}</span>
+        </div>
+        <div class="detail" id="detail-${i}">
+          ${e.venue_name ? `<div><strong>Venue:</strong> ${e.venue_name}</div>` : ''}
+          ${e.scheduled_at ? `<div><strong>Date:</strong> ${fmtDate(e.scheduled_at)}</div>` : ''}
+          ${e.activity_type ? `<div><strong>Type:</strong> ${e.activity_type}</div>` : ''}
+          ${e.status ? `<div><strong>Status:</strong> ${e.status}</div>` : ''}
+          ${e.notes ? `<div><strong>Notes:</strong> ${e.notes}</div>` : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function toggleDetail(i) {
+    const d = document.getElementById(`detail-${i}`);
+    if (d) d.classList.toggle('open');
+  }
+
+  function showTab(tab) {
+    currentTab = tab;
+    document.getElementById('tab-upcoming').classList.toggle('active', tab === 'upcoming');
+    document.getElementById('tab-past').classList.toggle('active', tab === 'past');
+    const filtered = allEvents.filter(e => {
+      const ts = e.scheduled_at || 0;
+      return tab === 'upcoming' ? ts >= now : ts < now;
+    });
+    renderEvents(filtered);
+  }
+
+  async function load() {
+    try {
+      const me = await fetch('/api/user/me').then(r => r.json());
+      const { events } = await fetch(`/api/events/${me.id}`).then(r => r.json());
+      allEvents = events || [];
+      showTab('upcoming');
+    } catch (_) {
+      document.getElementById('events-list').innerHTML =
+        '<div class="empty-state">No events yet — text your agent to get something on the calendar.</div>';
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>
