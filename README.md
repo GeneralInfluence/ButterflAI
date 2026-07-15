@@ -94,9 +94,35 @@ curl https://butterflai.social/health   # should return {"ok":true,...}
 
 ---
 
+## Testing
+
+```sh
+cd web
+npm test                  # all unit + integration tests (82 tests, ~10s)
+npm run test:unit         # unit tests only — pure logic, no server
+npm run test:integration  # HTTP route tests via supertest + in-memory SQLite
+npm run test:eval         # LLM agent evals (slow, costs API credits)
+```
+
+Tests use Node's built-in `node:test` runner. No Jest, no Mocha. Every test runs against an in-memory SQLite database — no state bleeds between runs.
+
+**Full test documentation:** [`web/tests/TESTING.md`](web/tests/TESTING.md) — covers architecture, how to write new tests, CI setup, and common pitfalls.
+
+### CI/CD
+
+Pushes to `main` auto-deploy to Fly.io after tests pass. Pushes to any other branch run tests only (no deploy). See `.github/workflows/ci.yml`.
+
+A nightly eval job (`.github/workflows/eval.yml`) runs the LLM agent harness against real API keys. Trigger manually via GitHub Actions → "Agent Evals" → Run workflow.
+
+**Required GitHub secrets:**
+- `FLY_API_TOKEN` — for auto-deploy on main
+- `ANTHROPIC_API_KEY`, `TWILIO_*` — for nightly evals only
+
+---
+
 ## Ongoing deploys
 ```sh
-fly deploy          # build + deploy latest
+fly deploy          # manual deploy (or just push to main — CI handles it)
 fly logs            # tail logs
 fly secrets list    # check secret names (never shows values)
 fly ssh console     # shell into running machine

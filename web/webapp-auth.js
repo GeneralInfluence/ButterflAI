@@ -101,6 +101,10 @@ async function sendOtp(req, res) {
   try { phone = toE164(rawPhone); } catch {
     return res.status(400).json({ error: 'Invalid phone number.' });
   }
+  // Reject if the result doesn't look like a real E.164 number (7–15 digits after +)
+  if (!/^\+\d{7,15}$/.test(phone)) {
+    return res.status(400).json({ error: 'Invalid phone number.' });
+  }
 
   const code = generateOtp();
   storeOtp(phone, code);

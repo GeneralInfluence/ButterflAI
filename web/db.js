@@ -32,19 +32,37 @@ db.exec(`CREATE TABLE IF NOT EXISTS _migrations (
   applied_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 )`);
 
-// Apply any pending migrations (skips already-applied ones)
-const migrationsDir = path.join(__dirname, 'db', 'migrations');
-if (fs.existsSync(migrationsDir)) {
-  const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+// Apply any pending migrations (skips already-applied ones).
+// Collects from two directories and applies in sorted order:
+//   ../db/migrations/  — shared base migrations (001_sms_and_audit, 002_consent_records, …)
+//   ./db/migrations/   — web-layer migrations (003_coordination, 009_attendance_confirmations, …)
+// Both are merged and sorted by filename so numbering stays consistent.
+// Docker does the same merge at build time (COPY db/ ./db/ after COPY web/ ./),
+// so production and test see identical migration sets.
+function applyMigrations() {
+  const dirs = [
+    path.join(__dirname, '..', 'db', 'migrations'), // root db/migrations/
+    path.join(__dirname, 'db', 'migrations'),        // web/db/migrations/
+  ];
+
+  // Collect unique filenames across both dirs, prefer later dir on conflict
+  const fileMap = new Map(); // filename → full path
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.sql'))) {
+      fileMap.set(file, path.join(dir, file));
+    }
+  }
+
+  const files = [...fileMap.keys()].sort();
   for (const file of files) {
     const alreadyApplied = db.prepare('SELECT 1 FROM _migrations WHERE name = ?').get(file);
     if (alreadyApplied) continue;
-    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    const sql = fs.readFileSync(fileMap.get(file), 'utf8');
     const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
     let allOk = true;
     for (const stmt of statements) {
       try { db.exec(stmt + ';'); } catch (err) {
-        // Only swallow "already exists" errors; log real failures
         if (!err.message.includes('already exists') && !err.message.includes('duplicate column')) {
           console.error(`[migration] ${file}: ${err.message}`);
           allOk = false;
@@ -57,6 +75,8 @@ if (fs.existsSync(migrationsDir)) {
     }
   }
 }
+
+applyMigrations();
 
 module.exports = {
 

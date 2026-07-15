@@ -198,6 +198,9 @@ async function sendUnchecked(to, body) {
  * Use as Express middleware.
  */
 function validateTwilioRequest(req, res, next) {
+  // Skip signature validation in test environment
+  if (process.env.NODE_ENV === 'test') return next();
+
   console.log(`[SMS] inbound from=${req.body?.From || '?'} body="${(req.body?.Body || '').slice(0, 40)}"`);
 
   const twilioSignature = req.headers['x-twilio-signature'];

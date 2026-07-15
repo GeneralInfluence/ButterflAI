@@ -56,6 +56,23 @@ const PORT = process.env.PORT || 3000;
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// ── Auth guard for /app/* — must run BEFORE static middleware ─────────────────
+// Without this, static middleware serves HTML files directly, bypassing auth.
+app.use('/app', (req, res, next) => {
+  // /app/login is public — no auth required
+  if (req.path === '/login' || req.path === '/login.html') return next();
+  const token = req.cookies?.[webAuth.COOKIE_NAME];
+  if (!token) return res.redirect('/app/login');
+  const payload = webAuth.verifyToken(token);
+  if (!payload) return res.redirect('/app/login');
+  try {
+    const user = db.getUser(payload.userId);
+    if (!user) return res.redirect('/app/login');
+  } catch { return res.redirect('/app/login'); }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
@@ -1451,9 +1468,13 @@ process.on('unhandledRejection', (reason) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  console.log(`ButterflAI web running on :${PORT}`);
-  startAgentLoop();
-  startNudgeLoop();
-  startCoordLoop({ transport: mcpTransport });
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`ButterflAI web running on :${PORT}`);
+    startAgentLoop();
+    startNudgeLoop();
+    startCoordLoop({ transport: mcpTransport });
+  });
+}
+
+module.exports = { app };
