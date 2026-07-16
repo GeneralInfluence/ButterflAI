@@ -577,6 +577,40 @@ const TOOL_DEFINITIONS = [
 
 // ── Tool execution (all scoped to userId) ─────────────────────────────────────
 
+// Returns a short, friendly status line shown in the chat UI while a tool runs.
+// Keep these concise — they appear as ephemeral status text under the typing dots.
+function toolStatusLine(toolName, input) {
+  switch (toolName) {
+    case 'add_contact':            return `Adding ${input.name || 'contact'}…`;
+    case 'update_contact':         return `Updating contact…`;
+    case 'lookup_contact':         return `Looking up contact…`;
+    case 'get_relationships':      return `Checking your contacts…`;
+    case 'get_contact_preferences':return `Checking preferences…`;
+    case 'get_private_preferences':return `Checking private notes…`;
+    case 'update_preferences':     return `Saving your preferences…`;
+    case 'manage_contact_group':   return `Managing contact group…`;
+    case 'create_invite':          return `Sending invite…`;
+    case 'draft_contact_message':  return `Drafting message…`;
+    case 'send_logistics_sms':     return `Sending message…`;
+    case 'message_agent':          return `Checking in with ${input.contact_name || "your friend"}'s agent…`;
+    case 'reply_agent':            return `Replying to agent…`;
+    case 'get_contact_hard_constraints': return `Checking hard constraints…`;
+    case 'check_invitee_locations':return `Checking everyone's locations…`;
+    case 'confirm_coordination_invite': return `Confirming coordination…`;
+    case 'record_rsvp':            return `Recording RSVP…`;
+    case 'save_agent_note':        return `Saving note…`;
+    case 'check_contact_consent':  return `Checking consent settings…`;
+    case 'create_social_event':    return `Creating event…`;
+    case 'update_event':           return `Updating event…`;
+    case 'get_event_rsvp_status':  return `Checking RSVPs…`;
+    case 'get_pending_invites':    return `Checking your invites…`;
+    case 'parse_desires':          return `Thinking about what you want…`;
+    case 'get_importable_contacts':return `Checking importable contacts…`;
+    case 'get_contact_import_url': return `Getting import link…`;
+    default:                       return null; // no status for unknown tools
+  }
+}
+
 async function executeTool(toolName, toolInput, userId, userPhone) {
   switch (toolName) {
 
@@ -1710,6 +1744,10 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       const toolResults = [];
       for (const block of response.content) {
         if (block.type !== 'tool_use') continue;
+
+        // Push a brief status line to the chat UI while the tool runs
+        const statusLine = toolStatusLine(block.name, block.input);
+        if (statusLine) sse.push(userId, { role: 'status', text: statusLine });
 
         let result;
         try {

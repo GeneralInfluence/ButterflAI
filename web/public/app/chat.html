@@ -246,10 +246,9 @@
     <!-- typing indicator lives inside #messages so it doesn't affect flex column height -->
     <div class="msg bot typing" id="typing">
       <div class="bubble">
-        <div class="dot"></div>
-        <div class="dot"></div>
-        <div class="dot"></div>
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
       </div>
+      <div id="agent-status" style="font-size:12px;color:#aaa;padding:2px 4px 8px 4px;min-height:0;transition:opacity .2s"></div>
     </div>
     <!-- scroll anchor: always the last child; messages insert before it -->
     <div id="scroll-anchor" style="height:1px;flex-shrink:0;"></div>
@@ -320,6 +319,7 @@
         const { messages } = await r.json();
         if (messages.length) {
           pendingSince = 0;
+          agentStatusEl.textContent = '';
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
           messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at));
@@ -342,13 +342,21 @@
     function connectSSE() {
       if (eventSource) { eventSource.close(); }
       eventSource = new EventSource('/api/chat/stream');
+    const agentStatusEl = document.getElementById('agent-status');
+
       eventSource.onmessage = e => {
         const data = JSON.parse(e.data);
-        if (data.role === 'assistant') {
+        if (data.role === 'status') {
+          // Ephemeral tool-progress line — show under the typing dots
+          agentStatusEl.textContent = data.text;
+          typingEl.classList.add('visible'); // make sure dots are up
+          scrollToBottom();
+        } else if (data.role === 'assistant') {
           pendingSince = 0;
+          agentStatusEl.textContent = '';
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
-          appendMessage('bot', data.text, data.ts); // appendMessage handles scroll for bot messages
+          appendMessage('bot', data.text, data.ts);
         }
         if (data.redirect) { location.href = data.redirect; }
       };
