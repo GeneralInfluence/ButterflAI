@@ -537,6 +537,7 @@
       const ev = invitedEvents.find(e => e.invitation_id === invitationId);
       if (ev) ev.rsvp_status = status;
       renderInvited(invitedEvents);
+      renderCalendar(); // accepted events now appear on calendar
     } else {
       if (btns) btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
       alert('Could not save your response. Try again.');
@@ -564,8 +565,15 @@
     const daysInPrev  = new Date(calYear, calMonth, 0).getDate();
 
     // Build a map: "YYYY-M-D" → [events]
+    // Include both hosted events AND accepted invitations
     const evMap = {};
-    for (const e of allEvents) {
+    const calEvents = [
+      ...allEvents,
+      ...invitedEvents
+        .filter(e => e.rsvp_status === 'accepted' && e.scheduled_at && !e.flexible_time)
+        .map(e => ({ ...e, _isInvite: true })),
+    ];
+    for (const e of calEvents) {
       if (!e.scheduled_at) continue;
       const d = new Date(e.scheduled_at * 1000);
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -661,10 +669,12 @@
              onclick="this.querySelector('.detail').classList.toggle('open')">
           <div class="card-header">
             <div>
-              <div class="card-title">${escHtml(e.activity_type || 'Event')}</div>
-              <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${fmtTime(e.scheduled_at)}</div>
+              <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}</div>
+              <div class="card-sub">
+                ${e._isInvite ? `Hosted by ${escHtml(e.host_name || 'someone')} · ` : ''}${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${fmtTime(e.scheduled_at)}
+              </div>
             </div>
-            <span class="badge ${statusClass(e.status)}">${escHtml(e.status || '')}</span>
+            <span class="badge ${e._isInvite ? '' : statusClass(e.status)}">${e._isInvite ? '✅ Going' : escHtml(e.status || '')}</span>
           </div>
           <div class="detail">
             ${e.venue_name    ? `<div><strong>Venue:</strong> ${escHtml(e.venue_name)}</div>` : ''}
