@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ButterflAI — Contacts</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
   <style>
@@ -13,27 +13,81 @@
       background: #f2f2f7;
       min-height: 100dvh;
     }
+
     header {
       background: #fff;
       border-bottom: 1px solid #e5e5e5;
-      padding: 16px;
+      padding: 0 16px;
       display: flex;
       align-items: center;
       gap: 12px;
+      height: 56px;
       position: sticky;
       top: 0;
       z-index: 10;
     }
-    .back { font-size: 14px; color: var(--purple); text-decoration: none; font-weight: 500; }
+    .logo { font-size: 20px; font-weight: 700; color: #1a1a1a; text-decoration: none; }
+    nav { margin-left: auto; display: flex; gap: 20px; }
+    nav a { font-size: 14px; color: var(--purple); text-decoration: none; font-weight: 500; }
+    nav a:hover { text-decoration: underline; }
     header h2 { font-size: 18px; font-weight: 700; flex: 1; }
     .count { font-size: 13px; color: #888; }
 
-    .search-wrap {
+    /* ── Mobile nav ─────────────────────────────────────────────────────────── */
+    .bottom-nav { display: none; }
+    @media (max-width: 640px) {
+      nav { display: none; }
+      body { padding-bottom: 80px; }
+      .bottom-nav {
+        display: flex; position: fixed; bottom: 0; left: 0; right: 0;
+        height: 58px; background: #fff; border-top: 1px solid #e5e5e5;
+        z-index: 100; justify-content: space-around; align-items: center;
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      .bottom-nav a {
+        display: flex; flex-direction: column; align-items: center; gap: 2px;
+        font-size: 10px; font-weight: 500; color: #888; text-decoration: none;
+        min-width: 60px; padding: 6px 4px; border-radius: 8px;
+      }
+      .bottom-nav a.active { color: #6c47ff; }
+      .bottom-nav .tab-icon { font-size: 22px; line-height: 1; }
+    }
+
+    /* ── Import toolbar ─────────────────────────────────────────────────────── */
+    .toolbar {
       padding: 12px 16px;
+      display: flex;
+      gap: 10px;
       background: #f2f2f7;
       position: sticky;
-      top: 60px;
+      top: 56px;
       z-index: 9;
+    }
+    .import-btn {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: opacity 0.15s;
+    }
+    .import-btn:active { opacity: 0.75; }
+    .btn-primary { background: var(--purple); color: #fff; }
+    .btn-secondary { background: #fff; color: var(--purple); border: 1.5px solid #e0d9ff; }
+
+    /* ── Search ─────────────────────────────────────────────────────────────── */
+    .search-wrap {
+      padding: 0 16px 12px;
+      background: #f2f2f7;
+      position: sticky;
+      top: 112px;
+      z-index: 8;
     }
     #search {
       width: 100%;
@@ -48,19 +102,20 @@
       background-position: 12px center;
     }
 
-    .list { padding: 8px 0 40px; }
-
+    /* ── Contact list ───────────────────────────────────────────────────────── */
+    .list { padding: 8px 16px 40px; }
     .contact-item {
       background: #fff;
       margin: 0 0 1px;
-      padding: 14px 16px;
+      padding: 14px 12px;
       display: flex;
       align-items: center;
       gap: 12px;
+      border-radius: 0;
     }
     .contact-item:first-child { border-radius: 12px 12px 0 0; }
-    .contact-item:last-child { border-radius: 0 0 12px 12px; margin-bottom: 0; }
-
+    .contact-item:last-child  { border-radius: 0 0 12px 12px; margin-bottom: 0; }
+    .contact-item:only-child  { border-radius: 12px; }
     .initials {
       width: 42px; height: 42px; border-radius: 50%;
       background: linear-gradient(135deg, #e0d9ff, #c7d2fe);
@@ -71,48 +126,378 @@
     .contact-info { flex: 1; min-width: 0; }
     .contact-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .contact-phone { font-size: 13px; color: #888; margin-top: 2px; }
-    .tier-badge {
-      font-size: 11px; font-weight: 600; padding: 3px 8px;
-      border-radius: 20px; flex-shrink: 0;
-    }
+    .tier-badge { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; flex-shrink: 0; }
     .tier-0 { background: #f3f4f6; color: #9ca3af; }
     .tier-1 { background: #ede9fe; color: #7c3aed; }
     .tier-2 { background: #d1fae5; color: #065f46; }
-
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: #aaa;
-      font-size: 15px;
-    }
+    .empty-state { text-align: center; padding: 60px 20px; color: #aaa; font-size: 15px; }
     .empty-state .emoji { font-size: 40px; display: block; margin-bottom: 12px; }
 
-    .section-header {
-      padding: 12px 16px 6px;
-      font-size: 12px;
-      font-weight: 600;
-      color: #8e8e93;
-      text-transform: uppercase;
-      letter-spacing: .5px;
+    /* ── Import preview modal ───────────────────────────────────────────────── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 200;
+      align-items: flex-end;
+      justify-content: center;
     }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 20px 20px 0 0;
+      width: 100%;
+      max-width: 640px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .modal-header {
+      padding: 20px 20px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #f0f0f0;
+      flex-shrink: 0;
+    }
+    .modal-title { font-size: 17px; font-weight: 700; }
+    .modal-sub { font-size: 13px; color: #888; margin-top: 2px; }
+    .modal-close { font-size: 22px; color: #888; background: none; border: none; cursor: pointer; padding: 4px; line-height: 1; }
+    .modal-list { overflow-y: auto; flex: 1; padding: 8px 0; }
+    .modal-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .modal-item:hover { background: #f5f3ff; }
+    .modal-item input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--purple); flex-shrink: 0; cursor: pointer; }
+    .modal-item .m-name { font-size: 15px; font-weight: 600; }
+    .modal-item .m-phone { font-size: 13px; color: #888; }
+    .modal-footer {
+      padding: 14px 20px;
+      border-top: 1px solid #f0f0f0;
+      flex-shrink: 0;
+    }
+    .modal-import-btn {
+      width: 100%;
+      padding: 14px;
+      background: var(--purple);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .modal-import-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .modal-import-btn:not(:disabled):active { opacity: 0.8; }
+    .select-all-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--purple);
+      cursor: pointer;
+    }
+    .select-all-row input { width: 18px; height: 18px; accent-color: var(--purple); cursor: pointer; }
+    .toast {
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+      background: #1a1a1a; color: #fff;
+      padding: 12px 20px; border-radius: 10px;
+      font-size: 14px; font-weight: 500;
+      z-index: 300; white-space: nowrap;
+      opacity: 0; transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+
+    /* ── Manual add form ────────────────────────────────────────────────────── */
+    .add-form { display: none; padding: 16px; background: #fff; margin: 0 16px 12px; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+    .add-form.open { display: block; }
+    .add-form label { font-size: 12px; color: #888; display: block; margin-bottom: 4px; margin-top: 12px; }
+    .add-form label:first-child { margin-top: 0; }
+    .add-form input { width: 100%; padding: 10px 12px; border: 1.5px solid #e5e5e5; border-radius: 8px; font-size: 15px; outline: none; }
+    .add-form input:focus { border-color: var(--purple); }
+    .add-form-btns { display: flex; gap: 8px; margin-top: 14px; }
+    .add-form-btns button { flex: 1; padding: 10px; border-radius: 8px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; }
+    .add-form-btns .save { background: var(--purple); color: #fff; }
+    .add-form-btns .cancel { background: #f2f2f7; color: #666; }
   </style>
 </head>
 <body>
   <header>
-    <a class="back" href="/app/chat">← Chat</a>
+    <a class="logo" href="/app/dashboard">🦋</a>
     <h2>Contacts</h2>
     <span class="count" id="count"></span>
+    <nav>
+      <a href="/app/chat">Chat</a>
+      <a href="/app/events">Events</a>
+      <a href="/app/settings">Settings</a>
+    </nav>
   </header>
+
+  <!-- Action buttons -->
+  <div class="toolbar">
+    <button class="import-btn btn-primary" id="picker-btn" onclick="openContactPicker()" style="display:none">
+      📱 Import from Contacts
+    </button>
+    <button class="import-btn btn-secondary" onclick="toggleManualAdd()">
+      ✏️ Add manually
+    </button>
+  </div>
+
+  <!-- Manual add form -->
+  <div class="add-form" id="add-form">
+    <label>Name *</label>
+    <input type="text" id="add-name" placeholder="Full name" autocomplete="off">
+    <label>Phone number</label>
+    <input type="tel" id="add-phone" placeholder="+1 555 000 0000" autocomplete="tel">
+    <div class="add-form-btns">
+      <button class="cancel" onclick="toggleManualAdd()">Cancel</button>
+      <button class="save" onclick="saveManual()">Save contact</button>
+    </div>
+  </div>
+
+  <!-- Search -->
   <div class="search-wrap">
     <input type="search" id="search" placeholder="Search contacts" autocomplete="off">
   </div>
+
+  <!-- List -->
   <div class="list" id="list">
     <div class="empty-state"><span class="emoji">🔄</span>Loading…</div>
   </div>
 
+  <!-- Import preview modal -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Import contacts</div>
+          <div class="modal-sub" id="modal-sub">Select who to import</div>
+        </div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="select-all-row" onclick="toggleAll()">
+        <input type="checkbox" id="chk-all" checked>
+        <span id="select-all-label">Select all</span>
+      </div>
+      <div class="modal-list" id="modal-list"></div>
+      <div class="modal-footer">
+        <button class="modal-import-btn" id="do-import-btn" onclick="doImport()">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <nav class="bottom-nav">
+    <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
+    <a href="/app/chat"><span class="tab-icon">💬</span>Chat</a>
+    <a href="/app/events"><span class="tab-icon">📅</span>Events</a>
+    <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
+  </nav>
+
   <script>
     let allContacts = [];
+    let pickerCandidates = []; // contacts from device picker, before import
+    let selected = new Set();  // indices of selected picker candidates
 
+    // ── Escape ────────────────────────────────────────────────────────────────
+    function esc(t) {
+      return String(t || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ── Toast ─────────────────────────────────────────────────────────────────
+    function showToast(msg, ms = 3000) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), ms);
+    }
+
+    // ── Contact Picker API ────────────────────────────────────────────────────
+    const supportsContactPicker = 'contacts' in navigator && 'ContactsManager' in window;
+
+    if (supportsContactPicker) {
+      document.getElementById('picker-btn').style.display = 'flex';
+    }
+
+    async function openContactPicker() {
+      try {
+        const props = ['name', 'tel'];
+        // Some browsers also support 'email' — check and include if available
+        if (navigator.contacts.getProperties) {
+          const supported = await navigator.contacts.getProperties();
+          if (!supported.includes('name') || !supported.includes('tel')) {
+            showToast('Contact access not supported on this device.');
+            return;
+          }
+        }
+        const raw = await navigator.contacts.select(props, { multiple: true });
+        if (!raw || raw.length === 0) return;
+
+        // Flatten: one entry per phone number per contact
+        pickerCandidates = [];
+        for (const c of raw) {
+          const name = (c.name || [])[0]?.trim();
+          if (!name) continue;
+          const tels = (c.tel || []).filter(Boolean);
+          if (tels.length === 0) {
+            pickerCandidates.push({ name, phone: '' });
+          } else {
+            // One row per phone — user can deselect extras
+            for (const tel of tels) {
+              pickerCandidates.push({ name, phone: tel.trim() });
+            }
+          }
+        }
+
+        if (pickerCandidates.length === 0) {
+          showToast('No contacts with names found.');
+          return;
+        }
+
+        openModal();
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error('[contacts picker]', err);
+          showToast('Could not open contacts: ' + err.message);
+        }
+      }
+    }
+
+    // ── Modal ─────────────────────────────────────────────────────────────────
+    function openModal() {
+      selected = new Set(pickerCandidates.map((_, i) => i)); // all selected by default
+      renderModal();
+      document.getElementById('modal').classList.add('open');
+      updateImportBtn();
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.remove('open');
+    }
+
+    function renderModal() {
+      document.getElementById('modal-sub').textContent =
+        `${pickerCandidates.length} contact${pickerCandidates.length !== 1 ? 's' : ''} from your phone`;
+
+      const list = document.getElementById('modal-list');
+      list.innerHTML = pickerCandidates.map((c, i) => `
+        <label class="modal-item">
+          <input type="checkbox" data-idx="${i}" ${selected.has(i) ? 'checked' : ''}
+                 onchange="toggleSelected(${i}, this.checked)">
+          <div class="initials" style="width:38px;height:38px;font-size:13px;flex-shrink:0;
+               background:linear-gradient(135deg,#e0d9ff,#c7d2fe);border-radius:50%;
+               display:flex;align-items:center;justify-content:center;font-weight:700;color:#6c47ff;">
+            ${esc((c.name || '?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase())}
+          </div>
+          <div>
+            <div class="m-name">${esc(c.name)}</div>
+            ${c.phone ? `<div class="m-phone">${esc(c.phone)}</div>` : '<div class="m-phone" style="color:#ddd">No phone</div>'}
+          </div>
+        </label>
+      `).join('');
+    }
+
+    function toggleSelected(idx, checked) {
+      if (checked) selected.add(idx); else selected.delete(idx);
+      updateSelectAll();
+      updateImportBtn();
+    }
+
+    function toggleAll() {
+      const allChecked = selected.size === pickerCandidates.length;
+      if (allChecked) {
+        selected.clear();
+      } else {
+        pickerCandidates.forEach((_, i) => selected.add(i));
+      }
+      renderModal();
+      updateImportBtn();
+    }
+
+    function updateSelectAll() {
+      const chk = document.getElementById('chk-all');
+      const lbl = document.getElementById('select-all-label');
+      chk.checked = selected.size === pickerCandidates.length;
+      chk.indeterminate = selected.size > 0 && selected.size < pickerCandidates.length;
+      lbl.textContent = selected.size === pickerCandidates.length ? 'Select all' : `${selected.size} selected`;
+    }
+
+    function updateImportBtn() {
+      const btn = document.getElementById('do-import-btn');
+      const n = selected.size;
+      btn.textContent = n === 0 ? 'Select contacts to import' : `Import ${n} contact${n !== 1 ? 's' : ''}`;
+      btn.disabled = n === 0;
+      updateSelectAll();
+    }
+
+    async function doImport() {
+      const btn = document.getElementById('do-import-btn');
+      btn.disabled = true;
+      btn.textContent = 'Importing…';
+
+      const toImport = [...selected].map(i => pickerCandidates[i]);
+      try {
+        const res = await fetch('/api/contacts/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contacts: toImport }),
+        });
+        const data = await res.json();
+        closeModal();
+        if (res.ok) {
+          showToast(`✓ Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}${data.skipped ? ` (${data.skipped} skipped)` : ''}`);
+          load(); // refresh list
+        } else {
+          showToast('Import failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        closeModal();
+        showToast('Import failed — check your connection.');
+      }
+    }
+
+    // ── Manual add ────────────────────────────────────────────────────────────
+    function toggleManualAdd() {
+      const form = document.getElementById('add-form');
+      form.classList.toggle('open');
+      if (form.classList.contains('open')) document.getElementById('add-name').focus();
+      else { document.getElementById('add-name').value = ''; document.getElementById('add-phone').value = ''; }
+    }
+
+    async function saveManual() {
+      const name  = document.getElementById('add-name').value.trim();
+      const phone = document.getElementById('add-phone').value.trim();
+      if (!name) { document.getElementById('add-name').focus(); return; }
+
+      const res = await fetch('/api/contacts/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contacts: [{ name, phone }] }),
+      });
+      const data = await res.json();
+      if (res.ok && data.imported > 0) {
+        showToast(`✓ ${name} added`);
+        toggleManualAdd();
+        load();
+      } else {
+        showToast(data.error || 'Could not save contact.');
+      }
+    }
+
+    // ── Load & render list ────────────────────────────────────────────────────
     async function load() {
       try {
         const r = await fetch('/api/contacts/list');
@@ -120,8 +505,9 @@
         const { contacts } = await r.json();
         allContacts = contacts;
         render(contacts);
-        document.getElementById('count').textContent = contacts.length.toLocaleString();
-      } catch (e) {
+        document.getElementById('count').textContent = contacts.length
+          ? `${contacts.length.toLocaleString()} contacts` : '';
+      } catch {
         document.getElementById('list').innerHTML =
           '<div class="empty-state"><span class="emoji">⚠️</span>Failed to load contacts.</div>';
       }
@@ -130,35 +516,34 @@
     function render(contacts) {
       const list = document.getElementById('list');
       if (!contacts.length) {
-        list.innerHTML = '<div class="empty-state"><span class="emoji">👥</span>No contacts yet.</div>';
+        list.innerHTML = '<div class="empty-state"><span class="emoji">👥</span>No contacts yet.<br>Import from your phone or add manually above.</div>';
         return;
       }
-
-      const tierLabels = { 0: 'Tier 0', 1: 'Connected', 2: 'ButterflAI' };
+      const tierLabels = { 0: 'Saved', 1: 'Connected', 2: 'ButterflAI' };
       list.innerHTML = contacts.map(c => {
         const initials = (c.name || '?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
         const tier = c.tier ?? 0;
         return `<div class="contact-item">
-          <div class="initials">${initials}</div>
+          <div class="initials">${esc(initials)}</div>
           <div class="contact-info">
             <div class="contact-name">${esc(c.name)}</div>
             ${c.phone ? `<div class="contact-phone">${esc(c.phone)}</div>` : ''}
           </div>
-          <span class="tier-badge tier-${tier}">${tierLabels[tier] ?? `T${tier}`}</span>
+          <span class="tier-badge tier-${tier}">${esc(tierLabels[tier] ?? `T${tier}`)}</span>
         </div>`;
       }).join('');
     }
 
-    function esc(t) {
-      return String(t || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    }
-
     document.getElementById('search').addEventListener('input', e => {
       const q = e.target.value.toLowerCase().trim();
-      if (!q) { render(allContacts); return; }
-      render(allContacts.filter(c =>
+      render(!q ? allContacts : allContacts.filter(c =>
         (c.name||'').toLowerCase().includes(q) || (c.phone||'').includes(q)
       ));
+    });
+
+    // Close modal on overlay tap
+    document.getElementById('modal').addEventListener('click', e => {
+      if (e.target === e.currentTarget) closeModal();
     });
 
     load();

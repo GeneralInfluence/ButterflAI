@@ -1554,19 +1554,26 @@ app.get('/auth/google/callback', async (req, res) => {
 
 // Add a contact manually (user's "people I could invite" list)
 // Bulk import from Contact Picker API (phone-native, no computer needed)
-app.post('/api/contacts/import', (req, res) => {
-  const { userId, contacts } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId required' });
+app.post('/api/contacts/import', webAuth.requireAuth, express.json(), (req, res) => {
+  const { contacts } = req.body;
   if (!Array.isArray(contacts)) return res.status(400).json({ error: 'contacts must be an array' });
+  if (contacts.length > 500) return res.status(400).json({ error: 'Maximum 500 contacts per import' });
 
-  const user = db.getUser(userId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
+  const userId = req.user.id;
   let imported = 0, skipped = 0;
   for (const c of contacts) {
-    if (!c.name || !c.phone) { skipped++; continue; }
+    const nameResult = validateName(c.name);
+    if (!nameResult.ok) { skipped++; continue; }
+
+    // Accept phone as-is if it passes validation, else store without phone
+    let phone = null;
+    if (c.phone) {
+      const phoneResult = validatePhone(c.phone);
+      phone = phoneResult.ok ? phoneResult.phone : null;
+    }
+    // Must have at least a valid name
     try {
-      db.upsertContact({ invited_by_user_id: userId, name: c.name, phone: c.phone, tier: 0 });
+      db.upsertContact({ invited_by_user_id: userId, name: nameResult.name, phone, tier: 0 });
       imported++;
     } catch (_) { skipped++; }
   }
