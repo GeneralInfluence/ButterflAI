@@ -105,11 +105,27 @@ function ensureEventTables() {
  * @returns {string} eventId
  */
 function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes }) {
-  const id = uuidv4();
   const ts = typeof scheduled_at === 'string'
     ? Math.floor(new Date(scheduled_at).getTime() / 1000)
     : scheduled_at;
 
+  // Deduplication: same host + same title within ±6 hours = idempotent, return existing id
+  const WINDOW = 6 * 3600; // 6 hours in seconds
+  const existing = db._raw().prepare(`
+    SELECT id FROM social_events
+    WHERE host_user_id = ?
+      AND LOWER(title) = LOWER(?)
+      AND status != 'cancelled'
+      AND ABS(scheduled_at - ?) <= ?
+    LIMIT 1
+  `).get(hostUserId, title, ts, WINDOW);
+
+  if (existing) {
+    console.log(`[multiparty] createEvent: deduped — returning existing event ${existing.id}`);
+    return existing.id;
+  }
+
+  const id = uuidv4();
   db._raw().prepare(`
     INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
