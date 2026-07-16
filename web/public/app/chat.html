@@ -141,11 +141,11 @@
 
     /* Input */
     .input-row {
-      height: var(--input-h);
+      min-height: var(--input-h); /* grow with textarea, don't clip long messages */
       background: #fff;
       border-top: 1px solid #e5e5e5;
       display: flex;
-      align-items: center;
+      align-items: flex-end;  /* align buttons to bottom when textarea grows */
       padding: 10px 12px;
       gap: 10px;
       flex-shrink: 0;
@@ -277,11 +277,23 @@
     // ── Input auto-resize ──────────────────────────────────────────────────────
     inputEl.addEventListener('input', () => {
       inputEl.style.height = 'auto';
-      inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; // up from 100px
       sendBtn.disabled = !inputEl.value.trim();
     });
     inputEl.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+
+    // ── Hide bottom nav while keyboard is up so it doesn't clip the input ──────
+    const bottomNav = document.querySelector('.bottom-nav');
+    inputEl.addEventListener('focus', () => {
+      if (bottomNav) { bottomNav.style.display = 'none'; document.body.style.paddingBottom = '0'; }
+    });
+    inputEl.addEventListener('blur', () => {
+      // Small delay so tapping a nav tab still registers before nav reappears
+      setTimeout(() => {
+        if (bottomNav) { bottomNav.style.display = ''; document.body.style.paddingBottom = ''; }
+      }, 150);
     });
 
     // ── Load history ───────────────────────────────────────────────────────────
