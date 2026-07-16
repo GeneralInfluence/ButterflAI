@@ -104,13 +104,15 @@ function ensureEventTables() {
  *   scheduled_at (ISO string or unix ts), duration_mins, notes
  * @returns {string} eventId
  */
-function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes }) {
+function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type }) {
   const ts = typeof scheduled_at === 'string'
     ? Math.floor(new Date(scheduled_at).getTime() / 1000)
     : scheduled_at;
 
+  const type = event_type === 'public' ? 'public' : 'private';
+
   // Deduplication: same host + same title within ±6 hours = idempotent, return existing id
-  const WINDOW = 6 * 3600; // 6 hours in seconds
+  const WINDOW = 6 * 3600;
   const existing = db._raw().prepare(`
     SELECT id FROM social_events
     WHERE host_user_id = ?
@@ -127,10 +129,10 @@ function createEvent(hostUserId, { title, activity_type, venue_name, venue_addre
 
   const id = uuidv4();
   db._raw().prepare(`
-    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, hostUserId, title, activity_type, venue_name || null, venue_address || null,
-         ts, duration_mins || 120, notes || null);
+         ts, duration_mins || 120, notes || null, type);
 
   return id;
 }
@@ -342,7 +344,7 @@ function getInvitedEvents(userPhone) {
 function rsvpInvitation(invitationId, userPhone, status) {
   // Verify ownership: the contact on this invitation must have userPhone
   const inv = db._raw().prepare(`
-    SELECT ei.*, c.phone, se.host_user_id, se.title, se.scheduled_at, se.activity_type
+    SELECT ei.*, c.phone, se.host_user_id, se.title, se.scheduled_at, se.activity_type, se.event_type, ei.source
     FROM event_invitations ei
     JOIN contacts c ON c.id = ei.contact_id
     JOIN social_events se ON se.id = ei.event_id
@@ -355,18 +357,66 @@ function rsvpInvitation(invitationId, userPhone, status) {
     UPDATE event_invitations SET status = ?, responded_at = strftime('%s','now') WHERE id = ?
   `).run(status, invitationId);
 
-  // Notify the host — best effort, never fail the RSVP if this throws
-  try {
-    const host = db.getUser(inv.host_user_id);
-    if (host) {
-      const verb = status === 'accepted' ? 'accepted' : 'declined';
-      const contactRow = db._raw().prepare('SELECT name FROM contacts WHERE id = ?').get(inv.contact_id);
-      const contactName = contactRow?.name || 'Someone';
-      db.appendConversation(inv.host_user_id, 'system',
-        `[System notification] ${contactName} ${verb} the invite to ${inv.title}.`
+  // Notification rules:
+  // - Private event: always notify organizer of accept OR decline
+  // - Public event, contact-sourced invite: notify of accept AND decline
+  // - Public event, public/stranger RSVP: notify on accept only (declines from strangers = noise)
+  const isPublicStranger = inv.event_type === 'public' && inv.source === 'public';
+  const shouldNotify = !isPublicStranger || status === 'accepted';
+
+  if (shouldNotify) {
+    try {
+      const host = db.getUser(inv.host_user_id);
+      if (host) {
+        const verb = status === 'accepted' ? 'accepted' : 'declined';
+        const contactRow = db._raw().prepare('SELECT name FROM contacts WHERE id = ?').get(inv.contact_id);
+        const contactName = contactRow?.name || 'Someone';
+        db.appendConversation(inv.host_user_id, 'system',
+          `[System notification] ${contactName} ${verb} the invite to ${inv.title}.`
+        );
+      }
+    } catch (_) {}
+  }
+
+  return { ok: true, status };
+}
+
+/**
+ * Public RSVP — for strangers RSVPing a public event via the /event/:id page.
+ * Creates a synthetic contact entry and invitation with source='public'.
+ */
+function publicRsvp(eventId, { name, phone, status }) {
+  const event = db._raw().prepare(`SELECT * FROM social_events WHERE id = ? AND event_type = 'public' AND status = 'open'`).get(eventId);
+  if (!event) return { ok: false, error: 'Event not found or not public' };
+
+  // Find or create a synthetic contact on the organizer's side
+  let contact = phone ? db._raw().prepare(`SELECT * FROM contacts WHERE invited_by_user_id = ? AND phone = ?`).get(event.host_user_id, phone) : null;
+  if (!contact) {
+    const cid = uuidv4();
+    db._raw().prepare(`INSERT INTO contacts (id, invited_by_user_id, name, phone, tier) VALUES (?, ?, ?, ?, 0)`)
+      .run(cid, event.host_user_id, name || 'Guest', phone || null);
+    contact = { id: cid };
+  }
+
+  // Check for existing invitation
+  let invite = db._raw().prepare(`SELECT id, status FROM event_invitations WHERE event_id = ? AND contact_id = ?`).get(eventId, contact.id);
+  if (invite) {
+    db._raw().prepare(`UPDATE event_invitations SET status = ?, source = 'public', responded_at = strftime('%s','now') WHERE id = ?`).run(status, invite.id);
+  } else {
+    const iid = uuidv4();
+    db._raw().prepare(`INSERT INTO event_invitations (id, event_id, contact_id, status, source, notified_at) VALUES (?, ?, ?, ?, 'public', strftime('%s','now'))`)
+      .run(iid, eventId, contact.id, status);
+    invite = { id: iid };
+  }
+
+  // Notify organizer on accept, not on decline (public stranger)
+  if (status === 'accepted') {
+    try {
+      db.appendConversation(event.host_user_id, 'system',
+        `[System notification] ${name || 'A guest'} is attending ${event.title}.`
       );
-    }
-  } catch (_) { /* notification failure must not block the RSVP response */ }
+    } catch (_) {}
+  }
 
   return { ok: true, status };
 }
@@ -430,6 +480,7 @@ module.exports = {
   getEventsByHost,
   getInvitedEvents,
   rsvpInvitation,
+  publicRsvp,
   cancelEvent,
   getRsvpSummary,
   wasInvited,

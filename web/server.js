@@ -842,9 +842,15 @@ app.get('/event/:id', (req, res) => {
   }
   const host = db.getUser(event.host_user_id);
   const hostName = host?.name || 'Someone';
+  const isPublic = event.event_type === 'public';
+  const rsvp = multiparty.getRsvpSummary(event.id);
+  const attendingCount = rsvp.accepted || 0;
+
+  // Use venue timezone if we can infer it, else fall back to host timezone
+  const hostTz = host?.timezone || 'America/New_York';
   const dt = new Date(event.scheduled_at * 1000);
-  const dateStr = dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' });
-  const timeStr = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: 'America/New_York' });
+  const dateStr = dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: hostTz });
+  const timeStr = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: hostTz });
   res.send(`<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
@@ -871,7 +877,8 @@ h1{font-size:22px;font-weight:700;color:#1c1c1e;margin-bottom:8px;text-align:cen
 <div class="card">
   <div class="emoji">${event.activity_type === 'party' ? '🎉' : event.activity_type === 'pool' ? '🏊' : '🦋'}</div>
   <h1>${event.title}</h1>
-  <p class="host">Hosted by ${hostName}</p>
+  <p class="host">${isPublic ? `Organized by ${hostName}` : `Hosted by ${hostName}`}</p>
+  ${isPublic && attendingCount > 0 ? `<p style="text-align:center;font-size:14px;color:#7c3aed;font-weight:600;margin-bottom:16px">✅ ${attendingCount} going</p>` : ''}
   <div class="detail">
     <div class="detail-icon">📅</div>
     <div class="detail-text">
@@ -894,7 +901,35 @@ h1{font-size:22px;font-weight:700;color:#1c1c1e;margin-bottom:8px;text-align:cen
     </div>
   </div>` : ''}
   <hr class="divider">
-  <a class="btn btn-primary" href="/join">RSVP via ButterflAI</a>
+  ${isPublic ? `
+  <div id="rsvp-form">
+    <input id="rsvp-name" placeholder="Your name" style="width:100%;padding:14px;border:1px solid #e5e7eb;border-radius:12px;font-size:16px;margin-bottom:10px;outline:none">
+    <input id="rsvp-phone" placeholder="Phone (optional)" type="tel" style="width:100%;padding:14px;border:1px solid #e5e7eb;border-radius:12px;font-size:16px;margin-bottom:14px;outline:none">
+    <button class="btn btn-primary" onclick="submitRsvp('accepted')" style="margin-bottom:8px">✓ I'm going</button>
+    <button class="btn btn-secondary" onclick="submitRsvp('declined')">✗ Can't make it</button>
+    <p id="rsvp-msg" style="text-align:center;margin-top:12px;font-size:14px;color:#8e8e93"></p>
+  </div>
+  <script>
+  async function submitRsvp(status) {
+    const name  = document.getElementById('rsvp-name').value.trim();
+    const phone = document.getElementById('rsvp-phone').value.trim();
+    const msg   = document.getElementById('rsvp-msg');
+    if (!name) { msg.textContent = 'Please enter your name.'; return; }
+    const r = await fetch('/api/events/${event.id}/public-rsvp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, status })
+    });
+    if (r.ok) {
+      document.getElementById('rsvp-form').innerHTML =
+        status === 'accepted'
+          ? '<p style="text-align:center;font-size:18px;font-weight:700;color:#7c3aed">✅ You\\u2019re on the list!</p><p style="text-align:center;color:#8e8e93;margin-top:8px">See you there 🦋</p>'
+          : '<p style="text-align:center;font-size:18px;font-weight:700;color:#3a3a3c">Got it, maybe next time 👋</p>';
+    } else {
+      msg.textContent = 'Something went wrong. Try again.';
+    }
+  }
+  </script>` : `<a class="btn btn-primary" href="/join">RSVP via ButterflAI</a>`}
   <p class="powered">Powered by 🦋 ButterflAI</p>
 </div>
 </body></html>`);
@@ -1540,7 +1575,7 @@ app.get('/api/events/invited/me', webAuth.requireAuth, (req, res) => {
   res.json({ events });
 });
 
-// POST /api/events/rsvp — accept or decline an invitation from the web app
+// POST /api/events/rsvp — accept or decline an invitation from the web app (logged-in user)
 app.post('/api/events/rsvp', webAuth.requireAuth, express.json(), (req, res) => {
   const { invitation_id, status } = req.body;
   if (!invitation_id || !['accepted', 'declined'].includes(status)) {
@@ -1550,6 +1585,17 @@ app.post('/api/events/rsvp', webAuth.requireAuth, express.json(), (req, res) => 
   if (!result.ok) return res.status(403).json(result);
   res.json(result);
 });
+
+// POST /api/events/:id/public-rsvp — RSVP to a public event (no login required)
+app.post('/api/events/:id/public-rsvp', express.json(), (req, res) => {
+  const { name, phone, status } = req.body;
+  if (!['accepted', 'declined'].includes(status)) {
+    return res.status(400).json({ error: 'status must be accepted or declined' });
+  }
+  const result = multiparty.publicRsvp(req.params.id, { name, phone, status });
+  if (!result.ok) return res.status(404).json(result);
+  res.json(result);
+});;
 
 app.get('/api/events/:userId/:eventId', (req, res) => {
   const event = multiparty.getEvent(req.params.eventId);
