@@ -228,10 +228,12 @@ function buildInviteMessage(hostName, contactName, activityType, dateStr, venueS
   const timing = isFlexible
     ? `${hostName} is having ${activityType}${venueStr} — open invite, come over whenever works for you!`
     : `${hostName} is having ${activityType}${venueStr} on ${dateStr} and would love you to join — you in?`;
+  // Deep link: /app/chat opens chat inside the PWA on Android (handle_links: preferred).
+  // On iOS or non-installed, it opens the web app — either way, lands inside the app not the homepage.
   return (
     `Hi ${contactName}! This is ${hostName}'s ButterflAI.\n\n` +
     `${timing}\n\n` +
-    `Want your own ButterflAI? → ${baseUrl}\n\n` +
+    `Open ButterflAI → ${baseUrl}/app/chat\n\n` +
     `Reply STOP to opt out.`
   );
 }

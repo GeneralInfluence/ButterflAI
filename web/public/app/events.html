@@ -739,7 +739,20 @@
     if (pendingCount) {
       document.getElementById('tab-invited').textContent = `Invited (${pendingCount})`;
     }
-    showTab(pendingCount ? 'invited' : 'upcoming');
+    // If arriving from an invite link (?invite=eventId), jump to Invited tab and highlight
+    const incomingInviteId = new URLSearchParams(window.location.search).get('invite');
+    if (incomingInviteId) {
+      showTab('invited');
+      requestAnimationFrame(() => {
+        const card = document.getElementById(`invite-${incomingInviteId}`);
+        if (card) {
+          card.style.outline = '2px solid #6c47ff';
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+    } else {
+      showTab(pendingCount ? 'invited' : 'upcoming');
+    }
   }
 
   // Start in calendar view

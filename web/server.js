@@ -879,6 +879,13 @@ app.get('/event/:id', (req, res) => {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${event.title} — ButterflAI</title>
+<script>
+// If the user is already logged into ButterflAI, take them straight into the app.
+// The Events page inside the app shows this invitation and lets them RSVP from there.
+fetch('/api/user/me').then(r => {
+  if (r.ok) window.location.replace('/app/events?invite=${event.id}');
+}).catch(() => {});
+</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,sans-serif;background:#f2f2f7;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
