@@ -107,6 +107,20 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'update_contact',
+    description: 'Update a contact\'s name, nickname, or "also known as" field. Use when the user says something like "Aphilos is also Sean Gonzalez", "call Marcus \'Marc\' from now on", or "her name is actually Allie not Allison". Requires the contact_id from lookup_contact.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_id:    { type: 'string', description: 'The contact\'s ID (from lookup_contact)' },
+        name:          { type: 'string', description: 'Updated primary name (replaces current name)' },
+        nickname:      { type: 'string', description: 'Short nickname to display (optional)' },
+        also_known_as: { type: 'string', description: 'Other names this person goes by (optional, free text)' },
+      },
+      required: ['contact_id'],
+    },
+  },
+  {
     name: 'get_relationships',
     description: 'Get the user\'s relationships and active cadences (who they want to stay in touch with and how often).',
     input_schema: { type: 'object', properties: {}, required: [] },
@@ -528,6 +542,19 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       return { added: true, contact_id: contactId, name: toolInput.name };
     }
 
+    case 'update_contact': {
+      const allContacts = db.getContactsByUser(userId);
+      const target = allContacts.find(c => c.id === toolInput.contact_id);
+      if (!target) return { error: 'Contact not found or does not belong to you' };
+      const updates = {};
+      if (toolInput.name)          updates.name          = toolInput.name.trim();
+      if (toolInput.nickname !== undefined) updates.nickname = toolInput.nickname ? toolInput.nickname.trim() : null;
+      if (toolInput.also_known_as !== undefined) updates.also_known_as = toolInput.also_known_as ? toolInput.also_known_as.trim() : null;
+      if (Object.keys(updates).length === 0) return { error: 'No fields to update' };
+      db.updateContact(toolInput.contact_id, updates);
+      return { updated: true, contact_id: toolInput.contact_id, ...updates };
+    }
+
     case 'lookup_contact': {
       const q = (toolInput.query || '').toLowerCase().trim();
       const allContacts = db.getContactsByUser(userId);
@@ -535,16 +562,19 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       // Score each contact — higher = better match
       function score(c) {
         const name = (c.name || '').toLowerCase();
+        const nick = (c.nickname || '').toLowerCase();
+        const aka  = (c.also_known_as || '').toLowerCase();
         const phone = (c.phone || '');
-        if (name === q) return 100;                          // exact name
+        if (name === q || nick === q) return 100;            // exact name/nick
         if (phone.includes(q)) return 90;                    // phone match
-        if (name.startsWith(q)) return 80;                   // prefix match
+        if (name.startsWith(q) || nick.startsWith(q)) return 80; // prefix
+        if (aka.split(/[,;]+/).map(s=>s.trim()).some(a => a === q || a.startsWith(q))) return 75; // aka match
         // Word-level prefix: "Allie" matches "Allison" because alli- prefix
         const prefix4 = q.slice(0, 4);
         const words = name.split(/\s+/);
         if (prefix4.length >= 3 && words.some(w => w.startsWith(prefix4))) return 60;
         // Substring anywhere
-        if (name.includes(q)) return 50;
+        if (name.includes(q) || nick.includes(q) || aka.includes(q)) return 50;
         // Query contains the contact name token (e.g. searching "allison" matches "allie")
         if (q.includes(name.split(' ')[0]) || name.split(' ')[0].includes(q.slice(0,4))) return 30;
         return 0;
