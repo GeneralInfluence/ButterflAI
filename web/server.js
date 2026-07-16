@@ -58,6 +58,17 @@ const PORT = process.env.PORT || 3000;
 // Without trust proxy, express-rate-limit throws a ValidationError on every request.
 app.set('trust proxy', 1);
 
+// Force-revalidate HTML pages on every request so app updates are always picked up.
+// Static assets (JS/CSS/images) still get ETag caching from express.static.
+app.use((req, res, next) => {
+  if (req.path.endsWith('.html') || req.path.startsWith('/app/') || req.path === '/') {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  next();
+});
+
 // Temporary request logger for debugging
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
