@@ -340,11 +340,54 @@
 
     // ── DOM helpers ────────────────────────────────────────────────────────────
     function appendMessage(role, text, ts) {
+      // Strip and handle {"action":"REQUEST_LOCATION"} anywhere in bot messages
+      if (role === 'bot') {
+        const locMatch = text.match(/\{"action"\s*:\s*"REQUEST_LOCATION"\}/);
+        if (locMatch) {
+          text = text.replace(locMatch[0], '').trim();
+          showLocationPrompt();
+        }
+      }
+      if (!text) return; // nothing left to show
       const div  = document.createElement('div');
       div.className = `msg ${role}`;
       const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
       div.innerHTML = `<div class="bubble">${escHtml(text)}</div><div class="ts">${time}</div>`;
       messagesEl.appendChild(div);
+    }
+
+    function showLocationPrompt() {
+      // Only show once per session
+      if (document.getElementById('loc-prompt')) return;
+      const div = document.createElement('div');
+      div.id = 'loc-prompt';
+      div.className = 'msg bot';
+      div.innerHTML = `<div class="bubble" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span>📍 Share your location so I can find things near you</span>
+        <button onclick="shareLocationInline(this)" style="background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap">Share location</button>
+      </div>`;
+      messagesEl.appendChild(div);
+      scrollToBottom();
+    }
+
+    async function shareLocationInline(btn) {
+      if (!navigator.geolocation) { btn.textContent = 'Not supported'; return; }
+      btn.textContent = 'Locating…';
+      btn.disabled = true;
+      navigator.geolocation.getCurrentPosition(async pos => {
+        const r = await fetch('/api/user/location', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        });
+        const d = await r.json();
+        const prompt = document.getElementById('loc-prompt');
+        if (prompt) prompt.innerHTML = `<div class="bubble">📍 Location saved — ${d.city || 'got it!'}</div>`;
+        scrollToBottom();
+      }, () => {
+        btn.textContent = 'Denied';
+        btn.disabled = false;
+      });
     }
 
     function scrollToBottom() {
