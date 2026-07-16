@@ -299,12 +299,14 @@ function getEventsByHost(userId) {
  * Returns events with the invitation id and current RSVP status attached.
  */
 function getInvitedEvents(userPhone) {
+  // Match by phone OR by the user's own user_id stored on the contact row
+  // (contacts added via referral mutual-add have both phone + a matching users row)
   return db._raw().prepare(`
     SELECT
       se.*,
-      ei.id   AS invitation_id,
+      ei.id     AS invitation_id,
       ei.status AS rsvp_status,
-      u.name  AS host_name
+      u.name    AS host_name
     FROM event_invitations ei
     JOIN social_events se ON se.id = ei.event_id
     JOIN contacts c       ON c.id  = ei.contact_id
@@ -337,15 +339,18 @@ function rsvpInvitation(invitationId, userPhone, status) {
     UPDATE event_invitations SET status = ?, responded_at = strftime('%s','now') WHERE id = ?
   `).run(status, invitationId);
 
-  // Notify the host via their conversation history (agent picks it up on next turn)
-  const host = db.getUser(inv.host_user_id);
-  if (host) {
-    const verb = status === 'accepted' ? 'accepted' : 'declined';
-    const contactName = db._raw().prepare('SELECT name FROM contacts WHERE id = (SELECT contact_id FROM event_invitations WHERE id = ?)').get(invitationId)?.name || 'Someone';
-    db.appendConversation(inv.host_user_id, 'system',
-      `[System notification] ${contactName} ${verb} the invite to ${inv.title}.`
-    );
-  }
+  // Notify the host — best effort, never fail the RSVP if this throws
+  try {
+    const host = db.getUser(inv.host_user_id);
+    if (host) {
+      const verb = status === 'accepted' ? 'accepted' : 'declined';
+      const contactRow = db._raw().prepare('SELECT name FROM contacts WHERE id = ?').get(inv.contact_id);
+      const contactName = contactRow?.name || 'Someone';
+      db.appendConversation(inv.host_user_id, 'system',
+        `[System notification] ${contactName} ${verb} the invite to ${inv.title}.`
+      );
+    }
+  } catch (_) { /* notification failure must not block the RSVP response */ }
 
   return { ok: true, status };
 }
