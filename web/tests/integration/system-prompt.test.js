@@ -131,6 +131,19 @@ describe('Tool routing — interaction patterns', () => {
     assertContains('NEVER call create_social_event more than once', 'no duplicate event creation');
   });
 
+  // Pattern: Bam Bam's agent said "Sean is not on ButterflAI" when Sean IS a user — just Tier 1
+  // Agent must not confuse "can't reach their agent (Tier 1)" with "not on ButterflAI"
+  test('Tier 1 contact must not be described as "not on ButterflAI" — they may be a full user', () => {
+    assertContains('TIER CONFUSION', 'tier confusion warning in prompt');
+    assertContains("they're not on ButterflAI", 'never say not on ButterflAI for Tier 1');
+  });
+
+  // Pattern: host says "coordinate with them on timing" but contacts are Tier 1 (SMS only)
+  // Agent should ask host for a proposed time, then use create_social_event — not offer to invite them to ButterflAI
+  test('When invitees are Tier 1 and host asks to coordinate timing, ask host for a time — do not offer ButterflAI invite', () => {
+    assertContains('ask the host to pick a proposed time', 'Tier 1 timing fallback: ask host for time');
+  });
+
   // Pattern: "I want to hang out with Allie tonight" (vague time)
   // Bug postmortem: agent assumed 7 PM without asking → wrong behavior
   test('Vague time ("tonight", "this weekend") must NOT result in an invented time', () => {
