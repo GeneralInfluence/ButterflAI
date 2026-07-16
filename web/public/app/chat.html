@@ -159,6 +159,7 @@
       font-size: 15px;
       outline: none;
       resize: none;
+      overflow: hidden;       /* prevents scrollbar flash during auto-resize */
       font-family: inherit;
       max-height: 100px;
       line-height: 1.4;
@@ -403,7 +404,12 @@
     }
 
     function scrollToBottom() {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      // Use RAF so the browser finishes laying out the new message node first.
+      // A second RAF handles slow layout passes (common on mid-range Android).
+      requestAnimationFrame(() => {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
+      });
     }
 
     function escHtml(t) {
@@ -517,6 +523,14 @@
     loadHistory();
     connectSSE();
     checkLocationNeeded();
+
+    // Re-scroll when the virtual keyboard dismisses (Android/iOS resize the viewport).
+    // Without this, the last message can stay hidden behind where the keyboard was.
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => {
+        requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
+      });
+    }
   </script>
 
 <nav class="bottom-nav">

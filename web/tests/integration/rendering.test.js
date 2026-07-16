@@ -210,6 +210,24 @@ describe('Chat page — mobile layout (Android PWA fix)', () => {
     assert.ok(res.text.includes('id="msg-input"'), 'Chat must have #msg-input textarea');
     assert.ok(res.text.includes('id="send-btn"'),  'Chat must have #send-btn');
   });
+
+  test('textarea has overflow:hidden to prevent scrollbar flash on voice input', async () => {
+    const res = await request.get('/app/chat').set('Cookie', cookie);
+    // #msg-input must have overflow: hidden so the browser never flashes a scrollbar
+    // when voice-to-text inserts text before auto-resize runs
+    assert.ok(
+      res.text.includes('overflow: hidden') || res.text.includes('overflow:hidden'),
+      '#msg-input must have overflow:hidden to prevent the gray scrollbar bar on voice input'
+    );
+  });
+
+  test('scrollToBottom uses requestAnimationFrame for deferred layout scroll', async () => {
+    const res = await request.get('/app/chat').set('Cookie', cookie);
+    assert.ok(
+      res.text.includes('requestAnimationFrame'),
+      'scrollToBottom must use requestAnimationFrame so the browser lays out new messages before scrolling'
+    );
+  });
 });
 
 // ── manifest.json ─────────────────────────────────────────────────────────────
