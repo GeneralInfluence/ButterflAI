@@ -276,6 +276,9 @@ app.post(
 
 // ── Invite landing page ───────────────────────────────────────────────────────
 
+// PWA share target fallback — GET redirects to contacts; POST is handled by service worker
+app.get('/share-target', (req, res) => res.redirect('/app/contacts?import=shared'));
+
 app.get('/invite/:token', (req, res) => {
   const invite = db.getInvite(req.params.token);
   if (!invite) return res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));

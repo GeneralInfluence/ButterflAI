@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ButterflAI">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#6c47ff">
   <title>ButterflAI — Contacts</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
   <style>
@@ -258,6 +264,12 @@
     </button>
   </div>
 
+  <div id="install-banner" style="display:none;margin:0 16px 12px;padding:12px 14px;background:#f0ecff;border:1px solid #c4b5fd;border-radius:12px;font-size:13px;color:#4c1d95;line-height:1.5;">
+    <strong>💡 One-tap contact import</strong><br>
+    Tap <strong>Share <span style="font-style:normal">▢↑</span> → Add to Home Screen</strong> in Safari. Then share contacts directly from the Contacts app to ButterflAI — no more copy-paste.
+    <button onclick="document.getElementById('install-banner').style.display='none'" style="float:right;background:none;border:none;font-size:16px;cursor:pointer;color:#7c3aed;margin-top:-2px;padding:0">✕</button>
+  </div>
+
   <!-- Paste import -->
   <div class="add-form" id="paste-form">
     <p style="font-size:13px;color:#555;margin-bottom:10px;line-height:1.5">
@@ -325,6 +337,41 @@
 </nav>
 
   <script>
+    // ── PWA install banner + share target import ──────────────────────────────
+    const _isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    const _isStandalone = window.navigator.standalone === true;
+
+    // Show install banner on iOS Safari when not yet installed
+    if (_isIOS && !_isStandalone) {
+      document.getElementById('install-banner').style.display = 'block';
+    }
+
+    // Register SW and handle share target redirect
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(() => navigator.serviceWorker.ready)
+        .then(async () => {
+          if (location.search.includes('import=shared')) {
+            await checkPendingImport();
+          }
+        })
+        .catch(() => {});
+    }
+
+    async function checkPendingImport() {
+      try {
+        const cache = await caches.open('butterflai-share-v1');
+        const resp = await cache.match('/pending-import');
+        if (!resp) return;
+        const vcfText = await resp.text();
+        await cache.delete('/pending-import');
+        history.replaceState({}, '', '/app/contacts');
+        pickerCandidates = parseVCards(vcfText);
+        if (pickerCandidates.length > 0) openModal();
+        else showToast('No contacts found in the shared file.', 4000);
+      } catch(e) { console.error('[contacts] import error', e); }
+    }
+
     let allContacts = [];
     let pickerCandidates = []; // contacts from device picker, before import
     let selected = new Set();  // indices of selected picker candidates
