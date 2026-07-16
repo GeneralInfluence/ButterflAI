@@ -228,6 +228,14 @@ describe('Chat page — mobile layout (Android PWA fix)', () => {
       'scrollToBottom must use requestAnimationFrame so the browser lays out new messages before scrolling'
     );
   });
+
+  test('scroll-anchor element exists so scrollIntoView clears the fixed input bar', async () => {
+    const res = await request.get('/app/chat').set('Cookie', cookie);
+    assert.ok(
+      res.text.includes('id="scroll-anchor"'),
+      'Chat must have a #scroll-anchor div at the end of #messages for reliable scroll-to-bottom'
+    );
+  });
 });
 
 // ── manifest.json ─────────────────────────────────────────────────────────────

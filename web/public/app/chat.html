@@ -244,6 +244,8 @@
       <div class="emoji">🦋</div>
       <p>Start chatting with your ButterflAI</p>
     </div>
+    <!-- scroll anchor: always sits below the last message so scrollIntoView clears the input bar -->
+    <div id="scroll-anchor" style="height:1px;flex-shrink:0;"></div>
   </div>
   <div class="msg bot typing" id="typing">
     <div class="bubble">
@@ -366,7 +368,8 @@
       div.className = `msg ${role}`;
       const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
       div.innerHTML = `<div class="bubble">${escHtml(text)}</div><div class="ts">${time}</div>`;
-      messagesEl.appendChild(div);
+      // Insert before the scroll anchor so anchor stays last
+      messagesEl.insertBefore(div, scrollAnchor);
     }
 
     function showLocationPrompt() {
@@ -379,7 +382,7 @@
         <span>📍 Share your location so I can find things near you</span>
         <button onclick="shareLocationInline(this)" style="background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap">Share location</button>
       </div>`;
-      messagesEl.appendChild(div);
+      messagesEl.insertBefore(div, scrollAnchor);
       scrollToBottom();
     }
 
@@ -403,12 +406,12 @@
       });
     }
 
+    const scrollAnchor = document.getElementById('scroll-anchor');
     function scrollToBottom() {
-      // Use RAF so the browser finishes laying out the new message node first.
-      // A second RAF handles slow layout passes (common on mid-range Android).
+      // scrollIntoView on the anchor element is more reliable than scrollTop = scrollHeight:
+      // it always clears the fixed input bar regardless of padding-bottom calculation edge cases.
       requestAnimationFrame(() => {
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
+        scrollAnchor.scrollIntoView({ behavior: 'instant', block: 'end' });
       });
     }
 
