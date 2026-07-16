@@ -197,6 +197,32 @@
     </div>
   </section>
 
+  <!-- What your agent knows about you -->
+  <section>
+    <h2>What your agent knows</h2>
+    <div class="card">
+      <p style="font-size:14px;color:#555;margin-bottom:16px">Everything your agent has stored about you. Tap a field to clear it.</p>
+      <div id="prefs-list"><div style="color:#aaa;font-size:14px">Loading…</div></div>
+
+      <!-- Health & safety — separate with explicit consent toggle -->
+      <hr style="border:none;border-top:1px solid #f2f2f7;margin:16px 0">
+      <div style="margin-bottom:8px">
+        <strong style="font-size:14px">🔒 Health & safety notes</strong>
+        <p style="font-size:12px;color:#aaa;margin-top:4px;line-height:1.4">This is stored only on your device's server and never shared without your approval below.</p>
+      </div>
+      <div id="health-notes-display" style="font-size:14px;color:#555;min-height:20px;margin-bottom:8px">—</div>
+      <button onclick="clearField('health_safety_notes')" id="clear-health-btn" style="display:none;padding:6px 12px;border-radius:8px;background:#fff0f0;color:#ef4444;border:none;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">Clear health notes</button>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#555">
+          <input type="checkbox" id="health-sharing-toggle" onchange="toggleHealthSharing(this.checked)"
+            style="width:18px;height:18px;accent-color:#6c47ff">
+          Allow my agent to share this with other agents when asked
+        </label>
+      </div>
+      <p style="font-size:12px;color:#aaa;margin-top:6px;line-height:1.4">When off (default), your agent will ask you before sharing with anyone.</p>
+    </div>
+  </section>
+
   <!-- Your data -->
   <section>
     <h2>Your data</h2>
@@ -267,6 +293,69 @@
     });
   }
 
+  const PREF_LABELS = {
+    food_allergies: '🚨 Allergies', dietary_restrictions: '🥗 Diet',
+    cuisine_loves: '❤️ Cuisines loved', cuisine_avoids: '🙅 Cuisines avoided',
+    activity_loves: '⭐ Activities loved', activity_avoids: '😑 Activities avoided',
+    vibe: '✨ Vibe', budget_low: '💰 Budget min', budget_high: '💰 Budget max',
+    neighborhood: '📍 Neighborhood', availability_notes: '🕐 Usually free',
+    comm_style: '💬 Comm style', extra_notes: '📝 Extra notes',
+  };
+
+  async function loadPreferences() {
+    try {
+      const { preferences: p } = await fetch('/api/user/preferences').then(r => r.json());
+      const list = document.getElementById('prefs-list');
+      const entries = Object.entries(PREF_LABELS)
+        .map(([k, label]) => {
+          const val = Array.isArray(p[k]) ? p[k].join(', ') : p[k];
+          if (!val) return null;
+          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f8f8f8">
+            <div style="flex:1;font-size:14px">
+              <span style="color:#8e8e93;font-size:12px;font-weight:600">${label}</span><br>
+              <span>${escHtml(String(val))}</span>
+            </div>
+            <button onclick="clearField('${k}')" style="background:none;border:none;color:#c7c7cc;font-size:16px;cursor:pointer;padding:4px" title="Clear">✕</button>
+          </div>`;
+        }).filter(Boolean);
+      list.innerHTML = entries.length
+        ? entries.join('')
+        : '<div style="color:#aaa;font-size:14px">Nothing stored yet — your agent learns as you chat.</div>';
+
+      // Health notes
+      const healthEl = document.getElementById('health-notes-display');
+      const clearHealthBtn = document.getElementById('clear-health-btn');
+      if (p.health_safety_notes) {
+        healthEl.textContent = p.health_safety_notes;
+        clearHealthBtn.style.display = '';
+      } else {
+        healthEl.textContent = '—';
+        clearHealthBtn.style.display = 'none';
+      }
+      document.getElementById('health-sharing-toggle').checked = !!p.health_sharing_approved;
+    } catch (_) {
+      document.getElementById('prefs-list').innerHTML = '<div style="color:#aaa;font-size:14px">Could not load.</div>';
+    }
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  async function clearField(field) {
+    const r = await fetch(`/api/user/preferences/${field}`, { method: 'DELETE' });
+    if (r.ok) await loadPreferences();
+    else alert('Could not clear. Try again.');
+  }
+
+  async function toggleHealthSharing(approved) {
+    await fetch('/api/user/preferences/health-sharing', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved })
+    });
+  }
+
   async function load() {
     // Profile
     try {
@@ -287,6 +376,9 @@
         document.getElementById('profile-aka').textContent = me.also_known_as;
         document.getElementById('aka-field').style.display = '';
       }
+
+      // Preferences — what the agent knows
+      await loadPreferences();
 
       // Audit
       const { audit } = await fetch(`/api/user/${me.id}/audit`).then(r => r.json());

@@ -1574,6 +1574,31 @@ app.post('/api/push/subscribe', webAuth.requireAuth, express.json(), (req, res) 
   res.json({ ok: true });
 });
 
+// GET /api/user/preferences — return everything the agent has stored about this user
+app.get('/api/user/preferences', webAuth.requireAuth, (req, res) => {
+  const prefs = db.getPreferences(req.user.id) || {};
+  res.json({ preferences: prefs });
+});
+
+// DELETE /api/user/preferences/:field — clear a specific preference field
+app.delete('/api/user/preferences/:field', webAuth.requireAuth, (req, res) => {
+  const SAFE_FIELDS = ['food_allergies','dietary_restrictions','cuisine_loves','cuisine_avoids',
+    'activity_loves','activity_avoids','vibe','budget_low','budget_high','neighborhood',
+    'availability_notes','comm_style','extra_notes','health_safety_notes','health_sharing_approved'];
+  const { field } = req.params;
+  if (!SAFE_FIELDS.includes(field)) return res.status(400).json({ error: 'Unknown field' });
+  db.upsertPreferences(req.user.id, { [field]: null });
+  res.json({ ok: true, cleared: field });
+});
+
+// PATCH /api/user/preferences/health-sharing — toggle consent to share health notes with other agents
+app.patch('/api/user/preferences/health-sharing', webAuth.requireAuth, express.json(), (req, res) => {
+  const { approved } = req.body;
+  if (typeof approved !== 'boolean') return res.status(400).json({ error: 'approved must be boolean' });
+  db.upsertPreferences(req.user.id, { health_sharing_approved: approved ? 1 : 0 });
+  res.json({ ok: true, health_sharing_approved: approved });
+});
+
 // PATCH /api/user/me — update profile fields
 app.patch('/api/user/me', webAuth.requireAuth, express.json(), (req, res) => {
   const { name, nickname, also_known_as } = req.body;

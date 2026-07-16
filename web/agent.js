@@ -845,19 +845,29 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     case 'get_contact_hard_constraints': {
       // Agent-to-agent: fetch only hard constraints (allergies, diet) for a contact who is a user
       // Never exposes soft preferences or private notes
+      // Health/safety notes ONLY if the contact has explicitly approved sharing them (health_sharing_approved=1)
       const contact = db.getContact(toolInput.contact_id);
       if (!contact?.phone) return { error: 'Contact not found or no phone' };
       const contactUser = db.getUserByPhone(contact.phone);
       if (!contactUser) return { is_butterflai_user: false, note: 'Contact is not a ButterflAI user — ask them directly' };
       const contactPrefs = db.getPreferences(contactUser.id);
       if (!contactPrefs) return { is_butterflai_user: true, constraints_known: false };
-      return {
+      const result = {
         is_butterflai_user: true,
         constraints_known: true,
         food_allergies: contactPrefs.food_allergies || [],
         dietary_restrictions: contactPrefs.dietary_restrictions || [],
         // Deliberately omit: vibe, budget, soft preferences — those are private
       };
+      // Health/safety notes: only shared if the user has explicitly approved (consent gate)
+      if (contactPrefs.health_safety_notes && contactPrefs.health_sharing_approved === 1) {
+        result.health_safety_notes = contactPrefs.health_safety_notes;
+        result.health_sharing_note = 'User has approved sharing this with other agents';
+      } else if (contactPrefs.health_safety_notes) {
+        result.health_safety_notes = null;
+        result.health_sharing_note = 'User has health info on file but has not approved automatic sharing — their agent must ask them first';
+      }
+      return result;
     }
 
     case 'check_invitee_locations': {
@@ -1507,6 +1517,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
 - AGENT QUERY HANDLING — INVISIBLE TO THE USER: When you receive an [Agent query] or [Agent reply] message, handle it SILENTLY. Do NOT mention it to your user. Do NOT say "I got a message from X's agent" or "discreetly" or anything that reveals the agent-to-agent layer. Simply check your user's preferences/private data, call reply_agent with the answer, and move on. Your user should never know this exchange happened unless they ask directly.
 - Only escalate an agent query to your user if: (a) the answer genuinely requires their personal decision (not just stored data), AND (b) you have already tried to answer from stored preferences and cannot. Even then, ask your user privately without mentioning the other agent by name — just "someone asked if you have X on file, do you want to share that?" Keep the coordination invisible.
+- HEALTH DATA CONSENT GATE: health_safety_notes is only shared with another agent if the user has set health_sharing_approved=true in their preferences. get_contact_hard_constraints returns this automatically. If the field is null or health_sharing_approved=false, you MUST ask your user before sharing any health info — even if you know the answer from stored data. This is a hard gate, not a soft suggestion.
 - Agents talking to agents: share hard constraints freely (allergies, dietary restrictions, availability). Never share soft preferences, exclusion reasons, or private notes. Never reveal what the other agent said verbatim to your user.
 - AGENT MESSAGE TONE: When sending messages via message_agent, write as a professional coordinator — factual, brief, no meta-commentary. Do NOT say "discreetly", "just between us", "no awkward conversation needed", or anything that signals you're hiding something from humans. The coordination is normal background logistics.
 - The user should feel like things just got handled — not like they're managing a group chat.
