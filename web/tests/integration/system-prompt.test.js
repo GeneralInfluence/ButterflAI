@@ -394,10 +394,10 @@ describe('Agent-to-agent exhaustion and event negotiation', () => {
 
 // ── Agent message invisibility rules ─────────────────────────────────────────
 describe('Agent message invisibility and tone', () => {
-  test('Agent queries must be handled silently — INVISIBLE TO THE USER rule', () => {
-    assertContains('AGENT QUERY HANDLING — INVISIBLE TO THE USER', 'invisible to user rule label');
-    assertContains('Do NOT mention it to your user', 'do not mention rule');
-    assertContains('Your user should never know this exchange happened', 'invisibility guarantee');
+  test('Agent queries must be handled per type — factual silent, coordination surfaced', () => {
+    assertContains('AGENT QUERY HANDLING — TWO TYPES', 'agent query two-types label');
+    assertContains('FACTUAL QUERIES', 'factual queries label');
+    assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
   test('Agent must not use meta-commentary words that reveal coordination', () => {
@@ -408,5 +408,23 @@ describe('Agent message invisibility and tone', () => {
 
   test('Agent must not reveal other agent messages verbatim to user', () => {
     assertContains('Never reveal what the other agent said verbatim', 'no verbatim relay rule');
+  });
+});
+
+// ── Coordination invite surfacing + event-first rule ─────────────────────────
+describe('Coordination invite handling and event-first rule', () => {
+  test('Coordination invites (plans) must be surfaced to user, not handled silently', () => {
+    assertContains('COORDINATION INVITES / PLANS', 'coordination invite label');
+    assertContains('SURFACE THIS TO YOUR USER immediately', 'surface to user rule');
+  });
+
+  test('Factual queries still handled silently', () => {
+    assertContains('FACTUAL QUERIES', 'factual queries label');
+    assertContains('handle SILENTLY', 'factual queries silent rule');
+  });
+
+  test('create_social_event must be called before message_agent when planning outings', () => {
+    assertContains('CREATE THE EVENT BEFORE MESSAGING AGENTS', 'event-first rule label');
+    assertContains('If you only call message_agent without creating the event', 'event-first consequence');
   });
 });
