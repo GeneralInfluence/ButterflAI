@@ -322,3 +322,17 @@ describe('Agent tool execution — runtime regression tests', () => {
   });
 
 });
+
+// ── Flexible / open-time events ───────────────────────────────────────────────
+describe('Flexible / open-time events', () => {
+  test('Agent must not nag for a time when user says "come when you\'re ready"', () => {
+    assertContains("come when you're ready", 'flexible time example phrase');
+    assertContains('open invite', 'open invite phrase in prompt');
+  });
+
+  test('System prompt distinguishes vague time from explicit no-time', () => {
+    assertContains('FLEXIBLE / OPEN-TIME', 'flexible time rule section');
+    assertContains('LOCATION CONTEXT', 'location context rule');
+    assertContains('without nagging for a time', 'no nag rule');
+  });
+});

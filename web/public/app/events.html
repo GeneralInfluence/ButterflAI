@@ -483,15 +483,17 @@
     }
     el.innerHTML = events.map(e => {
       const dt = new Date((e.scheduled_at||0) * 1000);
-      const dateStr = dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
-      const timeStr = dt.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+      const whenStr = e.flexible_time
+        ? 'Open invite — come when you\'re ready'
+        : dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' ' +
+          dt.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
       const isPending = e.rsvp_status === 'invited';
       const statusLabel = { invited: '⏳ Pending', accepted: '✅ Going', declined: '❌ Declined' }[e.rsvp_status] || e.rsvp_status;
       return `<div class="card" id="invite-${e.invitation_id}">
         <div class="card-header">
           <div style="flex:1;min-width:0">
             <div class="card-title">${escHtml(e.title)}</div>
-            <div class="card-sub">${escHtml(e.host_name || 'Unknown host')} · ${dateStr} ${timeStr}</div>
+            <div class="card-sub">${escHtml(e.host_name || 'Unknown host')} · ${escHtml(whenStr)}</div>
             ${e.venue_name ? `<div class="card-sub" style="margin-top:2px">📍 ${escHtml(e.venue_name)}</div>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;margin-left:8px">

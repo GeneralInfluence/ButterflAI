@@ -75,6 +75,7 @@ function ensureEventTables() {
       status       TEXT NOT NULL DEFAULT 'open'
         CHECK (status IN ('open','cancelled','completed')),
       event_type   TEXT NOT NULL DEFAULT 'private',
+      flexible_time INTEGER DEFAULT 0,   -- 1 = no fixed time ("come when you're ready"), migration 022
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 
@@ -107,10 +108,14 @@ function ensureEventTables() {
  *   scheduled_at (ISO string or unix ts), duration_mins, notes
  * @returns {string} eventId
  */
-function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type }) {
-  const ts = typeof scheduled_at === 'string'
-    ? Math.floor(new Date(scheduled_at).getTime() / 1000)
-    : scheduled_at;
+function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time }) {
+  // flexible_time=true → no fixed time ("come when you're ready"); use now as placeholder timestamp
+  const isFlexible = !scheduled_at || flexible_time;
+  const ts = isFlexible
+    ? Math.floor(Date.now() / 1000)
+    : typeof scheduled_at === 'string'
+      ? Math.floor(new Date(scheduled_at).getTime() / 1000)
+      : scheduled_at;
 
   const type = event_type === 'public' ? 'public' : 'private';
 
@@ -132,10 +137,10 @@ function createEvent(hostUserId, { title, activity_type, venue_name, venue_addre
 
   const id = uuidv4();
   db._raw().prepare(`
-    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, hostUserId, title, activity_type, venue_name || null, venue_address || null,
-         ts, duration_mins || 120, notes || null, type);
+         ts, duration_mins || 120, notes || null, type, isFlexible ? 1 : 0);
 
   return id;
 }
@@ -196,9 +201,9 @@ async function inviteContacts(eventId, contactIds) {
     // opt-out instruction — this IS the first-touch consent mechanism.
     // sms.send() would block on ConsentRequired for new contacts, preventing
     // the invite from ever going out.
-    const dateStr = formatEventDate(event.scheduled_at, hostTimezone);
+    const dateStr = event.flexible_time ? 'whenever you\'re free' : formatEventDate(event.scheduled_at, hostTimezone);
     const venueStr = event.venue_name ? ` at ${event.venue_name}` : '';
-    const message = buildInviteMessage(host.name, contact.name, event.activity_type, dateStr, venueStr, invId);
+    const message = buildInviteMessage(host.name, contact.name, event.activity_type, dateStr, venueStr, invId, !!event.flexible_time);
 
     try {
       await sms.sendUnchecked(contact.phone, message);
@@ -218,11 +223,14 @@ async function inviteContacts(eventId, contactIds) {
  * Self-identify header is included (agent acting on behalf of host).
  * Contact is given a simple reply mechanism (YES/NO to a shortcode-style reply).
  */
-function buildInviteMessage(hostName, contactName, activityType, dateStr, venueStr, invitationId) {
+function buildInviteMessage(hostName, contactName, activityType, dateStr, venueStr, invitationId, isFlexible = false) {
   const baseUrl = process.env.BASE_URL || 'https://butterflai.social';
+  const timing = isFlexible
+    ? `${hostName} is having ${activityType}${venueStr} — open invite, come over whenever works for you!`
+    : `${hostName} is having ${activityType}${venueStr} on ${dateStr} and would love you to join — you in?`;
   return (
     `Hi ${contactName}! This is ${hostName}'s ButterflAI.\n\n` +
-    `${hostName} is having ${activityType}${venueStr} on ${dateStr} and would love you to join — you in?\n\n` +
+    `${timing}\n\n` +
     `Want your own ButterflAI? → ${baseUrl}\n\n` +
     `Reply STOP to opt out.`
   );

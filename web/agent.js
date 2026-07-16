@@ -453,13 +453,14 @@ const TOOL_DEFINITIONS = [
         activity_type: { type: 'string' },
         venue_name:    { type: 'string' },
         venue_address: { type: 'string' },
-        scheduled_at:  { type: 'string', description: 'ISO 8601 datetime with explicit timezone offset, e.g. 2026-07-17T19:00:00-07:00' },
+        scheduled_at:  { type: 'string', description: 'ISO 8601 datetime with explicit timezone offset, e.g. 2026-07-17T19:00:00-07:00. OMIT entirely if the user said no fixed time ("come when ready", "open invite", "whenever").' },
+        flexible_time: { type: 'boolean', description: 'Set true when the user explicitly says no fixed time — "come when you\'re ready", "open invite", "whenever works". Omit or false when a specific time is set.' },
         duration_mins: { type: 'number' },
         notes:         { type: 'string' },
         event_type:    { type: 'string', enum: ['private', 'public'], description: '"private" (default) = user is hosting their own event. "public" = ONLY use this if the user explicitly says to make it public or open to anyone beyond their contacts — e.g. "make this public", "share this openly", "anyone can join". Do NOT infer public just because the venue is a public place.' },
         contact_ids:   { type: 'array', items: { type: 'string' }, description: 'Contacts to invite (must be Tier 1+)' },
       },
-      required: ['title', 'activity_type', 'scheduled_at'],
+      required: ['title', 'activity_type'],
     },
   },
   {
@@ -1436,7 +1437,9 @@ COORDINATING PLANS:
 - send_logistics_sms is ONLY for one-way informational messages that do NOT expect a reply: "running 10 min late", "on my way", "parking on the corner". If the message asks a question or expects a yes/no, use create_social_event instead.
 - create_social_event sends the invite message automatically. Do NOT also call send_logistics_sms for the same invite.
 - NEVER call create_social_event more than once for the same event. If you are uncertain about the time or date, ask the user to clarify BEFORE creating the event — do not create multiple versions and cancel the wrong one.
-- If the user says something vague like "tonight" or "this weekend" without specifying a time: DO NOT pick a time yourself. ALWAYS try message_agent for each invitee first — the tool will tell you if they're not on ButterflAI. Collect availability from all agents who respond, then propose a reconciled time to the host. Only call create_social_event once you have a confirmed time that works for everyone.
+- FLEXIBLE / OPEN-TIME events: if the user explicitly says no fixed time — "come when you're ready", "whenever works", "open invite", "drop by any time", "they'll come over when ready" — do NOT ask for a time. Set flexible_time: true and omit scheduled_at. The invite will say "come over whenever works for you." Respect this choice without nagging for a time.
+- LOCATION CONTEXT: if contacts are described as nearby or local, a flexible open-invite makes perfect sense. Do NOT treat "no fixed time" as a missing piece of information when the user has explicitly said it's intentional.
+- If the user says something vague like "tonight" or "this weekend" without specifying a time AND has not said they want a flexible/open invite: DO NOT pick a time yourself. ALWAYS try message_agent for each invitee first — the tool will tell you if they're not on ButterflAI. Collect availability from all agents who respond, then propose a reconciled time to the host. Only call create_social_event once you have a confirmed time or the user says flexible_time is fine.
 - TIER CONFUSION — critical: a contact's tier in your contact list (0, 1, 2) reflects your SMS/contact permission, NOT whether they are a ButterflAI user. NEVER assume a Tier 1 contact is "not on ButterflAI" — they very likely ARE. Always call message_agent and let the tool tell you if they don't have an account. Only say they're "not on ButterflAI" if message_agent returns an explicit error saying so.
 - If message_agent succeeds for a contact: wait for their agent to reply via agent_reply channel, then reconcile availability and propose options to the host.
 - If message_agent returns "Contact is not a ButterflAI user": THEN and only then fall back to: ask the host to pick a proposed time, then use create_social_event which texts them asking if that time works.
