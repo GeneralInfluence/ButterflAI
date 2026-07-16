@@ -838,6 +838,73 @@ app.get('/r/:token', (req, res) => {
   const payload = sessionToken ? webAuth.verifyToken(sessionToken) : null;
   const visitor = payload ? db.getUser(payload.userId) : null;
 
+  console.log(`[referral] token=${token} cookie=${sessionToken ? 'present' : 'absent'} visitor=${visitor?.id || 'none'} referrer=${referral.referrer_user_id}`);
+
+  if (!visitor) {
+    // Not logged in — serve a landing page that checks auth client-side
+    // (cookie may exist in browser but wasn't sent due to link-tap context)
+    return res.send(`<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ButterflAI — You're invited</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,sans-serif;background:#f2f2f7;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.card{background:#fff;border-radius:20px;padding:32px 24px;max-width:400px;width:100%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+.emoji{font-size:52px;margin-bottom:16px}h1{font-size:22px;font-weight:700;margin-bottom:8px}p{font-size:15px;color:#555;margin-bottom:24px;line-height:1.5}
+.btn{display:block;width:100%;padding:14px;background:#6c47ff;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;margin-bottom:10px}
+.btn-sec{background:#f2f2f7;color:#6c47ff}
+#status{font-size:13px;color:#aaa;margin-top:12px}
+</style></head>
+<body>
+<div class="card">
+  <div class="emoji">🦋</div>
+  <h1>You're invited to ButterflAI</h1>
+  <p id="msg">Checking if you have an account…</p>
+  <a id="join-btn" class="btn" href="/join?ref=${token}" style="display:none">Join ButterflAI</a>
+  <a id="connect-btn" class="btn" href="#" style="display:none" onclick="doConnect();return false">Connect with your friend</a>
+  <div id="status"></div>
+</div>
+<script>
+async function init() {
+  try {
+    const me = await fetch('/api/user/me').then(r => r.ok ? r.json() : null);
+    if (me && me.id) {
+      document.getElementById('msg').textContent = 'Welcome back, ' + (me.name || 'friend') + '! Tap below to connect.';
+      document.getElementById('connect-btn').style.display = 'block';
+    } else {
+      document.getElementById('msg').textContent = "You don't have an account yet — join to connect with your friend.";
+      document.getElementById('join-btn').style.display = 'block';
+    }
+  } catch(e) {
+    document.getElementById('join-btn').style.display = 'block';
+    document.getElementById('msg').textContent = 'Join ButterflAI to connect with your friend.';
+  }
+}
+async function doConnect() {
+  document.getElementById('connect-btn').textContent = 'Connecting…';
+  try {
+    const r = await fetch('/api/referral/connect', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({token: '${token}'})
+    });
+    const d = await r.json();
+    if (r.ok) {
+      location.href = '/app/contacts?connected=1&from=' + encodeURIComponent(d.referrerName || 'your friend');
+    } else {
+      document.getElementById('status').textContent = d.error || 'Something went wrong.';
+      document.getElementById('connect-btn').textContent = 'Connect with your friend';
+    }
+  } catch(e) {
+    document.getElementById('status').textContent = 'Connection failed — try again.';
+    document.getElementById('connect-btn').textContent = 'Connect with your friend';
+  }
+}
+init();
+</script>
+</body></html>`);
+  }
+
   if (visitor && visitor.id !== referral.referrer_user_id) {
     // Logged-in existing user clicking someone else's invite link
     // → mutual friend-add, then redirect to contacts with success message
@@ -883,6 +950,39 @@ app.get('/r/:token', (req, res) => {
 
   // Not logged in (or self-click) → show join page
   res.redirect(`/join?ref=${token}`);
+});
+
+// POST /api/referral/connect — logged-in user connects via a referral token
+app.post('/api/referral/connect', webAuth.requireAuth, express.json(), (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ error: 'token required' });
+
+  const referral = db.getReferralByToken(token);
+  if (!referral) return res.status(404).json({ error: 'Invalid invite link.' });
+
+  const visitor = req.user;
+  if (visitor.id === referral.referrer_user_id) {
+    return res.status(400).json({ error: "That's your own invite link!" });
+  }
+
+  const referrer = db.getUser(referral.referrer_user_id);
+  if (!referrer) return res.status(404).json({ error: 'Referrer not found.' });
+
+  // Mutual contact add
+  try { db.upsertContact({ invited_by_user_id: referrer.id, name: visitor.name || visitor.phone, phone: visitor.phone, tier: 1 }); } catch (_) {}
+  try { db.upsertContact({ invited_by_user_id: visitor.id, name: referrer.name || referrer.phone, phone: referrer.phone, tier: 1 }); } catch (_) {}
+
+  // Mark referral redeemed
+  if (referral.status === 'pending') {
+    try { db.redeemReferral(token, visitor.id); } catch (_) {}
+  }
+
+  // Notify referrer
+  const smsClient = require('./sms');
+  const visitorName = visitor.name || 'Someone';
+  smsClient.sendMessage(referrer.phone, `🦋 ${visitorName} accepted your invite and was added to your contacts!`).catch(() => {});
+
+  res.json({ ok: true, referrerName: referrer.name || referrer.phone });
 });
 
 // GET /api/user/referral — get current user's referral token + stats
