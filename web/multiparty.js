@@ -74,6 +74,7 @@ function ensureEventTables() {
       notes        TEXT,
       status       TEXT NOT NULL DEFAULT 'open'
         CHECK (status IN ('open','cancelled','completed')),
+      event_type   TEXT NOT NULL DEFAULT 'private',
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 
@@ -83,6 +84,7 @@ function ensureEventTables() {
       contact_id   TEXT NOT NULL,        -- contacts.id or users.id
       status       TEXT NOT NULL DEFAULT 'invited'
         CHECK (status IN ('invited','accepted','declined','no_response')),
+      source       TEXT NOT NULL DEFAULT 'contact',
       notified_at  INTEGER,              -- when invite SMS was sent
       responded_at INTEGER,
       response_note TEXT,

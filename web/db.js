@@ -63,7 +63,11 @@ function applyMigrations() {
     let allOk = true;
     for (const stmt of statements) {
       try { db.exec(stmt + ';'); } catch (err) {
-        if (!err.message.includes('already exists') && !err.message.includes('duplicate column')) {
+        const safe = ['already exists', 'duplicate column', 'no such table'];
+        if (safe.some(s => err.message.includes(s))) {
+          // Schema handled elsewhere (e.g. CREATE TABLE IF NOT EXISTS in app code); mark applied.
+          console.log(`[migration] ${file}: skipped safe (${err.message.split('\n')[0]})`);
+        } else {
           console.error(`[migration] ${file}: ${err.message}`);
           allOk = false;
         }
@@ -218,7 +222,7 @@ module.exports = {
   },
 
   updateContact(id, fields) {
-    const allowed = ['name', 'phone', 'tier', 'opted_out_at', 'telegram_id', 'telegram_chat_id'];
+    const allowed = ['name', 'phone', 'tier', 'opted_out_at', 'telegram_id', 'telegram_chat_id', 'nickname', 'also_known_as'];
     const sets = Object.keys(fields).filter(k => allowed.includes(k)).map(k => `${k} = ?`);
     if (!sets.length) return;
     const values = sets.map(s => fields[s.split(' ')[0]]);

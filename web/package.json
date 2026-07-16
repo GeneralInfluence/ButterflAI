@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.26.0",
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^12.11.1",
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.5",
     "express": "^4.18.2",
@@ -29,6 +29,6 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.0",
-    "supertest": "file:supertest-7.2.2.tgz"
+    "supertest": "^7.2.0"
   }
 }

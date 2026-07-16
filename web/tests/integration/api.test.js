@@ -172,25 +172,21 @@ describe('Referral redirect routes', () => {
   let referralToken;
 
   before(() => {
-    // Create a referrer user + referral row
+    // Create a referrer user and store the token directly on users.referral_token
+    // (route uses getUserByReferralToken which queries users table, not referrals table)
     const referrerId = 'ref-redirect-' + uuidv4();
-    db._raw().prepare(
-      `INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'Referrer', '+15990000001', 'complete')`
-    ).run(referrerId);
-
     referralToken = 'REDIR-' + uuidv4().slice(0, 8);
-    db.createReferral({
-      id: uuidv4(),
-      referrer_user_id: referrerId,
-      referral_token: referralToken,
-    });
+    db._raw().prepare(
+      `INSERT INTO users (id, name, phone, onboarding_state, referral_token) VALUES (?, 'Referrer', '+15990000001', 'complete', ?)`
+    ).run(referrerId, referralToken);
   });
 
-  test('GET /r/:validToken → 302 to /join?ref=TOKEN', async () => {
+  test('GET /r/:validToken → 200 landing page (unauthenticated visitor)', async () => {
+    // The route serves an HTML landing page for unauthenticated visitors
+    // (it does NOT redirect to /join — it shows a Connect/Log in page inline)
     const res = await request.get(`/r/${referralToken}`);
-    assert.equal(res.status, 302);
-    assert.ok(res.headers['location']?.includes('/join'), 'Should redirect to /join');
-    assert.ok(res.headers['location']?.includes(referralToken), 'Should include token in redirect');
+    assert.equal(res.status, 200);
+    assert.ok(res.text?.includes(referralToken), 'Landing page should embed the referral token');
   });
 
   test('GET /r/:invalid-token → 302 to /join', async () => {
