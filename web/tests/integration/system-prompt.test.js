@@ -138,20 +138,24 @@ describe('Tool routing — interaction patterns', () => {
     assertContains("they're not on ButterflAI", 'never say not on ButterflAI for Tier 1');
   });
 
-  // Pattern: host says "coordinate with them on timing" but contacts are Tier 1 (SMS only)
-  // Agent should ask host for a proposed time, then use create_social_event — not offer to invite them to ButterflAI
-  test('When invitees are Tier 1 and host asks to coordinate timing, ask host for a time — do not offer ButterflAI invite', () => {
-    assertContains('ask the host to pick a proposed time', 'Tier 1 timing fallback: ask host for time');
+  // Pattern: agent must always TRY message_agent before assuming a contact is not on ButterflAI
+  // Only fall back to "ask host for time" if message_agent explicitly returns "not a ButterflAI user"
+  test('Agent must always call message_agent first to check — not assume Tier 1 = no agent', () => {
+    assertContains('ALWAYS try message_agent', 'always try message_agent before assuming no agent');
+  });
+
+  test('Only fall back to ask-host-for-time if message_agent explicitly says not a ButterflAI user', () => {
+    assertContains('Contact is not a ButterflAI user', 'fall back only on explicit not-a-user error');
   });
 
   // Pattern: "I want to hang out with Allie tonight" (vague time)
   // Bug postmortem: agent assumed 7 PM without asking → wrong behavior
   test('Vague time ("tonight", "this weekend") must NOT result in an invented time', () => {
-    assertContains('never invent a time', 'no invented times like 7 PM');
+    assertContains('DO NOT pick a time yourself', 'no invented times like 7 PM');
   });
 
-  test('When time is vague, agent should check invitee agent availability or ask host before creating event', () => {
-    assertContains('ask the invitees', 'ask invitees for availability when time is vague');
+  test('When time is vague, agent should call message_agent for each invitee first', () => {
+    assertContains('ALWAYS try message_agent', 'always try message_agent for availability when time is vague');
   });
 
 });
