@@ -184,6 +184,14 @@ async function sendInvite(userId, contactId, context) {
   if (!contact.phone) throw new Error('Contact has no phone number');
   if (db.isOptedOut(contact.phone)) throw new Error('Contact has opted out');
   if (contact.invited_by_user_id !== userId) throw new Error('Unauthorized');
+  // send_contact_invite is only for Tier 0 (not yet connected) contacts.
+  // If the contact is already Tier 1+, the agent should use create_social_event instead.
+  if ((contact.tier ?? 0) >= 1) {
+    throw new Error(
+      `Contact "${contact.name}" is already Tier ${contact.tier} (connected). ` +
+      `Use create_social_event to invite them to an activity, not send_contact_invite.`
+    );
+  }
 
   // Create an invite token
   const token = uuidv4().replace(/-/g, '');

@@ -336,7 +336,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'send_contact_invite',
-    description: 'Send an invite SMS to a specific Tier 0 contact. This is Gate 2 of the two-gate rule — only call this when the user has explicitly asked to invite this person. Includes mandatory self-identify + STOP.',
+    description: 'Send a ButterflAI onboarding invite SMS to a Tier 0 (not yet connected) contact. Use ONLY when the user wants to invite someone to JOIN ButterflAI — NOT for inviting someone to a social activity, event, hangout, or gathering. For activity invites (dinner, drinks, testing the app together, etc.), use create_social_event. Will error if contact is already Tier 1+.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1408,7 +1408,9 @@ HARD RULES — never violate:
 
 COORDINATING PLANS:
 - All times and dates from the user are in THEIR local timezone (shown in state snapshot). When passing scheduled_at to create_social_event, output a full ISO 8601 string WITH the explicit UTC offset for their timezone (e.g. "2026-07-17T19:00:00-07:00" for 7pm Pacific, "2026-07-17T19:00:00-04:00" for 7pm Eastern). NEVER pass a bare time without an offset — this causes the wrong UTC conversion. Display times back to them in their local timezone.
-- When the user wants to invite someone to an activity (beer, dinner, lunch, etc.), ALWAYS use create_social_event with contact_ids — never send_logistics_sms for an invitation. This creates the tracking record that allows RSVP replies to be recognized automatically.
+- When the user wants to invite someone to an activity (beer, dinner, lunch, hanging out, trying something, testing an app, etc.), ALWAYS use create_social_event with contact_ids — never send_logistics_sms or send_contact_invite for an invitation. This creates the tracking record that allows RSVP replies to be recognized automatically.
+- When the user says "invite my [group/friends/crew] to [anything]": (1) call manage_contact_group(list_groups) or manage_contact_group(action=create_or_get) to get the group members, (2) call create_social_event with ALL of those contact_ids. Never use send_contact_invite for this — that is only for inviting people to JOIN ButterflAI, not to join an activity.
+- send_contact_invite is EXCLUSIVELY for inviting a Tier 0 (not yet connected) contact to JOIN ButterflAI itself. It is NEVER the right tool for inviting someone to a social activity, hangout, event, or gathering — even if the activity involves ButterflAI. If a contact is already Tier 1+, send_contact_invite will error.
 - send_logistics_sms is ONLY for one-way informational messages that do NOT expect a reply: "running 10 min late", "on my way", "parking on the corner". If the message asks a question or expects a yes/no, use create_social_event instead.
 - create_social_event sends the invite message automatically. Do NOT also call send_logistics_sms for the same invite.
 - NEVER call create_social_event more than once for the same event. If you are uncertain about the time or date, ask the user to clarify BEFORE creating the event — do not create multiple versions and cancel the wrong one.
