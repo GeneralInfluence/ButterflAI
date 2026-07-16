@@ -1320,6 +1320,28 @@ app.get('/api/user/me', webAuth.requireAuth, (req, res) => {
   res.json({ id, name, phone, city, lat, lng });
 });
 
+// PATCH /api/user/me — update profile fields (name only for now)
+app.patch('/api/user/me', webAuth.requireAuth, express.json(), (req, res) => {
+  const { name } = req.body;
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  db.updateUser(req.user.id, { name: name.trim() });
+  res.json({ ok: true, name: name.trim() });
+});
+
+// PATCH /api/contacts/:id/nickname — set your nickname for a contact
+app.patch('/api/contacts/:id/nickname', webAuth.requireAuth, express.json(), (req, res) => {
+  const { id } = req.params;
+  const { nickname } = req.body;
+  // Verify ownership
+  const contacts = db.getContactsByUser(req.user.id);
+  const contact = contacts.find(c => c.id === id);
+  if (!contact) return res.status(404).json({ error: 'Contact not found' });
+  db.updateContact(id, { nickname: nickname ? nickname.trim() : null });
+  res.json({ ok: true });
+});
+
 app.get('/health', (req, res) => {
   // Verify DB is reachable
   try {

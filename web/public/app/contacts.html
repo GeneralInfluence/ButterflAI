@@ -665,23 +665,35 @@
       }
       const tierLabels = { 0: 'Saved', 1: 'Connected', 2: 'ButterflAI' };
       list.innerHTML = contacts.map(c => {
-        const initials = (c.name || '?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+        const displayName = c.nickname || c.name || '?';
+        const initials = displayName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
         const tier = c.tier ?? 0;
-        return `<div class="contact-item">
+        return `<div class="contact-item" onclick="editNickname('${esc(c.id)}','${esc(displayName)}')">
           <div class="initials">${esc(initials)}</div>
           <div class="contact-info">
-            <div class="contact-name">${esc(c.name)}</div>
-            ${c.phone ? `<div class="contact-phone">${esc(c.phone)}</div>` : ''}
+            <div class="contact-name">${esc(displayName)}</div>
+            ${c.nickname && c.nickname !== c.name ? `<div class="contact-phone" style="font-style:italic;color:#aaa">aka ${esc(c.name)}</div>` : (c.phone ? `<div class="contact-phone">${esc(c.phone)}</div>` : '')}
           </div>
           <span class="tier-badge tier-${tier}">${esc(tierLabels[tier] ?? `T${tier}`)}</span>
         </div>`;
       }).join('');
     }
 
+    async function editNickname(contactId, currentName) {
+      const nick = prompt(`What do you call this person?\n(Leave blank to use their real name: ${currentName})`, currentName);
+      if (nick === null) return; // cancelled
+      const r = await fetch(`/api/contacts/${contactId}/nickname`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname: nick.trim() || null })
+      });
+      if (r.ok) load(); // refresh list
+    }
+
     document.getElementById('search').addEventListener('input', e => {
       const q = e.target.value.toLowerCase().trim();
       render(!q ? allContacts : allContacts.filter(c =>
-        (c.name||'').toLowerCase().includes(q) || (c.phone||'').includes(q)
+        (c.nickname||'').toLowerCase().includes(q) || (c.name||'').toLowerCase().includes(q) || (c.phone||'').includes(q)
       ));
     });
 

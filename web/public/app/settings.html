@@ -152,7 +152,10 @@
     <div class="card">
       <div class="field">
         <label>Name</label>
-        <div class="val" id="profile-name">—</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="val" id="profile-name" style="flex:1">—</div>
+          <button class="btn btn-secondary" style="padding:6px 12px;font-size:13px" onclick="editName()">Edit</button>
+        </div>
       </div>
       <div class="field">
         <label>Phone</label>
@@ -296,6 +299,22 @@
       });
     } catch (_) {
       document.getElementById('referral-url').textContent = 'Could not load link.';
+    }
+  }
+
+  async function editName() {
+    const current = document.getElementById('profile-name').textContent;
+    const newName = prompt('What name should friends see when you connect with them?', current === '—' ? '' : current);
+    if (!newName || !newName.trim() || newName.trim() === current) return;
+    const r = await fetch('/api/user/me', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName.trim() })
+    });
+    if (r.ok) {
+      document.getElementById('profile-name').textContent = newName.trim();
+    } else {
+      alert('Could not update name. Please try again.');
     }
   }
 
