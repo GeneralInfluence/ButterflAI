@@ -59,21 +59,22 @@
 
   // ── Apply update ──────────────────────────────────────────────────────────
   let waitingWorker = null;
-  let reloading = false;
 
   function applyUpdate() {
-    if (reloading) return;
-    reloading = true;
     if (waitingWorker) {
+      // Tell the waiting SW to take over — controllerchange fires → reload below
       waitingWorker.postMessage({ type: 'SKIP_WAITING' });
     } else {
       location.reload(true);
     }
   }
 
-  // When the new SW takes control, reload the page to get fresh assets
+  // controllerchange is the authoritative signal — always reload here
+  let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!reloading) { reloading = true; location.reload(); }
+    if (reloading) return;
+    reloading = true;
+    location.reload();
   });
 
   // ── Auto-update on foreground ─────────────────────────────────────────────
