@@ -169,6 +169,13 @@
         <label>Phone</label>
         <div class="val" id="profile-phone">—</div>
       </div>
+      <div class="field">
+        <label>Location</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="val" id="profile-city" style="flex:1">—</div>
+          <button class="btn btn-secondary" style="padding:6px 12px;font-size:13px" id="loc-btn" onclick="shareLocation()">Share</button>
+        </div>
+      </div>
       <div class="btn-row">
         <a class="btn btn-secondary" href="/auth/google/calendar">Connect Google Calendar</a>
         <a class="btn btn-secondary" href="/auth/apple/calendar">Connect Apple Calendar</a>
@@ -251,6 +258,8 @@
       const me = await fetch('/api/user/me').then(r => r.json());
       document.getElementById('profile-name').textContent = me.name || '—';
       document.getElementById('profile-phone').textContent = me.phone || '—';
+      document.getElementById('profile-city').textContent = me.city || '—';
+      if (me.city) document.getElementById('loc-btn').textContent = 'Update';
       if (me.nickname) {
         document.getElementById('profile-nickname').textContent = me.nickname;
         document.getElementById('nickname-field').style.display = '';
@@ -316,6 +325,34 @@
     } catch (_) {
       document.getElementById('referral-url').textContent = 'Could not load link.';
     }
+  }
+
+  async function shareLocation() {
+    const btn = document.getElementById('loc-btn');
+    if (!navigator.geolocation) { alert('Geolocation not supported by your browser.'); return; }
+    btn.textContent = 'Locating…';
+    btn.disabled = true;
+    navigator.geolocation.getCurrentPosition(async pos => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      const r = await fetch('/api/user/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng })
+      });
+      if (r.ok) {
+        const { city } = await r.json();
+        document.getElementById('profile-city').textContent = city || `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+        btn.textContent = 'Update';
+      } else {
+        btn.textContent = 'Share';
+        alert('Could not save location.');
+      }
+      btn.disabled = false;
+    }, err => {
+      btn.textContent = 'Share';
+      btn.disabled = false;
+      alert('Location access denied. Please allow location in your browser settings.');
+    }, { enableHighAccuracy: false, timeout: 10000 });
   }
 
   async function editNames() {

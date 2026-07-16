@@ -515,11 +515,12 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'web_search',
-    description: 'Search the web for current information — restaurants, venues, events, business hours, news, or anything the user asks about that may require up-to-date info.',
+    description: 'Search the web for current information — restaurants, venues, events, business hours, news, or anything the user asks about that may require up-to-date info. For local queries (venues, events, businesses), the user\'s city is automatically appended if known — you do not need to add it manually.',
     input_schema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Search query' },
+        query: { type: 'string', description: 'Search query. For local queries, do NOT include the city — it is added automatically from the user\'s location.' },
+        local: { type: 'boolean', description: 'Set true for venue/event/business searches to auto-append the user\'s city. Default true for anything location-specific.' },
       },
       required: ['query'],
     },
@@ -1126,8 +1127,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'web_search': {
-      const { query } = toolInput;
+      let { query, local } = toolInput;
       if (!query) return { error: 'query required' };
+      // Auto-append city for local searches
+      if (local !== false) {
+        const searcher = db.getUser(userId);
+        if (searcher?.city) query = `${query} ${searcher.city}`;
+      }
       const apiKey = process.env.BRAVE_SEARCH_API_KEY;
       if (!apiKey) return { error: 'Web search not configured.' };
       try {
@@ -1257,6 +1263,7 @@ async function processMessage(msg) {
   const stateSnapshot = [
     `## Current state`,
     `- User timezone: ${userTimezone} (current local time: ${userLocalTime})`,
+    `- Location: ${user.city ? `${user.city}${user.lat ? ` (${Number(user.lat).toFixed(4)}, ${Number(user.lng).toFixed(4)})` : ''}` : 'unknown — ask user or request browser location'}`,
     `- Calendar: ${calendarConnected ? `✅ connected (${calendarProvider}) — can check availability & create events` : '❌ not connected — offer Google or Apple Calendar setup'}`,
     `- Contacts: ${contactCount} in address book`,
     `\n## ${user.name}'s preferences\n${prefsSection}`,
