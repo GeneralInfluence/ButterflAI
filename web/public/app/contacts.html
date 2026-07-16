@@ -742,30 +742,59 @@
       }
     })();
 
-    // ── DEBUG: temporary panel to diagnose blank contacts ─────────────────────
+    // ── DEBUG panel (appended to body — no <main> in this page) ──────────────
+    window.onerror = (msg, src, line, col, err) => {
+      const d = document.getElementById('dbg') || (() => {
+        const el = document.createElement('pre');
+        el.id = 'dbg';
+        el.style.cssText = 'position:fixed;bottom:80px;left:8px;right:8px;background:#1c1c1e;color:#f90;font-size:11px;padding:8px;border-radius:8px;z-index:9999;max-height:40vh;overflow:auto;';
+        document.body.appendChild(el); return el;
+      })();
+      d.textContent += '[ERR] ' + msg + ' (line ' + line + ')\n';
+    };
+    window.addEventListener('unhandledrejection', ev => {
+      const d = document.getElementById('dbg') || (() => {
+        const el = document.createElement('pre');
+        el.id = 'dbg';
+        el.style.cssText = 'position:fixed;bottom:80px;left:8px;right:8px;background:#1c1c1e;color:#f90;font-size:11px;padding:8px;border-radius:8px;z-index:9999;max-height:40vh;overflow:auto;';
+        document.body.appendChild(el); return el;
+      })();
+      d.textContent += '[REJECT] ' + (ev.reason?.message || ev.reason) + '\n';
+    });
+
     (async function debugContacts() {
-      const panel = document.createElement('div');
-      panel.id = 'dbg-panel';
-      panel.style.cssText = 'background:#1c1c1e;color:#fff;font-family:monospace;font-size:11px;padding:10px;margin:8px;border-radius:8px;white-space:pre-wrap;word-break:break-all;';
-      document.querySelector('main').appendChild(panel);
-      function dbg(msg) { panel.textContent += msg + '\n'; console.log('[contacts-dbg]', msg); }
+      const el = document.createElement('pre');
+      el.id = 'dbg';
+      el.style.cssText = 'position:fixed;bottom:80px;left:8px;right:8px;background:#1c1c1e;color:#0f0;font-size:11px;padding:8px;border-radius:8px;z-index:9999;max-height:40vh;overflow:auto;';
+      document.body.appendChild(el);
+      const dbg = msg => { el.textContent += msg + '\n'; };
       try {
-        dbg('load() called');
+        dbg('v=debug3 page loaded');
         const r = await fetch('/api/contacts/list?offset=0');
-        dbg('fetch status: ' + r.status);
-        if (r.status !== 200) { dbg('ERROR: non-200'); return; }
-        const data = await r.json();
-        dbg('total=' + data.total + ' contacts.length=' + (data.contacts||[]).length);
-        dbg('contacts: ' + JSON.stringify((data.contacts||[]).map(c=>({name:c.name,tier:c.tier}))));
+        dbg('status=' + r.status);
+        const text = await r.text();
+        dbg('body=' + text.slice(0, 200));
+        const data = JSON.parse(text);
+        dbg('total=' + data.total + ' n=' + (data.contacts||[]).length);
         const list = document.getElementById('list');
-        dbg('list element: ' + (list ? 'found' : 'MISSING'));
-        if (list && data.contacts.length) {
+        dbg('list=' + (list ? 'found' : 'MISSING!'));
+        if (list && data.contacts && data.contacts.length) {
           list.innerHTML = data.contacts.map(c =>
-            `<div class="contact-item"><div class="initials">${(c.nickname||c.name||'?')[0].toUpperCase()}</div><div class="contact-info"><div class="contact-name">${c.nickname||c.name}</div><div class="contact-phone">${c.phone||''}</div></div><span class="tier-badge tier-${c.tier}">${['Saved','Connected','ButterflAI'][c.tier]||'T'+c.tier}</span></div>`
+            '<div class="contact-item"><div class="initials">' +
+            (c.nickname||c.name||'?')[0].toUpperCase() +
+            '</div><div class="contact-info"><div class="contact-name">' +
+            (c.nickname||c.name||'?') + '</div><div class="contact-phone">' +
+            (c.phone||'') + '</div></div><span class="tier-badge tier-' + c.tier + '">' +
+            (['Saved','Connected','ButterflAI'][c.tier]||'T'+c.tier) + '</span></div>'
           ).join('');
-          dbg('rendered ' + data.contacts.length + ' rows');
+          dbg('RENDERED ' + data.contacts.length + ' rows — check list above!');
+        } else {
+          dbg('nothing to render: contacts=' + JSON.stringify(data.contacts));
         }
-      } catch(e) { dbg('EXCEPTION: ' + e.message + '\n' + e.stack); }
+      } catch(e) {
+        el.style.color = '#f00';
+        dbg('EXCEPTION: ' + e.message + '\n' + (e.stack||'').slice(0,300));
+      }
     })();
 
     load();
