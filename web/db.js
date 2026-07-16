@@ -1003,4 +1003,50 @@ module.exports = {
     db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
   },
 
+  // ── Contact groups ─────────────────────────────────────────────────────────
+
+  getContactGroups(userId) {
+    const groups = db.prepare(`SELECT * FROM contact_groups WHERE user_id = ? ORDER BY name ASC`).all(userId);
+    return groups.map(g => ({
+      ...g,
+      members: db.prepare(`
+        SELECT c.id, c.name, c.nickname, c.phone FROM contact_group_members cgm
+        JOIN contacts c ON c.id = cgm.contact_id
+        WHERE cgm.group_id = ? ORDER BY c.name ASC
+      `).all(g.id),
+    }));
+  },
+
+  upsertContactGroup(userId, name, emoji) {
+    const { v4: uuidv4 } = require('uuid');
+    const existing = db.prepare(`SELECT id FROM contact_groups WHERE user_id = ? AND name = ? COLLATE NOCASE`).get(userId, name);
+    if (existing) {
+      if (emoji) db.prepare(`UPDATE contact_groups SET emoji = ? WHERE id = ?`).run(emoji, existing.id);
+      return existing.id;
+    }
+    const id = uuidv4();
+    db.prepare(`INSERT INTO contact_groups (id, user_id, name, emoji) VALUES (?, ?, ?, ?)`).run(id, userId, name, emoji || null);
+    return id;
+  },
+
+  addContactToGroup(groupId, contactId) {
+    db.prepare(`INSERT OR IGNORE INTO contact_group_members (group_id, contact_id) VALUES (?, ?)`).run(groupId, contactId);
+  },
+
+  removeContactFromGroup(groupId, contactId) {
+    db.prepare(`DELETE FROM contact_group_members WHERE group_id = ? AND contact_id = ?`).run(groupId, contactId);
+  },
+
+  deleteContactGroup(groupId, userId) {
+    db.prepare(`DELETE FROM contact_groups WHERE id = ? AND user_id = ?`).run(groupId, userId);
+  },
+
+  getContactGroupsByContact(contactId) {
+    return db.prepare(`
+      SELECT cg.* FROM contact_groups cg
+      JOIN contact_group_members cgm ON cgm.group_id = cg.id
+      WHERE cgm.contact_id = ?
+    `).all(contactId);
+  },
+
 };

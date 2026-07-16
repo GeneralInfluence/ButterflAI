@@ -121,6 +121,25 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'manage_contact_group',
+    description: 'Create, rename, or manage contact groups/lists (e.g. "closest friends", "work", "book club"). Use this whenever the user mentions a group, list, or category of contacts — create the group automatically if it doesn\'t exist. Also use to add/remove contacts from a group or to list all groups.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create_or_get', 'add_member', 'remove_member', 'list_groups', 'delete_group'],
+          description: 'What to do: create_or_get a group (idempotent), add/remove a member, list all groups, or delete a group',
+        },
+        group_name: { type: 'string', description: 'Name of the group (e.g. "closest friends", "family")' },
+        group_emoji: { type: 'string', description: 'Optional emoji for the group (e.g. "⭐", "❤️")' },
+        group_id:   { type: 'string', description: 'Group ID (required for add_member / remove_member / delete_group; get from list_groups or prior create_or_get call)' },
+        contact_id: { type: 'string', description: 'Contact ID to add or remove (from lookup_contact)' },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: 'get_relationships',
     description: 'Get the user\'s relationships and active cadences (who they want to stay in touch with and how often).',
     input_schema: { type: 'object', properties: {}, required: [] },
@@ -555,6 +574,50 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (Object.keys(updates).length === 0) return { error: 'No fields to update' };
       db.updateContact(toolInput.contact_id, updates);
       return { updated: true, contact_id: toolInput.contact_id, ...updates };
+    }
+
+    case 'manage_contact_group': {
+      const action = toolInput.action;
+
+      if (action === 'list_groups') {
+        return { groups: db.getContactGroups(userId) };
+      }
+
+      if (action === 'create_or_get') {
+        if (!toolInput.group_name) return { error: 'group_name required' };
+        const groupId = db.upsertContactGroup(userId, toolInput.group_name.trim(), toolInput.group_emoji);
+        const groups = db.getContactGroups(userId);
+        const group = groups.find(g => g.id === groupId);
+        return { group_id: groupId, group_name: toolInput.group_name, created: true, members: group?.members || [] };
+      }
+
+      if (action === 'add_member') {
+        if (!toolInput.group_id || !toolInput.contact_id) return { error: 'group_id and contact_id required' };
+        // Verify group belongs to this user
+        const groups = db.getContactGroups(userId);
+        const group = groups.find(g => g.id === toolInput.group_id);
+        if (!group) return { error: 'Group not found' };
+        // Verify contact belongs to this user
+        const contact = db.getContactsByUser(userId).find(c => c.id === toolInput.contact_id);
+        if (!contact) return { error: 'Contact not found' };
+        db.addContactToGroup(toolInput.group_id, toolInput.contact_id);
+        const contactName = contact.nickname || contact.name;
+        return { added: true, contact_name: contactName, group_name: group.name };
+      }
+
+      if (action === 'remove_member') {
+        if (!toolInput.group_id || !toolInput.contact_id) return { error: 'group_id and contact_id required' };
+        db.removeContactFromGroup(toolInput.group_id, toolInput.contact_id);
+        return { removed: true };
+      }
+
+      if (action === 'delete_group') {
+        if (!toolInput.group_id) return { error: 'group_id required' };
+        db.deleteContactGroup(toolInput.group_id, userId);
+        return { deleted: true };
+      }
+
+      return { error: 'Unknown action' };
     }
 
     case 'lookup_contact': {
@@ -1267,6 +1330,11 @@ async function processMessage(msg) {
     `- Location: ${user.city ? `${user.city}${user.lat ? ` (${Number(user.lat).toFixed(4)}, ${Number(user.lng).toFixed(4)})` : ''}` : 'unknown — ask user or request browser location'}`,
     `- Calendar: ${calendarConnected ? `✅ connected (${calendarProvider}) — can check availability & create events` : '❌ not connected — offer Google or Apple Calendar setup'}`,
     `- Contacts: ${contactCount} in address book`,
+    (() => {
+      const groups = db.getContactGroups(userId);
+      if (!groups.length) return '- Groups: none yet';
+      return '- Groups: ' + groups.map(g => `${g.emoji || ''}${g.name} (${g.members.length})`).join(', ');
+    })(),
     `\n## ${user.name}'s preferences\n${prefsSection}`,
     `\n## Open events\n${pendingEvents}`,
     pendingCoordination,
@@ -1375,6 +1443,19 @@ CONTACT MANAGEMENT:
 - Ingesting a contact (add_contact) never sends them any message — it's just your address book.
 - Whether a contact uses ButterflAI is their private information. Don't claim to know or not know. Instead: offer to reach out to them on the user's behalf, which works whether or not they're a user.
 - For importing many contacts at once, use get_contact_import_url and send the user that link.
+
+NAME RECONCILIATION — act immediately, don't ask:
+- When the user says "[name A] is [name B]" or "Allie is Allison" or "that's short for..." — they're telling you two names refer to the SAME person. Immediately: (1) lookup_contact for BOTH names, (2) if one unambiguous contact found, call update_contact to set the nickname (the short/informal name goes in nickname, the full name stays in name), (3) confirm what you did.
+- Common short-name patterns to recognize: Allie→Allison, Liz/Beth→Elizabeth, Mike→Michael, Rob→Robert, Tom→Thomas, Sam→Samuel/Samantha, Kate/Katie→Katherine, Nat→Natalie, Alex→Alexander/Alexandra, Chris→Christopher/Christina, Dan→Daniel, Ben→Benjamin, Matt→Matthew, Jen→Jennifer, Steph→Stephanie, Bri→Brianna, Dee→Diane/Deirdre.
+- If a contact's display name is a formal name but the user always uses a nickname: proactively suggest setting the nickname ("Want me to call him Mike in our conversations?").
+- If you find two contacts that appear to be the same person (same first name, similar last name, or the user indicates it), set also_known_as on the primary one and note the duplication for the user to confirm before merging.
+
+GROUPS & LISTS — create automatically, don't ask:
+- When the user references a group or list (e.g. "my closest friends", "my work crew", "the book club"), IMMEDIATELY call manage_contact_group with action=create_or_get. Never ask "should I create that group?" — just create it.
+- To add someone to a group: lookup_contact → manage_contact_group(create_or_get) → manage_contact_group(add_member). Do this in sequence without interrupting the user.
+- Groups you should proactively suggest after patterns emerge: "closest friends" (contacts with high cadence/tier), "family", "work", "neighbors".
+- When listing a group's members, show nickname if set, otherwise name.
+- Emoji suggestions: closest friends ⭐, family ❤️, work 💼, book club 📚, neighbors 🏠.
 
 LOCATION — ask when needed, never guess:
 - If the user asks about local venues, events, or anything that requires knowing where they are, and the state snapshot shows location as "unknown", reply with exactly this JSON on its own line before your message: {"action":"REQUEST_LOCATION"}
