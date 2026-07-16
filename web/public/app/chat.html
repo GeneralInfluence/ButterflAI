@@ -273,6 +273,7 @@
     const emptyEl    = document.getElementById('empty-state');
     let eventSource  = null;
     let lastMsgTs    = 0; // unix timestamp of newest message shown in UI
+    let pendingSince = 0; // set when we send a message and cleared when bot responds
 
     // ── Input auto-resize ──────────────────────────────────────────────────────
     inputEl.addEventListener('input', () => {
@@ -318,10 +319,21 @@
         if (!r.ok) return;
         const { messages } = await r.json();
         if (messages.length) {
+          pendingSince = 0;
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
           messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at));
           scrollToBottom();
+        } else if (pendingSince > 0) {
+          // We sent a message but no reply yet — keep the typing indicator visible
+          // and poll again in 3s (agent may still be processing)
+          typingEl.classList.add('visible');
+          if (Date.now() / 1000 - pendingSince < 90) { // give up after 90s
+            setTimeout(catchUpMessages, 3000);
+          } else {
+            pendingSince = 0;
+            typingEl.classList.remove('visible');
+          }
         }
       } catch {}
     }
@@ -333,6 +345,7 @@
       eventSource.onmessage = e => {
         const data = JSON.parse(e.data);
         if (data.role === 'assistant') {
+          pendingSince = 0;
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
           appendMessage('bot', data.text, data.ts); // appendMessage handles scroll for bot messages
@@ -340,12 +353,13 @@
         if (data.redirect) { location.href = data.redirect; }
       };
       eventSource.onerror = () => {
-        typingEl.classList.remove('visible'); // clear stuck dots on disconnect
+        // Only clear typing indicator if we're NOT waiting for a bot reply
+        if (!pendingSince) typingEl.classList.remove('visible');
         setTimeout(() => {
           connectSSE();
           // Catch up on any messages that arrived while SSE was down
           catchUpMessages();
-        }, 2000); // reduced from 5s — faster reconnect
+        }, 2000);
       };
     }
 
@@ -366,10 +380,10 @@
       if (emptyEl.parentNode) emptyEl.remove();
       appendMessage('me', text, Date.now() / 1000);
       scrollToBottom();
+      pendingSince = Math.floor(Date.now() / 1000);
       typingEl.classList.add('visible');
       scrollToBottom();
 
-      const sentTs = Math.floor(Date.now() / 1000);
       try {
         const r = await fetch('/api/chat/send', {
           method: 'POST',
@@ -379,15 +393,12 @@
         if (r.status === 401) { location.href = '/app/login'; return; }
         if (!r.ok) throw new Error('send failed');
 
-        // Fallback: if SSE doesn't deliver a response within 12s, poll once.
-        // Handles the case where SSE was disconnected when the agent pushed.
-        setTimeout(async () => {
-          if (lastMsgTs <= sentTs) { // no new bot message arrived via SSE
-            await catchUpMessages();
-          }
-        }, 12000);
+        // Fallback polling: if SSE doesn't deliver within 5s, start polling
+        // catchUpMessages will keep re-polling every 3s until answered or 90s timeout
+        setTimeout(catchUpMessages, 5000);
       } catch {
         // Send failed — hide typing indicator and show error
+        pendingSince = 0;
         typingEl.classList.remove('visible');
         appendMessage('bot', '⚠️ Something went wrong. Try sending again.', Date.now() / 1000);
         scrollToBottom();
