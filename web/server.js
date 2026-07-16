@@ -829,9 +829,60 @@ function escapeXml(str) {
 
 // GET /r/:token — referral landing (redirect to join with ref param)
 app.get('/r/:token', (req, res) => {
-  const referral = db.getReferralByToken(req.params.token);
+  const token = req.params.token;
+  const referral = db.getReferralByToken(token);
   if (!referral) return res.redirect('/join');
-  res.redirect(`/join?ref=${req.params.token}`);
+
+  // Check if the visitor is already logged in
+  const sessionToken = req.cookies?.[webAuth.COOKIE_NAME];
+  const payload = sessionToken ? webAuth.verifyToken(sessionToken) : null;
+  const visitor = payload ? db.getUser(payload.userId) : null;
+
+  if (visitor && visitor.id !== referral.referrer_user_id) {
+    // Logged-in existing user clicking someone else's invite link
+    // → mutual friend-add, then redirect to contacts with success message
+    const referrer = db.getUser(referral.referrer_user_id);
+    if (referrer) {
+      // Add visitor to referrer's contacts
+      try {
+        db.upsertContact({
+          invited_by_user_id: referrer.id,
+          name: visitor.name || visitor.phone,
+          phone: visitor.phone,
+          tier: 1,
+        });
+      } catch (_) {}
+
+      // Add referrer to visitor's contacts
+      try {
+        db.upsertContact({
+          invited_by_user_id: visitor.id,
+          name: referrer.name || referrer.phone,
+          phone: referrer.phone,
+          tier: 1,
+        });
+      } catch (_) {}
+
+      // Mark referral as redeemed if still pending
+      if (referral.status === 'pending') {
+        try { db.redeemReferral(token, visitor.id); } catch (_) {}
+      }
+
+      // Notify the referrer via SMS
+      const smsClient = require('./sms');
+      const visitorName = visitor.name || 'Someone';
+      smsClient.sendMessage(
+        referrer.phone,
+        `🦋 ${visitorName} accepted your invite and was added to your contacts!`
+      ).catch(() => {});
+    }
+
+    const name = encodeURIComponent(referrer?.name || 'your friend');
+    return res.redirect(`/app/contacts?connected=1&from=${name}`);
+  }
+
+  // Not logged in (or self-click) → show join page
+  res.redirect(`/join?ref=${token}`);
 });
 
 // GET /api/user/referral — get current user's referral token + stats

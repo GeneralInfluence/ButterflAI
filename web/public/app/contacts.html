@@ -690,6 +690,16 @@
       if (e.target === e.currentTarget) closeModal();
     });
 
+    // Show success toast if redirected from a referral link
+    (() => {
+      const params = new URLSearchParams(location.search);
+      if (params.get('connected')) {
+        const from = params.get('from') || 'your friend';
+        showToast(`✓ You and ${decodeURIComponent(from)} are now connected 🦋`, 5000);
+        history.replaceState({}, '', '/app/contacts');
+      }
+    })();
+
     load();
   </script>
 </body>
