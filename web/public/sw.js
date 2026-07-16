@@ -5,10 +5,17 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
+
+  // Handle share target POST
   if (url.pathname === '/share-target' && event.request.method === 'POST') {
     event.respondWith(handleShare(event.request));
     return;
   }
+
+  // Never intercept API calls — let them go straight to the network, no caching
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Everything else: network passthrough (no caching)
   event.respondWith(fetch(event.request));
 });
 

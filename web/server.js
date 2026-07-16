@@ -57,6 +57,12 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// All /api/* responses must never be cached
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 // ── Auth guard for /app/* — must run BEFORE static middleware ─────────────────
 // Without this, static middleware serves HTML files directly, bypassing auth.
 app.use('/app', (req, res, next) => {
