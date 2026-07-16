@@ -844,64 +844,80 @@ app.get('/r/:token', (req, res) => {
   if (!visitor) {
     // Not logged in — serve a landing page that checks auth client-side
     // (cookie may exist in browser but wasn't sent due to link-tap context)
+    const refToken = token;
     return res.send(`<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#6c47ff">
 <title>ButterflAI — You're invited</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,sans-serif;background:#f2f2f7;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
-.card{background:#fff;border-radius:20px;padding:32px 24px;max-width:400px;width:100%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.08)}
-.emoji{font-size:52px;margin-bottom:16px}h1{font-size:22px;font-weight:700;margin-bottom:8px}p{font-size:15px;color:#555;margin-bottom:24px;line-height:1.5}
-.btn{display:block;width:100%;padding:14px;background:#6c47ff;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;margin-bottom:10px}
-.btn-sec{background:#f2f2f7;color:#6c47ff}
-#status{font-size:13px;color:#aaa;margin-top:12px}
-</style></head>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f2f2f7;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{background:#fff;border-radius:24px;padding:36px 24px 28px;max-width:360px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.09)}
+.logo{font-size:56px;margin-bottom:12px}
+h1{font-size:24px;font-weight:800;color:#111;margin-bottom:8px}
+p{font-size:15px;color:#666;line-height:1.5;margin-bottom:28px}
+.btns{display:flex;flex-direction:column;gap:10px}
+.btn{display:block;width:100%;padding:15px;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;border:none;text-align:center}
+.btn-primary{background:#6c47ff;color:#fff}
+.btn-secondary{background:#f2f2f7;color:#6c47ff}
+.btn:active{opacity:.85}
+#status{font-size:13px;color:#999;margin-top:14px;min-height:18px}
+</style>
+</head>
 <body>
 <div class="card">
-  <div class="emoji">🦋</div>
-  <h1>You're invited to ButterflAI</h1>
-  <p id="msg">Checking if you have an account…</p>
-  <a id="join-btn" class="btn" href="/join?ref=${token}" style="display:none">Join ButterflAI</a>
-  <a id="connect-btn" class="btn" href="#" style="display:none" onclick="doConnect();return false">Connect with your friend</a>
-  <a id="login-link" href="/login?next=/r/${token}" style="display:none;font-size:14px;color:#6c47ff;text-decoration:underline;margin-top:4px">Already have an account? Log in →</a>
+  <div class="logo">🦋</div>
+  <h1 id="title">You're invited</h1>
+  <p id="msg">Checking your account…</p>
+  <div class="btns">
+    <a id="connect-btn" class="btn btn-primary" href="#" style="display:none" onclick="doConnect();return false">Connect with your friend</a>
+    <a id="login-btn"   class="btn btn-primary" href="/login?next=/r/${refToken}" style="display:none">Log in</a>
+    <a id="join-btn"    class="btn btn-secondary" href="/join?ref=${refToken}" style="display:none">Create account</a>
+  </div>
   <div id="status"></div>
 </div>
 <script>
+const refToken = '${refToken}';
 async function init() {
   try {
     const me = await fetch('/api/user/me').then(r => r.ok ? r.json() : null);
     if (me && me.id) {
-      document.getElementById('msg').textContent = 'Welcome back, ' + (me.name || 'friend') + '! Tap below to connect.';
+      document.getElementById('title').textContent = 'Connect with your friend';
+      document.getElementById('msg').textContent = 'Tap below to add each other as contacts.';
       document.getElementById('connect-btn').style.display = 'block';
     } else {
-      document.getElementById('msg').textContent = "Connect with your friend on ButterflAI.";
+      document.getElementById('title').textContent = "You're invited to ButterflAI";
+      document.getElementById('msg').textContent = 'Log in or create an account to connect.';
+      document.getElementById('login-btn').style.display = 'block';
       document.getElementById('join-btn').style.display = 'block';
-      document.getElementById('login-link').style.display = 'block';
     }
   } catch(e) {
-    document.getElementById('msg').textContent = "Connect with your friend on ButterflAI.";
+    document.getElementById('msg').textContent = 'Log in or create an account to connect.';
+    document.getElementById('login-btn').style.display = 'block';
     document.getElementById('join-btn').style.display = 'block';
-    document.getElementById('login-link').style.display = 'block';
   }
 }
 async function doConnect() {
-  document.getElementById('connect-btn').textContent = 'Connecting…';
+  const btn = document.getElementById('connect-btn');
+  btn.textContent = 'Connecting…';
   try {
     const r = await fetch('/api/referral/connect', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({token: '${token}'})
+      body: JSON.stringify({token: refToken})
     });
     const d = await r.json();
     if (r.ok) {
       location.href = '/app/contacts?connected=1&from=' + encodeURIComponent(d.referrerName || 'your friend');
     } else {
       document.getElementById('status').textContent = d.error || 'Something went wrong.';
-      document.getElementById('connect-btn').textContent = 'Connect with your friend';
+      btn.textContent = 'Connect with your friend';
     }
   } catch(e) {
     document.getElementById('status').textContent = 'Connection failed — try again.';
-    document.getElementById('connect-btn').textContent = 'Connect with your friend';
+    btn.textContent = 'Connect with your friend';
   }
 }
 init();
@@ -914,7 +930,7 @@ init();
     try { db.upsertContact({ invited_by_user_id: referrer.id, name: visitor.name || visitor.phone, phone: visitor.phone, tier: 1 }); } catch (_) {}
     try { db.upsertContact({ invited_by_user_id: visitor.id, name: referrer.name || referrer.phone, phone: referrer.phone, tier: 1 }); } catch (_) {}
     const smsClient = require('./sms');
-    smsClient.sendMessage(referrer.phone, `🦋 ${visitor.name || 'Someone'} accepted your invite and was added to your contacts!`).catch(() => {});
+    smsClient.send(referrer.phone, `🦋 ${visitor.name || 'Someone'} accepted your invite and was added to your contacts!`).catch(() => {});
     return res.redirect(`/app/contacts?connected=1&from=${encodeURIComponent(referrer.name || 'your friend')}`);
   }
 
@@ -944,7 +960,7 @@ app.post('/api/referral/connect', webAuth.requireAuth, express.json(), (req, res
   // Notify referrer
   const smsClient = require('./sms');
   const visitorName = visitor.name || 'Someone';
-  smsClient.sendMessage(referrer.phone, `🦋 ${visitorName} accepted your invite and was added to your contacts!`).catch(() => {});
+  smsClient.send(referrer.phone, `🦋 ${visitorName} accepted your invite and was added to your contacts!`).catch(() => {});
 
   res.json({ ok: true, referrerName: referrer.name || referrer.phone });
 });
