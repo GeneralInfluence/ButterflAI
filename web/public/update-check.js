@@ -50,9 +50,13 @@
     dismiss.onclick = () => banner.remove();
     banner.appendChild(dismiss);
 
-    // Push existing fixed header down (if present)
+    // Push sticky header + main content down to clear the fixed banner
     const header = document.querySelector('header');
-    if (header) header.style.top = '44px';
+    if (header && getComputedStyle(header).position === 'sticky') {
+      header.style.top = '44px';
+    }
+    const main = document.querySelector('main');
+    if (main) main.style.paddingTop = `calc(44px + ${getComputedStyle(main).paddingTop})`;
 
     document.body.prepend(banner);
   }

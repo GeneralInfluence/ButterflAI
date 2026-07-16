@@ -53,7 +53,8 @@
         'background:linear-gradient(135deg,#7c3aed,#6c47ff)',
         'border-radius:16px', 'padding:18px 20px',
         'display:flex', 'align-items:center', 'gap:14px',
-        'margin-bottom:12px', 'cursor:pointer',
+        'margin-bottom:16px', 'margin-top:4px', 'cursor:pointer',
+        'box-shadow:0 4px 16px rgba(108,71,255,.35)',
       ].join(';');
 
       const icon = document.createElement('div');
