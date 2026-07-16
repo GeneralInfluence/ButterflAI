@@ -643,30 +643,51 @@
       }
     }
 
-    // ── Load & render list ────────────────────────────────────────────────────
-    async function load() {
-      try {
-        const r = await fetch('/api/contacts/list');
-        if (r.status === 401) { location.href = '/app/login'; return; }
-        const { contacts } = await r.json();
-        allContacts = contacts;
-        render(contacts);
-        document.getElementById('count').textContent = contacts.length
-          ? `${contacts.length.toLocaleString()} contacts` : '';
-      } catch {
+    // ── Load & render list — paginated (200/page), server-side search ─────────
+    let currentQuery = '';
+    let currentOffset = 0;
+    let totalContacts = 0;
+    let loadingMore = false;
+
+    async function load(reset = true) {
+      if (reset) {
+        currentOffset = 0;
+        allContacts = [];
         document.getElementById('list').innerHTML =
-          '<div class="empty-state"><span class="emoji">⚠️</span>Failed to load contacts.</div>';
+          '<div class="empty-state"><span class="emoji">🔄</span>Loading…</div>';
+      }
+      if (loadingMore) return;
+      loadingMore = true;
+      try {
+        const qs = new URLSearchParams({ offset: currentOffset });
+        if (currentQuery) qs.set('q', currentQuery);
+        const r = await fetch('/api/contacts/list?' + qs);
+        if (r.status === 401) { location.href = '/app/login'; return; }
+        const { contacts, total } = await r.json();
+        totalContacts = total;
+        allContacts = reset ? contacts : allContacts.concat(contacts);
+        currentOffset = allContacts.length;
+        render(allContacts, allContacts.length < total);
+        document.getElementById('count').textContent =
+          total ? `${total.toLocaleString()} contacts` : '';
+      } catch (err) {
+        if (currentOffset === 0) {
+          document.getElementById('list').innerHTML =
+            '<div class="empty-state"><span class="emoji">⚠️</span>Failed to load contacts.</div>';
+        }
+      } finally {
+        loadingMore = false;
       }
     }
 
-    function render(contacts) {
+    function render(contacts, hasMore = false) {
       const list = document.getElementById('list');
       if (!contacts.length) {
         list.innerHTML = '<div class="empty-state"><span class="emoji">👥</span>No contacts yet.<br>Import from your phone or add manually above.</div>';
         return;
       }
       const tierLabels = { 0: 'Saved', 1: 'Connected', 2: 'ButterflAI' };
-      list.innerHTML = contacts.map(c => {
+      const rows = contacts.map(c => {
         const displayName = c.nickname || c.name || '?';
         const initials = displayName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
         const tier = c.tier ?? 0;
@@ -678,7 +699,11 @@
           </div>
           <span class="tier-badge tier-${tier}">${esc(tierLabels[tier] ?? `T${tier}`)}</span>
         </div>`;
-      }).join('');
+      });
+      if (hasMore) {
+        rows.push(`<div id="load-more-btn" onclick="load(false)" style="text-align:center;padding:16px;color:#6c47ff;font-size:14px;font-weight:600;cursor:pointer;">Load more…</div>`);
+      }
+      list.innerHTML = rows.join('');
     }
 
     async function editNickname(contactId, currentName) {
@@ -689,14 +714,17 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nickname: nick.trim() || null })
       });
-      if (r.ok) load(); // refresh list
+      if (r.ok) load(true); // refresh list
     }
 
+    let searchTimer;
     document.getElementById('search').addEventListener('input', e => {
-      const q = e.target.value.toLowerCase().trim();
-      render(!q ? allContacts : allContacts.filter(c =>
-        (c.nickname||'').toLowerCase().includes(q) || (c.name||'').toLowerCase().includes(q) || (c.phone||'').includes(q)
-      ));
+      clearTimeout(searchTimer);
+      const q = e.target.value.trim();
+      searchTimer = setTimeout(() => {
+        currentQuery = q;
+        load(true);
+      }, 300); // debounce 300ms
     });
 
     // Close modal on overlay tap

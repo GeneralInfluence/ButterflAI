@@ -54,6 +54,10 @@ try {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Fly.io (and most production reverse proxies) set X-Forwarded-For.
+// Without trust proxy, express-rate-limit throws a ValidationError on every request.
+app.set('trust proxy', 1);
+
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -1394,9 +1398,25 @@ app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res)
 });
 
 // GET /api/contacts/list — contacts for the authenticated user
+// Supports ?q= search and ?offset= pagination (page size 200)
 app.get('/api/contacts/list', webAuth.requireAuth, (req, res) => {
-  const contacts = db.getContactsByUser(req.user.id);
-  res.json({ contacts });
+  const PAGE = 200;
+  const q      = (req.query.q || '').toLowerCase().trim();
+  const offset = Math.max(0, parseInt(req.query.offset) || 0);
+  let contacts = db.getContactsByUser(req.user.id);
+
+  if (q) {
+    contacts = contacts.filter(c =>
+      (c.name       || '').toLowerCase().includes(q) ||
+      (c.nickname   || '').toLowerCase().includes(q) ||
+      (c.also_known_as || '').toLowerCase().includes(q) ||
+      (c.phone      || '').includes(q)
+    );
+  }
+
+  const total = contacts.length;
+  const page  = contacts.slice(offset, offset + PAGE);
+  res.json({ contacts: page, total, offset, limit: PAGE });
 });
 
 // POST /api/user/location — store GPS coords + reverse-geocode to city
