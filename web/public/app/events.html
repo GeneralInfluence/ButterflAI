@@ -401,6 +401,7 @@
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
             <span class="badge ${statusClass(e.status)}">${escHtml(e.status || 'unknown')}</span>
+            ${e.host_attending === 0 ? '<span style="font-size:11px;color:#b45309;font-weight:600">🚶 You\'re not going</span>' : ''}
             <span style="font-size:11px;color:#8e8e93;font-weight:500">${isPublic ? '🌐 Public' : '🔒 Private'}</span>
           </div>
         </div>
@@ -411,9 +412,15 @@
             </button>
             <a href="/event/${e.id}" target="_blank" style="flex:1;padding:10px;border-radius:10px;background:#f2f2f7;color:#3a3a3c;font-size:14px;font-weight:600;text-align:center;text-decoration:none">🔗 Share link</a>
           </div>
-          <button onclick="cancelEvent('${e.id}',this)" style="width:100%;padding:10px;border-radius:10px;border:none;background:#fff0f0;color:#ef4444;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:10px">
-            🚫 Cancel event
-          </button>
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <button onclick="toggleHostAttending('${e.id}',${e.host_attending !== 0 ? 1 : 0},this)"
+              style="flex:1;padding:10px;border-radius:10px;border:none;font-size:14px;font-weight:600;cursor:pointer;background:${e.host_attending === 0 ? 'linear-gradient(135deg,#a78bfa,#7c3aed)' : '#fff8e1'};color:${e.host_attending === 0 ? '#fff' : '#b45309'}">
+              ${e.host_attending === 0 ? "✅ I'm going back" : "🚶 Can't make it"}
+            </button>
+            <button onclick="cancelEvent('${e.id}',this)" style="flex:1;padding:10px;border-radius:10px;border:none;background:#fff0f0;color:#ef4444;font-size:14px;font-weight:600;cursor:pointer">
+              🚫 Cancel
+            </button>
+          </div>
           <div id="invitees-${e.id}"><div style="color:#8e8e93;font-size:14px;text-align:center;padding:8px">Loading guest list…</div></div>
         </div>
       </div>`;
@@ -446,6 +453,23 @@
         `).join('');
     } catch (_) {
       el.innerHTML = '<div style="color:#ef4444;font-size:14px">Could not load guest list.</div>';
+    }
+  }
+
+  async function toggleHostAttending(eventId, newVal, btn) {
+    btn.disabled = true;
+    const r = await fetch(`/api/events/${eventId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ host_attending: newVal })
+    });
+    if (r.ok) {
+      const ev = allEvents.find(e => e.id === eventId);
+      if (ev) ev.host_attending = newVal;
+      showTab(currentTab);
+    } else {
+      btn.disabled = false;
+      alert('Could not update. Try again.');
     }
   }
 

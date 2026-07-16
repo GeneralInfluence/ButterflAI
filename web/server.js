@@ -1724,7 +1724,7 @@ app.get('/api/events/:id/manage', webAuth.requireAuth, (req, res) => {
 app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => {
   const event = multiparty.getEvent(req.params.id);
   if (!event || event.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
-  const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address'];
+  const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address', 'host_attending'];
   const updates = {};
   for (const k of allowed) {
     if (req.body[k] !== undefined) updates[k] = req.body[k];

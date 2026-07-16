@@ -75,7 +75,8 @@ function ensureEventTables() {
       status       TEXT NOT NULL DEFAULT 'open'
         CHECK (status IN ('open','cancelled','completed')),
       event_type   TEXT NOT NULL DEFAULT 'private',
-      flexible_time INTEGER DEFAULT 0,   -- 1 = no fixed time ("come when you're ready"), migration 022
+      flexible_time  INTEGER DEFAULT 0,   -- 1 = no fixed time ("come when you're ready"), migration 022
+      host_attending INTEGER DEFAULT 1,   -- 0 = host bailed but event continues, migration 024
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 
