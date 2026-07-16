@@ -458,3 +458,22 @@ describe('Public pages — accessible without auth', () => {
     });
   }
 });
+
+// ── Android Contact Picker API — null-safety guard ────────────────────────────
+// supportsContactPicker block MUST use null-safe guards so it never crashes the
+// entire script on Android Chrome when vcf-btn / import-hint are absent from DOM.
+
+describe('Contacts page — Android Contact Picker null-safety', () => {
+  test('picker-btn, vcf-btn, import-hint references use null guards (no direct .style access)', async () => {
+    const fs = require('node:fs');
+    const html = fs.readFileSync(
+      require('node:path').join(__dirname, '../../public/app/contacts.html'), 'utf8'
+    );
+    // The unsafe pattern crashes the script on Android if elements are missing
+    const unsafePattern = /getElementById\('(vcf-btn|import-hint|picker-btn)'\)\.style/;
+    assert.ok(
+      !unsafePattern.test(html),
+      'contacts.html must not call .style directly on getElementById result — use null guard (const el = getElementById(...); if (el) el.style...) to prevent Android Chrome crash'
+    );
+  });
+});

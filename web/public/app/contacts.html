@@ -404,9 +404,12 @@
 
     if (supportsContactPicker) {
       // Android Chrome: show the native picker button, hide file upload
-      document.getElementById('picker-btn').style.display = 'flex';
-      document.getElementById('vcf-btn').style.display = 'none';
-      document.getElementById('import-hint').style.display = 'none';
+      const pickerBtn  = document.getElementById('picker-btn');
+      const vcfBtn     = document.getElementById('vcf-btn');
+      const importHint = document.getElementById('import-hint');
+      if (pickerBtn)  pickerBtn.style.display  = 'flex';
+      if (vcfBtn)     vcfBtn.style.display     = 'none';
+      if (importHint) importHint.style.display = 'none';
     }
 
     async function openContactPicker() {
@@ -742,60 +745,7 @@
       }
     })();
 
-    // ── DEBUG panel (appended to body — no <main> in this page) ──────────────
-    window.onerror = (msg, src, line, col, err) => {
-      const d = document.getElementById('dbg') || (() => {
-        const el = document.createElement('pre');
-        el.id = 'dbg';
-        el.style.cssText = 'position:fixed;bottom:80px;left:8px;right:8px;background:#1c1c1e;color:#f90;font-size:11px;padding:8px;border-radius:8px;z-index:9999;max-height:40vh;overflow:auto;';
-        document.body.appendChild(el); return el;
-      })();
-      d.textContent += '[ERR] ' + msg + ' (line ' + line + ')\n';
-    };
-    window.addEventListener('unhandledrejection', ev => {
-      const d = document.getElementById('dbg') || (() => {
-        const el = document.createElement('pre');
-        el.id = 'dbg';
-        el.style.cssText = 'position:fixed;bottom:80px;left:8px;right:8px;background:#1c1c1e;color:#f90;font-size:11px;padding:8px;border-radius:8px;z-index:9999;max-height:40vh;overflow:auto;';
-        document.body.appendChild(el); return el;
-      })();
-      d.textContent += '[REJECT] ' + (ev.reason?.message || ev.reason) + '\n';
-    });
 
-    (async function debugContacts() {
-      const el = document.createElement('pre');
-      el.id = 'dbg';
-      el.style.cssText = 'position:fixed;bottom:80px;left:8px;right:8px;background:#1c1c1e;color:#0f0;font-size:11px;padding:8px;border-radius:8px;z-index:9999;max-height:40vh;overflow:auto;';
-      document.body.appendChild(el);
-      const dbg = msg => { el.textContent += msg + '\n'; };
-      try {
-        dbg('v=debug3 page loaded');
-        const r = await fetch('/api/contacts/list?offset=0');
-        dbg('status=' + r.status);
-        const text = await r.text();
-        dbg('body=' + text.slice(0, 200));
-        const data = JSON.parse(text);
-        dbg('total=' + data.total + ' n=' + (data.contacts||[]).length);
-        const list = document.getElementById('list');
-        dbg('list=' + (list ? 'found' : 'MISSING!'));
-        if (list && data.contacts && data.contacts.length) {
-          list.innerHTML = data.contacts.map(c =>
-            '<div class="contact-item"><div class="initials">' +
-            (c.nickname||c.name||'?')[0].toUpperCase() +
-            '</div><div class="contact-info"><div class="contact-name">' +
-            (c.nickname||c.name||'?') + '</div><div class="contact-phone">' +
-            (c.phone||'') + '</div></div><span class="tier-badge tier-' + c.tier + '">' +
-            (['Saved','Connected','ButterflAI'][c.tier]||'T'+c.tier) + '</span></div>'
-          ).join('');
-          dbg('RENDERED ' + data.contacts.length + ' rows — check list above!');
-        } else {
-          dbg('nothing to render: contacts=' + JSON.stringify(data.contacts));
-        }
-      } catch(e) {
-        el.style.color = '#f00';
-        dbg('EXCEPTION: ' + e.message + '\n' + (e.stack||'').slice(0,300));
-      }
-    })();
 
     load();
   </script>
