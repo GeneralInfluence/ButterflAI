@@ -256,6 +256,7 @@ const TOOL_DEFINITIONS = [
         availability_notes:    { type: 'string', description: 'Free-form, e.g. "weeknight evenings after 7, weekend afternoons"' },
         comm_style:            { type: 'string', enum: ['brief', 'detailed', 'just handle it'] },
         extra_notes:           { type: 'string', description: 'Anything else worth remembering' },
+        health_safety_notes:   { type: 'string', description: 'Health/safety information the user has consented to share with trusted contacts\' agents when asked — e.g. "STI tests current as of 2026-06", "non-smoker", "sober". Only store if the user explicitly says they\'re comfortable sharing this with other agents.' },
       },
     },
   },
@@ -472,6 +473,21 @@ const TOOL_DEFINITIONS = [
         contact_ids:   { type: 'array', items: { type: 'string' }, description: 'Contacts to invite (must be Tier 1+)' },
       },
       required: ['title', 'activity_type'],
+    },
+  },
+  {
+    name: 'update_event',
+    description: 'Update a social event YOU are hosting — use this after agent-to-agent negotiation to lock in an agreed time, add a time window note, or update venue/notes. Call this once invitee\'s agent confirms a time works. You can only update events you host.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        event_id:      { type: 'string', description: 'ID of the event to update' },
+        scheduled_at:  { type: 'string', description: 'New ISO 8601 datetime once a specific time is agreed (e.g. "2026-07-17T19:00:00-04:00")' },
+        flexible_time: { type: 'boolean', description: 'Set false once a specific time is agreed; leave true if still a window/range' },
+        notes:         { type: 'string', description: 'Free-text: time window agreed ("Sean arriving 7–9pm"), special context, etc.' },
+        venue_name:    { type: 'string', description: 'Update venue if agreed during negotiation' },
+      },
+      required: ['event_id'],
     },
   },
   {
@@ -1154,6 +1170,28 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       };
     }
 
+    case 'update_event': {
+      const { event_id, scheduled_at, flexible_time, notes, venue_name } = toolInput;
+      // Verify ownership — agent can only update events they host
+      const evCheck = db._raw().prepare('SELECT id, host_user_id FROM social_events WHERE id = ?').get(event_id);
+      if (!evCheck) return { error: 'Event not found' };
+      if (evCheck.host_user_id !== userId) return { error: 'You can only update events you host' };
+      const updates = {};
+      if (scheduled_at !== undefined) {
+        updates.scheduled_at = typeof scheduled_at === 'string'
+          ? Math.floor(new Date(scheduled_at).getTime() / 1000)
+          : scheduled_at;
+      }
+      if (flexible_time !== undefined) updates.flexible_time = flexible_time ? 1 : 0;
+      if (notes !== undefined) updates.notes = notes;
+      if (venue_name !== undefined) updates.venue_name = venue_name;
+      if (!Object.keys(updates).length) return { ok: true, note: 'No fields to update' };
+      const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+      db._raw().prepare(`UPDATE social_events SET ${sets} WHERE id = ?`)
+        .run(...Object.values(updates), event_id);
+      return { ok: true, event_id, updated: Object.keys(updates) };
+    }
+
     case 'get_event_rsvp_status': {
       const event = multiparty.getEvent(toolInput.event_id);
       if (!event) return { error: 'Event not found' };
@@ -1452,6 +1490,11 @@ PRONOUN RESOLUTION — figure out who "him/her/them" means before asking:
 - Only ask "which person?" if there are genuinely multiple candidates with no clear context signal.
 
 AGENT-TO-AGENT FIRST — talk to agents before talking to users:
+- EXHAUSTION RULE: Before involving YOUR user in any coordination decision, make at least 3 rounds of agent-to-agent negotiation. Minor clarifications, time proposals, factual questions, and preference checks MUST all go agent-to-agent first. Only escalate to your user when: (a) the other agent explicitly says they must ask their user, (b) you have tried 3+ times with no resolution, or (c) the decision requires a genuinely personal preference that isn't stored. If you have not yet tried agent-to-agent, do NOT ask your user.
+- EVENT THREAD IDs: When coordinating about a specific event, always set thread_id = the event's ID in message_agent and reply_agent calls. This keeps each event's negotiation separate. Include the event title in your message so the receiving agent can look it up.
+- SENSITIVE / PRIVATE QUESTIONS: If your user asks a personal or sensitive question about a contact — health tests, medical status, sexual health, financial situation, safety — route it via message_agent to THEIR agent. Never ask the contact directly. On the RECEIVING end: check your user's private_preferences first; if the answer is stored there, return it to the asking agent directly; if not stored, tell the asking agent you'll check and ask your user privately, then reply_agent once you have an answer.
+- INVITEE COMMENTS ON INVITES: When your user says something about a pending invitation (e.g. "I can do 7-9", "sounds good but I need to leave by 9", "ask them if X"), treat this as a message_agent coordination message to the HOST's agent — do not just accept/decline silently. Send the user's conditions or availability to the host's agent and wait for their response before confirming.
+- HOST UPDATES AFTER NEGOTIATION: Once an invitee's agent proposes a specific time and you (the host) said "whenever/flexible", you should: (1) confirm the time works via reply_agent, (2) call update_event to set scheduled_at and flexible_time=false (locking in the agreed time), so the event shows the correct time to all parties.
 - Before asking the user anything about a third party (their availability, dietary needs, preferences), use message_agent to ask THEIR agent directly.
 - COORDINATION ALGORITHM — always follow this order when planning a group event:
   1. ASSESS LOCATION FIRST: call check_invitee_locations before anything else. The tool returns a routing_recommendation.

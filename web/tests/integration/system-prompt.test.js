@@ -359,3 +359,35 @@ describe('Location-first coordination algorithm', () => {
     assertContains('NEVER skip step 1', 'never skip location check rule');
   });
 });
+
+// ── Agent-to-agent exhaustion + event negotiation ─────────────────────────────
+describe('Agent-to-agent exhaustion and event negotiation', () => {
+  test('EXHAUSTION RULE requires 3+ rounds before involving user', () => {
+    assertContains('EXHAUSTION RULE', 'exhaustion rule label');
+    assertContains('3 rounds', '3 round minimum');
+    assertContains('3+ times', '3 attempts before escalation');
+  });
+
+  test('EVENT THREAD IDs rule — use event_id as thread_id', () => {
+    assertContains('EVENT THREAD IDs', 'event thread id rule');
+    assertContains('thread_id = the event\'s ID', 'event id as thread_id instruction');
+  });
+
+  test('SENSITIVE / PRIVATE QUESTIONS must go agent-to-agent first', () => {
+    assertContains('SENSITIVE / PRIVATE QUESTIONS', 'sensitive questions label');
+    assertContains('health tests', 'health tests example');
+    assertContains('sexual health', 'sexual health example');
+    assertContains('route it via message_agent', 'route sensitive questions via message_agent');
+  });
+
+  test('INVITEE COMMENTS ON INVITES must trigger agent-to-agent message', () => {
+    assertContains('INVITEE COMMENTS ON INVITES', 'invitee comments rule');
+    assertContains('do not just accept/decline silently', 'no silent accept/decline');
+  });
+
+  test('HOST UPDATES event after negotiation locks in agreed time', () => {
+    assertContains('HOST UPDATES AFTER NEGOTIATION', 'host updates after negotiation label');
+    assertContains('update_event', 'update_event tool referenced in negotiation flow');
+    assertContains('flexible_time=false', 'lock in time after negotiation');
+  });
+});
