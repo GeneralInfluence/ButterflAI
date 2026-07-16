@@ -294,6 +294,62 @@ function getEventsByHost(userId) {
     .all(userId);
 }
 
+/**
+ * Get events the user was invited to (as a contact, by phone number).
+ * Returns events with the invitation id and current RSVP status attached.
+ */
+function getInvitedEvents(userPhone) {
+  return db._raw().prepare(`
+    SELECT
+      se.*,
+      ei.id   AS invitation_id,
+      ei.status AS rsvp_status,
+      u.name  AS host_name
+    FROM event_invitations ei
+    JOIN social_events se ON se.id = ei.event_id
+    JOIN contacts c       ON c.id  = ei.contact_id
+    JOIN users u          ON u.id  = se.host_user_id
+    WHERE c.phone = ?
+      AND se.status != 'cancelled'
+    ORDER BY se.scheduled_at ASC
+  `).all(userPhone);
+}
+
+/**
+ * Accept or decline an event invitation directly (web app RSVP).
+ * @param {string} invitationId
+ * @param {string} userPhone  — must match the contact on the invitation
+ * @param {'accepted'|'declined'} status
+ */
+function rsvpInvitation(invitationId, userPhone, status) {
+  // Verify ownership: the contact on this invitation must have userPhone
+  const inv = db._raw().prepare(`
+    SELECT ei.*, c.phone, se.host_user_id, se.title, se.scheduled_at, se.activity_type
+    FROM event_invitations ei
+    JOIN contacts c ON c.id = ei.contact_id
+    JOIN social_events se ON se.id = ei.event_id
+    WHERE ei.id = ?
+  `).get(invitationId);
+
+  if (!inv || inv.phone !== userPhone) return { ok: false, error: 'Not authorized' };
+
+  db._raw().prepare(`
+    UPDATE event_invitations SET status = ?, responded_at = strftime('%s','now') WHERE id = ?
+  `).run(status, invitationId);
+
+  // Notify the host via their conversation history (agent picks it up on next turn)
+  const host = db.getUser(inv.host_user_id);
+  if (host) {
+    const verb = status === 'accepted' ? 'accepted' : 'declined';
+    const contactName = db._raw().prepare('SELECT name FROM contacts WHERE id = (SELECT contact_id FROM event_invitations WHERE id = ?)').get(invitationId)?.name || 'Someone';
+    db.appendConversation(inv.host_user_id, 'system',
+      `[System notification] ${contactName} ${verb} the invite to ${inv.title}.`
+    );
+  }
+
+  return { ok: true, status };
+}
+
 function cancelEvent(eventId, hostUserId) {
   db._raw().prepare(`
     UPDATE social_events SET status = 'cancelled' WHERE id = ? AND host_user_id = ?
@@ -351,6 +407,8 @@ module.exports = {
   _classifyRsvpPublic: (reply, inviteContext) => classifyRsvp(inviteContext, reply),
   getEvent,
   getEventsByHost,
+  getInvitedEvents,
+  rsvpInvitation,
   cancelEvent,
   getRsvpSummary,
   wasInvited,

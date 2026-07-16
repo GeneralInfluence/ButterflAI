@@ -1517,6 +1517,23 @@ app.get('/api/events/:userId', (req, res) => {
   res.json({ events: multiparty.getEventsByHost(req.params.userId) });
 });
 
+// GET /api/events/invited — events the logged-in user was invited to
+app.get('/api/events/invited/me', webAuth.requireAuth, (req, res) => {
+  const events = multiparty.getInvitedEvents(req.user.phone);
+  res.json({ events });
+});
+
+// POST /api/events/rsvp — accept or decline an invitation from the web app
+app.post('/api/events/rsvp', webAuth.requireAuth, express.json(), (req, res) => {
+  const { invitation_id, status } = req.body;
+  if (!invitation_id || !['accepted', 'declined'].includes(status)) {
+    return res.status(400).json({ error: 'invitation_id and status (accepted|declined) required' });
+  }
+  const result = multiparty.rsvpInvitation(invitation_id, req.user.phone, status);
+  if (!result.ok) return res.status(403).json(result);
+  res.json(result);
+});
+
 app.get('/api/events/:userId/:eventId', (req, res) => {
   const event = multiparty.getEvent(req.params.eventId);
   if (!event || event.host_user_id !== req.params.userId) return res.status(404).json({ error: 'Not found' });

@@ -274,6 +274,7 @@
   <div id="view-list" style="display:none">
     <div class="tabs">
       <button class="tab active" id="tab-upcoming" onclick="showTab('upcoming')">Upcoming</button>
+      <button class="tab" id="tab-invited" onclick="showTab('invited')">Invited</button>
       <button class="tab" id="tab-past" onclick="showTab('past')">Past</button>
     </div>
     <div id="events-list"><div class="empty-state">Loading…</div></div>
@@ -310,6 +311,7 @@
 
 <script>
   let allEvents = [];
+  let invitedEvents = [];
   let currentTab  = 'upcoming';
   let currentView = 'cal';
   let calYear, calMonth;   // 0-indexed month
@@ -391,11 +393,64 @@
   function showTab(tab) {
     currentTab = tab;
     document.getElementById('tab-upcoming').classList.toggle('active', tab === 'upcoming');
-    document.getElementById('tab-past').classList.toggle('active', tab === 'past');
+    document.getElementById('tab-invited').classList.toggle('active', tab === 'invited');
+    document.getElementById('tab-past').classList.toggle('active',    tab === 'past');
+    if (tab === 'invited') {
+      renderInvited(invitedEvents);
+      return;
+    }
     const filtered = allEvents.filter(e => tab === 'upcoming' ? (e.scheduled_at||0) >= now : (e.scheduled_at||0) < now);
-    // Upcoming: soonest first; Past: most recent first
     filtered.sort((a, b) => tab === 'upcoming' ? (a.scheduled_at||0) - (b.scheduled_at||0) : (b.scheduled_at||0) - (a.scheduled_at||0));
     renderList(filtered);
+  }
+
+  function renderInvited(events) {
+    const el = document.getElementById('events-list');
+    if (!events || !events.length) {
+      el.innerHTML = '<div class="empty-state">No pending invites.</div>';
+      return;
+    }
+    el.innerHTML = events.map(e => {
+      const dt = new Date((e.scheduled_at||0) * 1000);
+      const dateStr = dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+      const timeStr = dt.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+      const isPending = e.rsvp_status === 'invited';
+      const statusLabel = { invited: '⏳ Pending', accepted: '✅ Going', declined: '❌ Declined' }[e.rsvp_status] || e.rsvp_status;
+      return `<div class="card" id="invite-${e.invitation_id}">
+        <div class="card-header">
+          <div>
+            <div class="card-title">${escHtml(e.title)}</div>
+            <div class="card-sub">${escHtml(e.host_name || 'Unknown host')} · ${dateStr} ${timeStr}</div>
+            ${e.venue_name ? `<div class="card-sub" style="margin-top:2px">📍 ${escHtml(e.venue_name)}</div>` : ''}
+          </div>
+          <span class="badge">${statusLabel}</span>
+        </div>
+        ${isPending ? `<div style="display:flex;gap:8px;margin-top:12px">
+          <button onclick="rsvp('${e.invitation_id}','accepted')" style="flex:1;padding:12px;background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">✓ Accept</button>
+          <button onclick="rsvp('${e.invitation_id}','declined')" style="flex:1;padding:12px;background:#f2f2f7;color:#3a3a3c;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">✗ Decline</button>
+        </div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  async function rsvp(invitationId, status) {
+    const card = document.getElementById(`invite-${invitationId}`);
+    const btns = card?.querySelectorAll('button');
+    if (btns) btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+    const r = await fetch('/api/events/rsvp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invitation_id: invitationId, status })
+    });
+    if (r.ok) {
+      // Update local data and re-render
+      const ev = invitedEvents.find(e => e.invitation_id === invitationId);
+      if (ev) ev.rsvp_status = status;
+      renderInvited(invitedEvents);
+    } else {
+      if (btns) btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+      alert('Could not save your response. Try again.');
+    }
   }
 
   // ── Calendar view ────────────────────────────────────────────────────────────
@@ -539,16 +594,26 @@
   async function load() {
     try {
       const me = await fetch('/api/user/me').then(r => r.json());
-      const { events } = await fetch(`/api/events/${me.id}`).then(r => r.json());
-      allEvents = events || [];
+      const [hosted, invited] = await Promise.all([
+        fetch(`/api/events/${me.id}`).then(r => r.json()),
+        fetch('/api/events/invited/me').then(r => r.json()),
+      ]);
+      allEvents     = hosted.events  || [];
+      invitedEvents = invited.events || [];
     } catch (_) {
-      allEvents = [];
+      allEvents     = [];
+      invitedEvents = [];
     }
     // Init calendar to current month
     calYear  = today.getFullYear();
     calMonth = today.getMonth();
     renderCalendar();
-    showTab('upcoming');
+    // Badge + auto-open Invited tab if there are pending invites
+    const pendingCount = invitedEvents.filter(e => e.rsvp_status === 'invited').length;
+    if (pendingCount) {
+      document.getElementById('tab-invited').textContent = `Invited (${pendingCount})`;
+    }
+    showTab(pendingCount ? 'invited' : 'upcoming');
   }
 
   // Start in calendar view
