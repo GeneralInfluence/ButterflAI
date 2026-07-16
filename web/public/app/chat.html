@@ -278,6 +278,7 @@
     const typingEl   = document.getElementById('typing');
     const emptyEl    = document.getElementById('empty-state');
     let eventSource  = null;
+    let lastMsgTs    = 0; // unix timestamp of newest message shown in UI
 
     // ── Input auto-resize ──────────────────────────────────────────────────────
     inputEl.addEventListener('input', () => {
@@ -303,6 +304,22 @@
       } catch {}
     }
 
+    // ── Catch-up: fetch any messages that arrived while SSE was disconnected ──
+    async function catchUpMessages() {
+      if (!lastMsgTs) return;
+      try {
+        const r = await fetch(`/api/chat/messages?since=${lastMsgTs}`);
+        if (!r.ok) return;
+        const { messages } = await r.json();
+        if (messages.length) {
+          typingEl.classList.remove('visible');
+          if (emptyEl.parentNode) emptyEl.remove();
+          messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at));
+          scrollToBottom();
+        }
+      } catch {}
+    }
+
     // ── SSE ────────────────────────────────────────────────────────────────────
     function connectSSE() {
       if (eventSource) { eventSource.close(); }
@@ -319,7 +336,11 @@
       };
       eventSource.onerror = () => {
         typingEl.classList.remove('visible'); // clear stuck dots on disconnect
-        setTimeout(connectSSE, 5000);
+        setTimeout(() => {
+          connectSSE();
+          // Catch up on any messages that arrived while SSE was down
+          catchUpMessages();
+        }, 2000); // reduced from 5s — faster reconnect
       };
     }
 
@@ -343,6 +364,7 @@
       typingEl.classList.add('visible');
       scrollToBottom();
 
+      const sentTs = Math.floor(Date.now() / 1000);
       try {
         const r = await fetch('/api/chat/send', {
           method: 'POST',
@@ -351,6 +373,14 @@
         });
         if (r.status === 401) { location.href = '/app/login'; return; }
         if (!r.ok) throw new Error('send failed');
+
+        // Fallback: if SSE doesn't deliver a response within 12s, poll once.
+        // Handles the case where SSE was disconnected when the agent pushed.
+        setTimeout(async () => {
+          if (lastMsgTs <= sentTs) { // no new bot message arrived via SSE
+            await catchUpMessages();
+          }
+        }, 12000);
       } catch {
         // Send failed — hide typing indicator and show error
         typingEl.classList.remove('visible');
@@ -376,6 +406,8 @@
       div.innerHTML = `<div class="bubble">${escHtml(text)}</div><div class="ts">${time}</div>`;
       // Insert before the scroll anchor so anchor stays last
       messagesEl.insertBefore(div, scrollAnchor);
+      // Track latest message timestamp for catch-up polling after SSE reconnect
+      if (ts && ts > lastMsgTs) lastMsgTs = ts;
     }
 
     function showLocationPrompt() {
