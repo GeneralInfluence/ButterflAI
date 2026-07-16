@@ -978,4 +978,25 @@ module.exports = {
     `).all();
   },
 
+  // ── Web Push subscriptions ────────────────────────────────────────────────
+
+  upsertPushSubscription({ id, user_id, endpoint, p256dh, auth }) {
+    db.prepare(`
+      INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(endpoint) DO UPDATE SET
+        user_id = excluded.user_id,
+        p256dh  = excluded.p256dh,
+        auth    = excluded.auth
+    `).run(id, user_id, endpoint, p256dh, auth);
+  },
+
+  getPushSubscriptions(userId) {
+    return db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(userId);
+  },
+
+  deletePushSubscription(endpoint) {
+    db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
+  },
+
 };

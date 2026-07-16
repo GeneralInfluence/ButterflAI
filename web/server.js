@@ -38,6 +38,7 @@ const calendar = require('./calendar');
 const adminRouter = require('./admin');
 const contactsImport = require('./contacts-import');
 const venues = require('./venues');
+const push   = require('./push');
 const multiparty = require('./multiparty');
 const lift = require('./lift');
 const flai = require('./flai');
@@ -935,8 +936,18 @@ init();
     // Logged-in existing user clicking someone else's invite link — mutual add
     try { db.upsertContact({ invited_by_user_id: referrer.id, name: visitor.name || visitor.phone, phone: visitor.phone, tier: 1 }); } catch (_) {}
     try { db.upsertContact({ invited_by_user_id: visitor.id, name: referrer.name || referrer.phone, phone: referrer.phone, tier: 1 }); } catch (_) {}
-    const smsClient = require('./sms');
-    smsClient.send(referrer.phone, `🦋 ${visitor.name || 'Someone'} accepted your invite and was added to your contacts!`).catch(() => {});
+    const visitorLabel = visitor.name || 'Someone';
+    // Prefer push notification; fall back to SMS only if no push subscription
+    const hasPush = (db.getPushSubscriptions(referrer.id) || []).length > 0;
+    if (hasPush) {
+      push.notifyUser(db, referrer.id, {
+        title: '🦋 New connection!',
+        body: `${visitorLabel} accepted your invite and was added to your contacts.`,
+        url: '/app/contacts',
+      }).catch(() => {});
+    } else {
+      sms.send(referrer.phone, `🦋 ${visitorLabel} accepted your invite and was added to your contacts!`).catch(() => {});
+    }
     return res.redirect(`/app/contacts?connected=1&from=${encodeURIComponent(referrer.name || 'your friend')}`);
   }
 
@@ -963,10 +974,18 @@ app.post('/api/referral/connect', webAuth.requireAuth, express.json(), (req, res
   try { db.upsertContact({ invited_by_user_id: referrer.id, name: visitor.name || visitor.phone, phone: visitor.phone, tier: 1 }); } catch (_) {}
   try { db.upsertContact({ invited_by_user_id: visitor.id, name: referrer.name || referrer.phone, phone: referrer.phone, tier: 1 }); } catch (_) {}
 
-  // Notify referrer
-  const smsClient = require('./sms');
+  // Notify referrer — prefer push, fall back to SMS
   const visitorName = visitor.name || 'Someone';
-  smsClient.send(referrer.phone, `🦋 ${visitorName} accepted your invite and was added to your contacts!`).catch(() => {});
+  const hasPush = (db.getPushSubscriptions(referrer.id) || []).length > 0;
+  if (hasPush) {
+    push.notifyUser(db, referrer.id, {
+      title: '🦋 New connection!',
+      body: `${visitorName} accepted your invite and was added to your contacts.`,
+      url: '/app/contacts',
+    }).catch(() => {});
+  } else {
+    sms.send(referrer.phone, `🦋 ${visitorName} accepted your invite and was added to your contacts!`).catch(() => {});
+  }
 
   res.json({ ok: true, referrerName: referrer.name || referrer.phone });
 });
@@ -1318,6 +1337,27 @@ app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, 
 app.get('/api/user/me', webAuth.requireAuth, (req, res) => {
   const { id, name, nickname, also_known_as, phone, city, lat, lng } = req.user;
   res.json({ id, name, nickname, also_known_as, phone, city, lat, lng });
+});
+
+// GET /api/push/vapid-key — return the VAPID public key for subscription
+app.get('/api/push/vapid-key', (req, res) => {
+  res.json({ publicKey: push.VAPID_PUBLIC || null });
+});
+
+// POST /api/push/subscribe — save a push subscription for the logged-in user
+app.post('/api/push/subscribe', webAuth.requireAuth, express.json(), (req, res) => {
+  const { endpoint, keys } = req.body || {};
+  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    return res.status(400).json({ error: 'Invalid subscription object' });
+  }
+  db.upsertPushSubscription({
+    id: uuidv4(),
+    user_id: req.user.id,
+    endpoint,
+    p256dh: keys.p256dh,
+    auth:   keys.auth,
+  });
+  res.json({ ok: true });
 });
 
 // PATCH /api/user/me — update profile fields

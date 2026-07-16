@@ -471,6 +471,29 @@
   <a href="/app/events"><span class="tab-icon">📅</span>Events</a>
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
-  <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
+  <script>
+  // Register SW + subscribe to push notifications
+  if ('serviceWorker' in navigator && 'PushManager' in window) {
+    navigator.serviceWorker.register('/sw.js').then(async reg => {
+      // Only subscribe if not already subscribed
+      let sub = await reg.pushManager.getSubscription();
+      if (sub) return; // already subscribed
+      // Ask permission quietly on first chat load
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+      const { publicKey } = await fetch('/api/push/vapid-key').then(r => r.json());
+      if (!publicKey) return;
+      function urlBase64ToUint8Array(b64) {
+        const pad = '='.repeat((4 - b64.length % 4) % 4);
+        const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+        return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+      }
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+      await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub) });
+    }).catch(() => {});
+  } else if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+  </script>
 </body>
 </html>
