@@ -862,6 +862,7 @@ app.get('/r/:token', (req, res) => {
   <p id="msg">Checking if you have an account…</p>
   <a id="join-btn" class="btn" href="/join?ref=${token}" style="display:none">Join ButterflAI</a>
   <a id="connect-btn" class="btn" href="#" style="display:none" onclick="doConnect();return false">Connect with your friend</a>
+  <a id="login-link" href="/login?next=/r/${token}" style="display:none;font-size:14px;color:#6c47ff;text-decoration:none;display:none;margin-top:4px;display:block">Already have an account? Log in →</a>
   <div id="status"></div>
 </div>
 <script>
@@ -872,12 +873,14 @@ async function init() {
       document.getElementById('msg').textContent = 'Welcome back, ' + (me.name || 'friend') + '! Tap below to connect.';
       document.getElementById('connect-btn').style.display = 'block';
     } else {
-      document.getElementById('msg').textContent = "You don't have an account yet — join to connect with your friend.";
+      document.getElementById('msg').textContent = "Connect with your friend on ButterflAI.";
       document.getElementById('join-btn').style.display = 'block';
+      document.getElementById('login-link').style.display = 'block';
     }
   } catch(e) {
+    document.getElementById('msg').textContent = "Connect with your friend on ButterflAI.";
     document.getElementById('join-btn').style.display = 'block';
-    document.getElementById('msg').textContent = 'Join ButterflAI to connect with your friend.';
+    document.getElementById('login-link').style.display = 'block';
   }
 }
 async function doConnect() {
