@@ -331,28 +331,32 @@
     }
 
     // ── Contact Picker API ────────────────────────────────────────────────────
-    const supportsContactPicker = 'contacts' in navigator && 'ContactsManager' in window;
+    // iOS Safari exposes navigator.contacts but NOT window.ContactsManager —
+    // so check the method directly, not the global constructor.
+    const supportsContactPicker = !!(navigator.contacts && typeof navigator.contacts.select === 'function');
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 
     if (!supportsContactPicker) {
-      // On iOS, only Safari supports the Contact Picker API — show a hint
-      const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
       if (isIOS) {
+        // On iOS but API still missing (very old iOS, or edge case) — show hint
         document.getElementById('picker-hint').style.display = 'block';
+        document.getElementById('picker-hint').innerHTML =
+          '<strong>iOS 14.5+ required</strong> — update your iPhone to enable automatic contact import, or use "Add manually" above.';
       } else {
-        // On desktop / unsupported platforms, hide the import button entirely
+        // Desktop: hide the import button, only manual add makes sense
         document.getElementById('picker-btn').style.display = 'none';
       }
+    } else {
+      // API supported — hide the hint
+      document.getElementById('picker-hint').style.display = 'none';
     }
 
     async function openContactPicker() {
       if (!supportsContactPicker) {
-        // On iOS non-Safari: remind them to use Safari
-        const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-        if (isIOS) {
-          showToast('Open this page in Safari to import contacts 📱', 4000);
-        } else {
-          showToast('Contact import is only available on iOS Safari and Android Chrome.');
-        }
+        showToast(isIOS
+          ? 'Update iOS to 14.5 or later to import contacts automatically.'
+          : 'Contact import is only available on iOS Safari and Android Chrome.'
+        , 4000);
         return;
       }
       try {
