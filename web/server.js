@@ -1445,6 +1445,30 @@ app.get('/api/contacts/list', webAuth.requireAuth, (req, res) => {
   res.json({ contacts: page, total, offset, limit: PAGE });
 });
 
+// ── Contact Groups ─────────────────────────────────────────────────────────────
+
+// GET /api/contacts/groups — all groups with members for the authenticated user
+app.get('/api/contacts/groups', webAuth.requireAuth, (req, res) => {
+  const groups = db.getContactGroups(req.user.id);
+  res.json({ groups });
+});
+
+// DELETE /api/contacts/groups/:groupId — delete a group (user must own it)
+app.delete('/api/contacts/groups/:groupId', webAuth.requireAuth, (req, res) => {
+  db.deleteContactGroup(req.params.groupId, req.user.id);
+  res.json({ ok: true });
+});
+
+// DELETE /api/contacts/groups/:groupId/members/:contactId — remove one member
+app.delete('/api/contacts/groups/:groupId/members/:contactId', webAuth.requireAuth, (req, res) => {
+  // Verify ownership: group must belong to this user
+  const groups = db.getContactGroups(req.user.id);
+  const group = groups.find(g => g.id === req.params.groupId);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  db.removeContactFromGroup(req.params.groupId, req.params.contactId);
+  res.json({ ok: true });
+});
+
 // POST /api/user/location — store GPS coords + reverse-geocode to city
 app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, res) => {
   const { lat, lng } = req.body;

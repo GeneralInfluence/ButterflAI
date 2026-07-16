@@ -632,3 +632,92 @@ describe('Push subscription endpoints', () => {
     assert.equal(res.status, 400);
   });
 });
+
+// ── Contact Groups API ────────────────────────────────────────────────────────
+describe('Contact Groups API', () => {
+  let cookie, userId;
+  before(async () => {
+    cookie = await getAuthedCookie('+15559990101');
+    userId = db.getUserByPhone('+15559990101').id;
+    // Create a test contact owned by this user
+    db._raw().prepare(`INSERT OR IGNORE INTO contacts (id, invited_by_user_id, name, phone, tier)
+      VALUES ('grp-test-contact-id', ?, 'Group Test Contact', '+15559990202', 1)`).run(userId);
+  });
+
+  test('GET /api/contacts/groups returns empty array when no groups', async () => {
+    const res = await request.get('/api/contacts/groups').set('Cookie', cookie);
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body.groups));
+  });
+
+  test('GET /api/contacts/groups without auth → 401', async () => {
+    const res = await request.get('/api/contacts/groups');
+    assert.equal(res.status, 401);
+  });
+
+  test('GET /api/contacts/groups returns groups with members', async () => {
+    const groupId = db.upsertContactGroup(userId, 'Test Circle', '🎯');
+    db.addContactToGroup(groupId, 'grp-test-contact-id');
+
+    const res = await request.get('/api/contacts/groups').set('Cookie', cookie);
+    assert.equal(res.status, 200);
+    const group = res.body.groups.find(g => g.name === 'Test Circle');
+    assert.ok(group, 'group should exist');
+    assert.equal(group.emoji, '🎯');
+    assert.ok(Array.isArray(group.members));
+    assert.equal(group.members.length, 1);
+
+    db.deleteContactGroup(groupId, userId);
+  });
+
+  test('DELETE /api/contacts/groups/:id deletes the group', async () => {
+    const groupId = db.upsertContactGroup(userId, 'Temp Group', '🗑');
+    const res = await request
+      .delete(`/api/contacts/groups/${groupId}`)
+      .set('Cookie', cookie);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    // Should be gone
+    const groups = db.getContactGroups(userId);
+    assert.ok(!groups.find(g => g.id === groupId));
+  });
+
+  test('DELETE /api/contacts/groups/:id without auth → 401', async () => {
+    const groupId = db.upsertContactGroup(userId, 'Auth Test Group', null);
+    const res = await request.delete(`/api/contacts/groups/${groupId}`);
+    assert.equal(res.status, 401);
+    db.deleteContactGroup(groupId, userId);
+  });
+
+  test('DELETE /api/contacts/groups/:groupId/members/:contactId removes member', async () => {
+    const groupId = db.upsertContactGroup(userId, 'Member Test', '👋');
+    const contactId = 'grp-test-contact-id';
+    db.addContactToGroup(groupId, contactId);
+
+    const res = await request
+      .delete(`/api/contacts/groups/${groupId}/members/${contactId}`)
+      .set('Cookie', cookie);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+
+    const groups = db.getContactGroups(userId);
+    const group = groups.find(g => g.id === groupId);
+    assert.equal(group.members.length, 0);
+
+    db.deleteContactGroup(groupId, userId);
+  });
+
+  test('DELETE .../members/:contactId for group not owned → 404', async () => {
+    // Create a second user whose group we try to access
+    const otherId = require('crypto').randomUUID();
+    db.createUser({ id: otherId, phone: '+15550009999', name: 'Other User' });
+    const otherGroupId = db.upsertContactGroup(otherId, 'Other Group', null);
+
+    const res = await request
+      .delete(`/api/contacts/groups/${otherGroupId}/members/fake-contact-id`)
+      .set('Cookie', cookie);
+    assert.equal(res.status, 404);
+
+    db.deleteContactGroup(otherGroupId, otherId);
+  });
+});

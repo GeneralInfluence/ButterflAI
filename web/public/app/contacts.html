@@ -228,6 +228,117 @@
     }
     .toast.show { opacity: 1; }
 
+    /* ── View toggle (People / Groups) ─────────────────────────────────────── */
+    .view-toggle {
+      display: flex;
+      margin: 0 16px 12px;
+      background: #e5e5ea;
+      border-radius: 10px;
+      padding: 3px;
+      gap: 2px;
+    }
+    .view-toggle button {
+      flex: 1;
+      padding: 7px 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: #888;
+      transition: background 0.15s, color 0.15s;
+    }
+    .view-toggle button.active {
+      background: #fff;
+      color: var(--purple);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    /* ── Group cards ────────────────────────────────────────────────────────── */
+    .groups-list { padding: 8px 16px 40px; }
+    .group-card {
+      background: #fff;
+      border-radius: 14px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    .group-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 14px 14px 16px;
+      cursor: pointer;
+    }
+    .group-emoji {
+      font-size: 26px;
+      width: 44px; height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      background: #f5f3ff;
+      border-radius: 12px;
+      flex-shrink: 0;
+    }
+    .group-info { flex: 1; min-width: 0; }
+    .group-name { font-size: 16px; font-weight: 700; }
+    .group-meta { font-size: 12px; color: #888; margin-top: 2px; }
+    .group-chevron { font-size: 14px; color: #bbb; transition: transform 0.2s; }
+    .group-card.open .group-chevron { transform: rotate(90deg); }
+    .group-members { display: none; border-top: 1px solid #f0f0f0; }
+    .group-card.open .group-members { display: block; }
+    .group-member-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid #f7f7f7;
+    }
+    .group-member-row:last-child { border-bottom: none; }
+    .group-member-initials {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, #e0d9ff, #c7d2fe);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: var(--purple);
+      flex-shrink: 0;
+    }
+    .group-member-name { flex: 1; font-size: 14px; font-weight: 500; }
+    .group-member-remove {
+      padding: 4px 8px;
+      background: none;
+      border: none;
+      font-size: 16px;
+      color: #ccc;
+      cursor: pointer;
+      border-radius: 6px;
+      line-height: 1;
+    }
+    .group-member-remove:hover { color: #f87171; background: #fff0f0; }
+    .group-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 10px 16px;
+      border-top: 1px solid #f0f0f0;
+      gap: 12px;
+    }
+    .group-delete-btn {
+      font-size: 13px;
+      font-weight: 600;
+      color: #f87171;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 6px 10px;
+      border-radius: 8px;
+    }
+    .group-delete-btn:hover { background: #fff0f0; }
+    .groups-hint {
+      text-align: center;
+      padding: 12px 20px 4px;
+      font-size: 12px;
+      color: #aaa;
+      line-height: 1.5;
+    }
+
     /* ── Manual add form ────────────────────────────────────────────────────── */
     .add-form { display: none; padding: 16px; background: #fff; margin: 0 16px 12px; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
     .add-form.open { display: block; }
@@ -297,13 +408,24 @@
     </div>
   </div>
 
-  <!-- Search -->
-  <div class="search-wrap">
+  <!-- View toggle: People / Groups -->
+  <div class="view-toggle">
+    <button id="tab-people" class="active" onclick="switchView('people')">👥 People</button>
+    <button id="tab-groups" onclick="switchView('groups')">🫂 Groups</button>
+  </div>
+
+  <!-- Search (people only) -->
+  <div class="search-wrap" id="search-wrap">
     <input type="search" id="search" placeholder="Search contacts" autocomplete="off">
   </div>
 
-  <!-- List -->
-  <div class="list" id="list">
+  <!-- People list -->
+  <div class="list" id="list" style="display:block">
+    <div class="empty-state"><span class="emoji">🔄</span>Loading…</div>
+  </div>
+
+  <!-- Groups list -->
+  <div class="groups-list" id="groups-list" style="display:none">
     <div class="empty-state"><span class="emoji">🔄</span>Loading…</div>
   </div>
 
@@ -746,6 +868,92 @@
     })();
 
 
+
+    // ── View toggle ───────────────────────────────────────────────────────────
+    let currentView = 'people';
+
+    function switchView(view) {
+      currentView = view;
+      document.getElementById('tab-people').classList.toggle('active', view === 'people');
+      document.getElementById('tab-groups').classList.toggle('active', view === 'groups');
+      document.getElementById('search-wrap').style.display = view === 'people' ? '' : 'none';
+      document.getElementById('list').style.display        = view === 'people' ? 'block' : 'none';
+      document.getElementById('groups-list').style.display = view === 'groups' ? 'block' : 'none';
+      if (view === 'groups') loadGroups();
+    }
+
+    // ── Groups ────────────────────────────────────────────────────────────────
+    async function loadGroups() {
+      const gl = document.getElementById('groups-list');
+      try {
+        const r = await fetch('/api/contacts/groups');
+        if (r.status === 401) { location.href = '/app/login'; return; }
+        const { groups } = await r.json();
+        renderGroups(groups);
+      } catch {
+        gl.innerHTML = '<div class="empty-state"><span class="emoji">⚠️</span>Failed to load groups.</div>';
+      }
+    }
+
+    function renderGroups(groups) {
+      const gl = document.getElementById('groups-list');
+      if (!groups.length) {
+        gl.innerHTML = '<div class="empty-state"><span class="emoji">🫂</span>No groups yet.<br><br>Tell your ButterflAI to create one:<br><em style="color:#6c47ff">"Create a group called Closest Friends<br>and add Allie and Sean"</em></div>';
+        return;
+      }
+      gl.innerHTML = groups.map(g => {
+        const emoji   = g.emoji || '👥';
+        const members = g.members || [];
+        const memberRows = members.map(m => {
+          const name = m.nickname || m.name || '?';
+          const init = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+          return `<div class="group-member-row">
+            <div class="group-member-initials">${esc(init)}</div>
+            <div class="group-member-name">${esc(name)}</div>
+            <button class="group-member-remove" onclick="removeMember(event,'${esc(g.id)}','${esc(m.id)}',this)" title="Remove from group">✕</button>
+          </div>`;
+        }).join('');
+        return `<div class="group-card" id="gc-${esc(g.id)}">
+          <div class="group-header" onclick="toggleGroup('${esc(g.id)}')">
+            <div class="group-emoji">${emoji}</div>
+            <div class="group-info">
+              <div class="group-name">${esc(g.name)}</div>
+              <div class="group-meta">${members.length} member${members.length !== 1 ? 's' : ''}</div>
+            </div>
+            <span class="group-chevron">›</span>
+          </div>
+          <div class="group-members">
+            ${memberRows || '<div style="padding:12px 16px;font-size:13px;color:#aaa">No members yet</div>'}
+            <div class="group-footer">
+              <button class="group-delete-btn" onclick="deleteGroup(event,'${esc(g.id)}','${esc(g.name)}')">🗑 Delete group</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+      gl.insertAdjacentHTML('beforeend',
+        '<p class="groups-hint">💬 Tell ButterflAI to add members or create new groups</p>');
+    }
+
+    function toggleGroup(groupId) {
+      document.getElementById('gc-' + groupId)?.classList.toggle('open');
+    }
+
+    async function removeMember(e, groupId, contactId, btn) {
+      e.stopPropagation();
+      if (!confirm('Remove this person from the group?')) return;
+      btn.disabled = true;
+      const r = await fetch(`/api/contacts/groups/${groupId}/members/${contactId}`, { method: 'DELETE' });
+      if (r.ok) loadGroups();
+      else { btn.disabled = false; showToast('Failed to remove member'); }
+    }
+
+    async function deleteGroup(e, groupId, name) {
+      e.stopPropagation();
+      if (!confirm(`Delete the "${name}" group?`)) return;
+      const r = await fetch(`/api/contacts/groups/${groupId}`, { method: 'DELETE' });
+      if (r.ok) loadGroups();
+      else showToast('Failed to delete group');
+    }
 
     load();
   </script>
