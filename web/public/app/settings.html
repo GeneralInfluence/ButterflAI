@@ -151,11 +151,19 @@
     <h2>Profile</h2>
     <div class="card">
       <div class="field">
-        <label>Name</label>
+        <label>Display name</label>
         <div style="display:flex;gap:8px;align-items:center">
           <div class="val" id="profile-name" style="flex:1">—</div>
-          <button class="btn btn-secondary" style="padding:6px 12px;font-size:13px" onclick="editName()">Edit</button>
+          <button class="btn btn-secondary" style="padding:6px 12px;font-size:13px" onclick="editNames()">Edit</button>
         </div>
+      </div>
+      <div class="field" id="nickname-field" style="display:none">
+        <label>Nickname</label>
+        <div class="val" id="profile-nickname">—</div>
+      </div>
+      <div class="field" id="aka-field" style="display:none">
+        <label>Also known as</label>
+        <div class="val" id="profile-aka">—</div>
       </div>
       <div class="field">
         <label>Phone</label>
@@ -243,6 +251,14 @@
       const me = await fetch('/api/user/me').then(r => r.json());
       document.getElementById('profile-name').textContent = me.name || '—';
       document.getElementById('profile-phone').textContent = me.phone || '—';
+      if (me.nickname) {
+        document.getElementById('profile-nickname').textContent = me.nickname;
+        document.getElementById('nickname-field').style.display = '';
+      }
+      if (me.also_known_as) {
+        document.getElementById('profile-aka').textContent = me.also_known_as;
+        document.getElementById('aka-field').style.display = '';
+      }
 
       // Audit
       const { audit } = await fetch(`/api/user/${me.id}/audit`).then(r => r.json());
@@ -302,17 +318,40 @@
     }
   }
 
-  async function editName() {
-    const current = document.getElementById('profile-name').textContent;
-    const newName = prompt('What name should friends see when you connect with them?', current === '—' ? '' : current);
-    if (!newName || !newName.trim() || newName.trim() === current) return;
+  async function editNames() {
+    const currentName = document.getElementById('profile-name').textContent;
+    const currentNick = document.getElementById('profile-nickname').textContent;
+    const currentAka  = document.getElementById('profile-aka').textContent;
+
+    const newName = prompt('Display name — what friends see when you connect:', currentName === '—' ? '' : currentName);
+    if (newName === null) return; // cancelled
+    if (!newName.trim()) { alert('Display name cannot be blank.'); return; }
+
+    const newNick = prompt('Nickname (optional — e.g. "Seanie"):', currentNick === '—' ? '' : currentNick);
+    if (newNick === null) return;
+
+    const newAka = prompt('Also known as (optional — other names people might know you by, e.g. "Aphilos, Sean"):', currentAka === '—' ? '' : currentAka);
+    if (newAka === null) return;
+
     const r = await fetch('/api/user/me', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName.trim() })
+      body: JSON.stringify({ name: newName.trim(), nickname: newNick.trim(), also_known_as: newAka.trim() })
     });
     if (r.ok) {
       document.getElementById('profile-name').textContent = newName.trim();
+      if (newNick.trim()) {
+        document.getElementById('profile-nickname').textContent = newNick.trim();
+        document.getElementById('nickname-field').style.display = '';
+      } else {
+        document.getElementById('nickname-field').style.display = 'none';
+      }
+      if (newAka.trim()) {
+        document.getElementById('profile-aka').textContent = newAka.trim();
+        document.getElementById('aka-field').style.display = '';
+      } else {
+        document.getElementById('aka-field').style.display = 'none';
+      }
     } else {
       alert('Could not update name. Please try again.');
     }

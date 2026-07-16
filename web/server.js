@@ -1316,18 +1316,21 @@ app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, 
 
 // GET /api/user/me — current user profile
 app.get('/api/user/me', webAuth.requireAuth, (req, res) => {
-  const { id, name, phone, city, lat, lng } = req.user;
-  res.json({ id, name, phone, city, lat, lng });
+  const { id, name, nickname, also_known_as, phone, city, lat, lng } = req.user;
+  res.json({ id, name, nickname, also_known_as, phone, city, lat, lng });
 });
 
-// PATCH /api/user/me — update profile fields (name only for now)
+// PATCH /api/user/me — update profile fields
 app.patch('/api/user/me', webAuth.requireAuth, express.json(), (req, res) => {
-  const { name } = req.body;
+  const { name, nickname, also_known_as } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
-  db.updateUser(req.user.id, { name: name.trim() });
-  res.json({ ok: true, name: name.trim() });
+  const updates = { name: name.trim() };
+  if (typeof nickname === 'string') updates.nickname = nickname.trim() || null;
+  if (typeof also_known_as === 'string') updates.also_known_as = also_known_as.trim() || null;
+  db.updateUser(req.user.id, updates);
+  res.json({ ok: true, ...updates });
 });
 
 // PATCH /api/contacts/:id/nickname — set your nickname for a contact
