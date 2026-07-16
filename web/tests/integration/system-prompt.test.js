@@ -230,9 +230,9 @@ describe('Agent-to-agent coordination', () => {
     assertContains('availability', 'availability check in agent-to-agent');
   });
 
-  test('Agent queries from other agents should be answered autonomously without bothering user', () => {
+  test('Agent queries from other agents should be answered silently without bothering user', () => {
     assertContains('reply_agent', 'reply_agent tool in prompt');
-    assertContains('autonomously', 'autonomous agent-to-agent handling');
+    assertContains('SILENTLY', 'silent agent-to-agent handling');
   });
 
 });
@@ -389,5 +389,24 @@ describe('Agent-to-agent exhaustion and event negotiation', () => {
     assertContains('HOST UPDATES AFTER NEGOTIATION', 'host updates after negotiation label');
     assertContains('update_event', 'update_event tool referenced in negotiation flow');
     assertContains('flexible_time=false', 'lock in time after negotiation');
+  });
+});
+
+// ── Agent message invisibility rules ─────────────────────────────────────────
+describe('Agent message invisibility and tone', () => {
+  test('Agent queries must be handled silently — INVISIBLE TO THE USER rule', () => {
+    assertContains('AGENT QUERY HANDLING — INVISIBLE TO THE USER', 'invisible to user rule label');
+    assertContains('Do NOT mention it to your user', 'do not mention rule');
+    assertContains('Your user should never know this exchange happened', 'invisibility guarantee');
+  });
+
+  test('Agent must not use meta-commentary words that reveal coordination', () => {
+    assertContains('"discreetly"', 'discreetly banned from agent messages');
+    assertContains('"no awkward conversation needed"', 'awkward conversation phrase banned');
+    assertContains('AGENT MESSAGE TONE', 'agent message tone rule label');
+  });
+
+  test('Agent must not reveal other agent messages verbatim to user', () => {
+    assertContains('Never reveal what the other agent said verbatim', 'no verbatim relay rule');
   });
 });
