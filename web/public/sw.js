@@ -1,7 +1,22 @@
+// BUILD_VERSION is replaced by the deploy script — forces browser to detect a new SW
+const BUILD_VERSION = '__BUILD_VERSION__';
+
 const SHARE_CACHE = 'butterflai-share-v1';
 
-self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('install', () => {
+  // Do NOT call skipWaiting() here — we wait for the page to signal readiness.
+  // This lets us show an "Update available" banner before reloading.
+  console.log('[sw] installed version', BUILD_VERSION);
+});
+
 self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+
+// Page sends { type: 'SKIP_WAITING' } when user taps the update banner.
+self.addEventListener('message', e => {
+  if (e.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', event => {

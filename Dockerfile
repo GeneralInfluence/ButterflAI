@@ -13,6 +13,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY web/ ./
 COPY db/ ./db/
 
+# Stamp BUILD_VERSION into service worker so every deploy produces a detectably new SW file
+ARG BUILD_VERSION=dev
+RUN sed -i "s/__BUILD_VERSION__/${BUILD_VERSION}/" public/sw.js
+
 # Persistent volume mount point for SQLite
 RUN mkdir -p /data
 
