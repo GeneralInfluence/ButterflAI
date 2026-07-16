@@ -306,9 +306,15 @@
     async function send() {
       const text = inputEl.value.trim();
       if (!text) return;
+      // Clear immediately, then re-clear next frame to defeat iOS dictation
+      // which can re-insert text via compositionend after the keydown clear
       inputEl.value = '';
       inputEl.style.height = 'auto';
       sendBtn.disabled = true;
+      requestAnimationFrame(() => {
+        inputEl.value = '';
+        inputEl.style.height = 'auto';
+      });
 
       if (emptyEl.parentNode) emptyEl.remove();
       appendMessage('me', text, Date.now() / 1000);
