@@ -88,6 +88,7 @@ function ensureEventTables() {
       notified_at  INTEGER,              -- when invite SMS was sent
       responded_at INTEGER,
       response_note TEXT,
+      dismissed_at INTEGER,              -- set when user hides this invite (migration 021)
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_event_invites_event   ON event_invitations(event_id);
@@ -333,6 +334,7 @@ function getInvitedEvents(userPhone) {
     JOIN users u          ON u.id  = se.host_user_id
     WHERE c.phone = ?
       AND se.status != 'cancelled'
+      AND ei.dismissed_at IS NULL
     ORDER BY se.scheduled_at ASC
   `).all(userPhone);
 }
@@ -472,6 +474,23 @@ function formatEventDate(ts, timezone = 'America/Los_Angeles') {
 
 ensureEventTables();
 
+/**
+ * Dismiss an invitation — hide it from the events page permanently.
+ * The user must own the contact on the invitation (verified by phone).
+ */
+function dismissInvitation(invitationId, userPhone) {
+  const inv = db._raw().prepare(`
+    SELECT ei.id FROM event_invitations ei
+    JOIN contacts c ON c.id = ei.contact_id
+    WHERE ei.id = ? AND c.phone = ?
+  `).get(invitationId, userPhone);
+  if (!inv) return { error: 'Invitation not found or not yours' };
+  db._raw().prepare(
+    `UPDATE event_invitations SET dismissed_at = strftime('%s','now') WHERE id = ?`
+  ).run(invitationId);
+  return { dismissed: true };
+}
+
 module.exports = {
   createEvent,
   inviteContacts,
@@ -481,6 +500,7 @@ module.exports = {
   getEvent,
   getEventsByHost,
   getInvitedEvents,
+  dismissInvitation,
   rsvpInvitation,
   publicRsvp,
   cancelEvent,

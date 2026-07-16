@@ -489,12 +489,17 @@
       const statusLabel = { invited: '⏳ Pending', accepted: '✅ Going', declined: '❌ Declined' }[e.rsvp_status] || e.rsvp_status;
       return `<div class="card" id="invite-${e.invitation_id}">
         <div class="card-header">
-          <div>
+          <div style="flex:1;min-width:0">
             <div class="card-title">${escHtml(e.title)}</div>
             <div class="card-sub">${escHtml(e.host_name || 'Unknown host')} · ${dateStr} ${timeStr}</div>
             ${e.venue_name ? `<div class="card-sub" style="margin-top:2px">📍 ${escHtml(e.venue_name)}</div>` : ''}
           </div>
-          <span class="badge">${statusLabel}</span>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;margin-left:8px">
+            <span class="badge">${statusLabel}</span>
+            <button onclick="dismissInvite('${e.invitation_id}')" title="Hide this event"
+              style="background:none;border:none;color:#c7c7cc;font-size:18px;cursor:pointer;padding:2px 4px;line-height:1"
+              aria-label="Hide event">✕</button>
+          </div>
         </div>
         ${isPending ? `<div style="display:flex;gap:8px;margin-top:12px">
           <button onclick="rsvp('${e.invitation_id}','accepted')" style="flex:1;padding:12px;background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">✓ Accept</button>
@@ -502,6 +507,18 @@
         </div>` : ''}
       </div>`;
     }).join('');
+  }
+
+  async function dismissInvite(invitationId) {
+    const card = document.getElementById(`invite-${invitationId}`);
+    if (card) { card.style.opacity = '0.4'; card.style.pointerEvents = 'none'; }
+    const r = await fetch(`/api/events/invitations/${invitationId}/dismiss`, { method: 'POST' });
+    if (r.ok) {
+      invitedEvents = invitedEvents.filter(e => e.invitation_id !== invitationId);
+      renderInvited(invitedEvents);
+    } else {
+      if (card) { card.style.opacity = ''; card.style.pointerEvents = ''; }
+    }
   }
 
   async function rsvp(invitationId, status) {

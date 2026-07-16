@@ -721,3 +721,60 @@ describe('Contact Groups API', () => {
     db.deleteContactGroup(otherGroupId, otherId);
   });
 });
+
+// ── Invitation dismiss ────────────────────────────────────────────────────────
+describe('Invitation dismiss', () => {
+  let hostCookie, guestCookie, guestPhone, eventId, invitationId;
+
+  before(async () => {
+    hostCookie  = await getAuthedCookie('+15559990001');
+    guestPhone  = '+15559990002';
+    guestCookie = await getAuthedCookie(guestPhone);
+
+    // Host creates event
+    const hostUser = db.getUser(db.getUserByPhone('+15559990001')?.id || '');
+    const hostId   = db.getUserByPhone('+15559990001')?.id;
+    // Add guest as a contact of host
+    const contactId = db.upsertContact({ invited_by_user_id: hostId, name: 'Guest', phone: guestPhone });
+
+    // Create event + invite (direct /api/events endpoint, not agent tool)
+    const hostId2 = db.getUserByPhone('+15559990001')?.id;
+    const eRes = await request.post('/api/events')
+      .send({ userId: hostId2, title: 'Dismiss Test Event',
+              scheduled_at: Math.floor(Date.now()/1000) + 7200,
+              activity_type: 'hangout', contactIds: [contactId] });
+    eventId = eRes.body?.eventId;
+
+    // Find invitation via the invited events API (proves it appears before dismiss)
+    const invRes = await request.get('/api/events/invited/me').set('Cookie', guestCookie);
+    const inv = invRes.body?.events?.find(e => e.title === 'Dismiss Test Event');
+    invitationId = inv?.invitation_id;
+  });
+
+  test('invited event appears in GET /api/events/invited before dismiss', async () => {
+    const res = await request.get('/api/events/invited/me').set('Cookie', guestCookie);
+    assert.equal(res.status, 200);
+    assert.ok(res.body.events.some(e => e.invitation_id === invitationId), 'event should be visible before dismiss');
+  });
+
+  test('POST /api/events/invitations/:id/dismiss removes it from invited list', async () => {
+    const res = await request.post(`/api/events/invitations/${invitationId}/dismiss`).set('Cookie', guestCookie);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.dismissed, true);
+
+    const check = await request.get('/api/events/invited/me').set('Cookie', guestCookie);
+    assert.ok(!check.body.events.some(e => e.invitation_id === invitationId), 'dismissed event must not appear in invited list');
+  });
+
+  test('POST .../dismiss without auth → 401', async () => {
+    const res = await request.post(`/api/events/invitations/${invitationId}/dismiss`);
+    assert.equal(res.status, 401);
+  });
+
+  test('POST .../dismiss for another user\'s invitation → 403', async () => {
+    // Create another guest
+    const otherCookie = await getAuthedCookie('+15559990003');
+    const res = await request.post(`/api/events/invitations/${invitationId}/dismiss`).set('Cookie', otherCookie);
+    assert.equal(res.status, 403);
+  });
+});

@@ -1655,6 +1655,13 @@ app.get('/api/events/invited/me', webAuth.requireAuth, (req, res) => {
   res.json({ events });
 });
 
+// POST /api/events/invitations/:id/dismiss — hide an invitation from the events page
+app.post('/api/events/invitations/:id/dismiss', webAuth.requireAuth, (req, res) => {
+  const result = multiparty.dismissInvitation(req.params.id, req.user.phone);
+  if (result.error) return res.status(403).json(result);
+  res.json(result);
+});
+
 // POST /api/events/rsvp — accept or decline an invitation from the web app (logged-in user)
 app.post('/api/events/rsvp', webAuth.requireAuth, express.json(), (req, res) => {
   const { invitation_id, status } = req.body;
