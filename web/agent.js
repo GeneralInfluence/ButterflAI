@@ -437,7 +437,7 @@ const TOOL_DEFINITIONS = [
         scheduled_at:  { type: 'string', description: 'ISO 8601 datetime with explicit timezone offset, e.g. 2026-07-17T19:00:00-07:00' },
         duration_mins: { type: 'number' },
         notes:         { type: 'string' },
-        event_type:    { type: 'string', enum: ['private', 'public'], description: '"private" = user is the host of their own event. "public" = user is an organizer/coordinator of an external event (venue/org is the real host, e.g. a concert, club night, festival). Default: private.' },
+        event_type:    { type: 'string', enum: ['private', 'public'], description: '"private" (default) = user is hosting their own event. "public" = ONLY use this if the user explicitly says to make it public or open to anyone beyond their contacts — e.g. "make this public", "share this openly", "anyone can join". Do NOT infer public just because the venue is a public place.' },
         contact_ids:   { type: 'array', items: { type: 'string' }, description: 'Contacts to invite (must be Tier 1+)' },
       },
       required: ['title', 'activity_type', 'scheduled_at'],
