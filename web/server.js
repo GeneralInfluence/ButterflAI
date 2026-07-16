@@ -830,15 +830,16 @@ function escapeXml(str) {
 // GET /r/:token — referral landing (redirect to join with ref param)
 app.get('/r/:token', (req, res) => {
   const token = req.params.token;
-  const referral = db.getReferralByToken(token);
-  if (!referral) return res.redirect('/join');
+  // Token lives in users.referral_token; referrals table is for tracking redemptions
+  const referrer = db.getUserByReferralToken(token);
+  if (!referrer) return res.redirect('/join');
 
   // Check if the visitor is already logged in
   const sessionToken = req.cookies?.[webAuth.COOKIE_NAME];
   const payload = sessionToken ? webAuth.verifyToken(sessionToken) : null;
   const visitor = payload ? db.getUser(payload.userId) : null;
 
-  console.log(`[referral] token=${token} cookie=${sessionToken ? 'present' : 'absent'} visitor=${visitor?.id || 'none'} referrer=${referral.referrer_user_id}`);
+  console.log(`[referral] token=${token} cookie=${sessionToken ? 'present' : 'absent'} visitor=${visitor?.id || 'none'} referrer=${referrer.id}`);
 
   if (!visitor) {
     // Not logged in — serve a landing page that checks auth client-side
@@ -862,7 +863,7 @@ app.get('/r/:token', (req, res) => {
   <p id="msg">Checking if you have an account…</p>
   <a id="join-btn" class="btn" href="/join?ref=${token}" style="display:none">Join ButterflAI</a>
   <a id="connect-btn" class="btn" href="#" style="display:none" onclick="doConnect();return false">Connect with your friend</a>
-  <a id="login-link" href="/login?next=/r/${token}" style="display:none;font-size:14px;color:#6c47ff;text-decoration:none;display:none;margin-top:4px;display:block">Already have an account? Log in →</a>
+  <a id="login-link" href="/login?next=/r/${token}" style="display:none;font-size:14px;color:#6c47ff;text-decoration:underline;margin-top:4px">Already have an account? Log in →</a>
   <div id="status"></div>
 </div>
 <script>
@@ -908,50 +909,18 @@ init();
 </body></html>`);
   }
 
-  if (visitor && visitor.id !== referral.referrer_user_id) {
-    // Logged-in existing user clicking someone else's invite link
-    // → mutual friend-add, then redirect to contacts with success message
-    const referrer = db.getUser(referral.referrer_user_id);
-    if (referrer) {
-      // Add visitor to referrer's contacts
-      try {
-        db.upsertContact({
-          invited_by_user_id: referrer.id,
-          name: visitor.name || visitor.phone,
-          phone: visitor.phone,
-          tier: 1,
-        });
-      } catch (_) {}
-
-      // Add referrer to visitor's contacts
-      try {
-        db.upsertContact({
-          invited_by_user_id: visitor.id,
-          name: referrer.name || referrer.phone,
-          phone: referrer.phone,
-          tier: 1,
-        });
-      } catch (_) {}
-
-      // Mark referral as redeemed if still pending
-      if (referral.status === 'pending') {
-        try { db.redeemReferral(token, visitor.id); } catch (_) {}
-      }
-
-      // Notify the referrer via SMS
-      const smsClient = require('./sms');
-      const visitorName = visitor.name || 'Someone';
-      smsClient.sendMessage(
-        referrer.phone,
-        `🦋 ${visitorName} accepted your invite and was added to your contacts!`
-      ).catch(() => {});
-    }
-
-    const name = encodeURIComponent(referrer?.name || 'your friend');
-    return res.redirect(`/app/contacts?connected=1&from=${name}`);
+  if (visitor && visitor.id !== referrer.id) {
+    // Logged-in existing user clicking someone else's invite link — mutual add
+    try { db.upsertContact({ invited_by_user_id: referrer.id, name: visitor.name || visitor.phone, phone: visitor.phone, tier: 1 }); } catch (_) {}
+    try { db.upsertContact({ invited_by_user_id: visitor.id, name: referrer.name || referrer.phone, phone: referrer.phone, tier: 1 }); } catch (_) {}
+    const smsClient = require('./sms');
+    smsClient.sendMessage(referrer.phone, `🦋 ${visitor.name || 'Someone'} accepted your invite and was added to your contacts!`).catch(() => {});
+    return res.redirect(`/app/contacts?connected=1&from=${encodeURIComponent(referrer.name || 'your friend')}`);
   }
 
-  // Not logged in (or self-click) → show join page
+  // Not logged in (or self-click) → show landing page (already rendered above for !visitor)
+  // Self-click case: just go home
+  if (visitor) return res.redirect('/app/contacts');
   res.redirect(`/join?ref=${token}`);
 });
 
@@ -960,25 +929,17 @@ app.post('/api/referral/connect', webAuth.requireAuth, express.json(), (req, res
   const { token } = req.body;
   if (!token) return res.status(400).json({ error: 'token required' });
 
-  const referral = db.getReferralByToken(token);
-  if (!referral) return res.status(404).json({ error: 'Invalid invite link.' });
+  const referrer = db.getUserByReferralToken(token);
+  if (!referrer) return res.status(404).json({ error: 'Invalid invite link.' });
 
   const visitor = req.user;
-  if (visitor.id === referral.referrer_user_id) {
+  if (visitor.id === referrer.id) {
     return res.status(400).json({ error: "That's your own invite link!" });
   }
-
-  const referrer = db.getUser(referral.referrer_user_id);
-  if (!referrer) return res.status(404).json({ error: 'Referrer not found.' });
 
   // Mutual contact add
   try { db.upsertContact({ invited_by_user_id: referrer.id, name: visitor.name || visitor.phone, phone: visitor.phone, tier: 1 }); } catch (_) {}
   try { db.upsertContact({ invited_by_user_id: visitor.id, name: referrer.name || referrer.phone, phone: referrer.phone, tier: 1 }); } catch (_) {}
-
-  // Mark referral redeemed
-  if (referral.status === 'pending') {
-    try { db.redeemReferral(token, visitor.id); } catch (_) {}
-  }
 
   // Notify referrer
   const smsClient = require('./sms');
