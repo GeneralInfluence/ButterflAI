@@ -254,10 +254,15 @@
     <div id="scroll-anchor" style="height:1px;flex-shrink:0;"></div>
   </div>
 
+  <!-- Sensitive mode banner (hidden by default) -->
+  <div id="sensitive-banner" style="display:none;background:#fff0f0;color:#b91c1c;font-size:12px;font-weight:600;text-align:center;padding:6px 12px;border-top:1px solid #fca5a5">
+    🔒 Private mode on — everything you say is stored encrypted and never shared without your approval
+  </div>
   <div class="input-row">
     <button id="mic-btn" onclick="toggleMic()" title="Speak to ButterflAI">
       <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-1.5 16.93A7.001 7.001 0 0 1 5 11H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2a7 7 0 0 1-5.5 6.93z"/></svg>
     </button>
+    <button id="private-btn" onclick="toggleSensitiveMode()" title="Private mode — store what you say as sensitive/encrypted" style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:8px;font-size:18px;opacity:0.4;transition:opacity .15s,background .15s" aria-label="Private mode">🔒</button>
     <textarea id="msg-input" placeholder="Message your ButterflAI…" rows="1"></textarea>
     <button id="send-btn" onclick="send()" disabled>
       <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
@@ -270,9 +275,29 @@
     const sendBtn    = document.getElementById('send-btn');
     const typingEl   = document.getElementById('typing');
     const emptyEl    = document.getElementById('empty-state');
-    let eventSource  = null;
-    let lastMsgTs    = 0; // unix timestamp of newest message shown in UI
-    let pendingSince = 0; // set when we send a message and cleared when bot responds
+    let eventSource    = null;
+    let lastMsgTs      = 0;    // unix timestamp of newest message shown in UI
+    let pendingSince   = 0;    // set when we send a message and cleared when bot responds
+    let sensitiveMode  = false; // 🔒 private mode — routes all content to encrypted store
+
+    function toggleSensitiveMode() {
+      sensitiveMode = !sensitiveMode;
+      const btn = document.getElementById('private-btn');
+      const banner = document.getElementById('sensitive-banner');
+      const input = document.getElementById('msg-input');
+      btn.style.opacity = sensitiveMode ? '1' : '0.4';
+      btn.style.background = sensitiveMode ? '#fff0f0' : 'none';
+      banner.style.display = sensitiveMode ? '' : 'none';
+      input.placeholder = sensitiveMode
+        ? '🔒 Private — stored encrypted, never shared without your approval'
+        : 'Message your ButterflAI…';
+      // Notify server of mode change
+      fetch('/api/chat/sensitive-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on: sensitiveMode }),
+      }).catch(() => {});
+    }
 
     // ── Input auto-resize ──────────────────────────────────────────────────────
     inputEl.addEventListener('input', () => {

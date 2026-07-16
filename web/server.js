@@ -28,6 +28,7 @@ const db = require('./db');
 const sms = require('./sms');
 const { ConsentRequired, RecipientOptedOut } = require('./sms');
 const sse      = require('./sse');
+const sensitive = require('./sensitive');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
@@ -639,8 +640,11 @@ app.post('/api/agent/invite/create', (req, res) => {
 
 // ── User access audit (§2.4) ──────────────────────────────────────────────────
 
-app.get('/api/user/:userId/audit', (req, res) => {
-  // TODO: auth — verify request comes from the user themselves (session token)
+app.get('/api/user/:userId/audit', webAuth.requireAuth, (req, res) => {
+  // Invariant 4 (PRIVACY.md): users may only read their own audit log
+  if (req.params.userId !== req.user.id) {
+    return res.status(403).json({ error: 'Forbidden — you may only view your own audit log' });
+  }
   const rows = db.getAccessAuditForUser(req.params.userId);
   res.json({ audit: rows });
 });
@@ -1572,6 +1576,32 @@ app.post('/api/push/subscribe', webAuth.requireAuth, express.json(), (req, res) 
     auth:   keys.auth,
   });
   res.json({ ok: true });
+});
+
+// POST /api/chat/sensitive-mode — toggle sensitive mode for this user's session
+app.post('/api/chat/sensitive-mode', webAuth.requireAuth, express.json(), (req, res) => {
+  const { on } = req.body;
+  if (typeof on !== 'boolean') return res.status(400).json({ error: 'on must be boolean' });
+  sensitive.setSensitiveMode(req.user.id, on);
+  res.json({ ok: true, sensitive_mode: on });
+});
+
+// GET /api/user/private-data — list private data keys (not values) for the logged-in user
+app.get('/api/user/private-data', webAuth.requireAuth, (req, res) => {
+  const items = sensitive.listPrivateData(req.user.id);
+  res.json({ items });
+});
+
+// DELETE /api/user/private-data/:key — delete a private datum
+app.delete('/api/user/private-data/:key(*)', webAuth.requireAuth, (req, res) => {
+  sensitive.deletePrivateData(req.user.id, req.params.key);
+  res.json({ ok: true });
+});
+
+// GET /api/user/private-data/access-log — audit log for own private data
+app.get('/api/user/private-data/access-log', webAuth.requireAuth, (req, res) => {
+  const log = sensitive.getAccessLog(req.user.id, 50);
+  res.json({ log });
 });
 
 // GET /api/user/preferences — return everything the agent has stored about this user

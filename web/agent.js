@@ -34,6 +34,7 @@ const contactsImport = require('./contacts-import');
 const venues = require('./venues');
 const multiparty = require('./multiparty');
 const desires    = require('./desires');
+const sensitive  = require('./sensitive');
 const coord      = require('./coordination');
 const sse        = require('./sse');
 const flai       = require('./flai');
@@ -237,8 +238,21 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'store_private_data',
+    description: 'Store SENSITIVE information the user has shared — health/medical info, STI test results, sexual health, mental health, financial struggles, legal matters, or anything the user explicitly marked as private. This data is encrypted at rest and NEVER shared without explicit per-recipient approval. Use this instead of update_preferences for anything sensitive.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        data_key:  { type: 'string', description: 'Namespaced key, e.g. "health.sti_status", "mental_health.therapy", "financial.debt_note"' },
+        value:     { type: 'string', description: 'The sensitive information to store' },
+        category:  { type: 'string', enum: ['HEALTH', 'SEXUAL', 'FINANCIAL', 'LEGAL', 'MENTAL_HEALTH', 'RELATIONSHIP', 'OTHER'], description: 'Category for access control' },
+      },
+      required: ['data_key', 'value', 'category'],
+    },
+  },
+  {
     name: 'update_preferences',
-    description: 'Save something you learned about the user\'s preferences — allergies, dietary needs, activity likes/dislikes, vibe, budget, neighborhood, availability. Call this whenever the user mentions anything about their preferences, even casually ("I hate sushi", "I\'m usually free after 7", "I\'m allergic to nuts"). Do NOT wait to be asked — just save it.',
+    description: 'Save something you learned about the user\'s preferences — allergies, dietary needs, activity likes/dislikes, vibe, budget, neighborhood, availability. Call this whenever the user mentions anything about their preferences, even casually ("I hate sushi", "I\'m usually free after 7", "I\'m allergic to nuts"). Do NOT wait to be asked — just save it. NEVER use this for sensitive data (health, medical, sexual, financial, legal, mental health) — use store_private_data instead.',
     input_schema: {
       type: 'object',
       properties: {
@@ -871,7 +885,23 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       return { replied: true, reply_id: replyId };
     }
 
+    case 'store_private_data': {
+      const { data_key, value, category } = toolInput;
+      return sensitive.storePrivateData(userId, data_key, value, category);
+    }
+
     case 'update_preferences': {
+      // Safety net: if any value looks sensitive, redirect to store_private_data
+      const allValues = Object.values(toolInput).filter(v => typeof v === 'string').join(' ');
+      const check = sensitive.classifyText(allValues);
+      if (check.sensitive) {
+        // Don't store in plaintext — return an instruction to use the right tool
+        return {
+          error: 'SENSITIVE_DATA_DETECTED',
+          message: 'This data appears sensitive. Use store_private_data with the appropriate category instead of update_preferences.',
+          detected_category: check.category,
+        };
+      }
       db.upsertPreferences(userId, toolInput);
       return { saved: true, fields: Object.keys(toolInput) };
     }
@@ -1462,6 +1492,7 @@ async function processMessage(msg) {
   })();
 
   const agentNotes = user.agent_notes?.trim();
+  const inSensitiveMode = sensitive.isSensitiveMode(userId);
   const prefsSection = (() => {
     if (!prefs) return '- Preferences: not set yet (ask conversationally to learn them)';
     const parts = [];
@@ -1515,7 +1546,7 @@ async function processMessage(msg) {
  */
 function buildSystemPrompt(user, stateSnapshot = '') {
   return `You are ButterflAI, a personal social agent for ${user.name}.
-
+${inSensitiveMode ? '\n🔒 PRIVATE MODE IS ON: The user has activated private mode. EVERYTHING they say this session must be stored via store_private_data, not update_preferences. Treat all content as sensitive regardless of what it sounds like.\n' : ''}
 Your job: help them stay meaningfully connected with people they care about.
 You handle the logistics of friendship (scheduling, coordination, reminders) so they can focus on the emotional parts.
 
@@ -1636,6 +1667,11 @@ LOGISTICS vs EXPRESSIVE (the send gate):
 LEARNING THE USER — build their profile over time:
 - You are their long-term agent. Every conversation teaches you something. Save it.
 - When the user mentions anything about preferences — food, activities, schedule, budget, vibe — call update_preferences immediately. Don't wait for a natural pause. Just save it.
+- SENSITIVE DATA ROUTING (critical — see PRIVACY.md):
+  - Health info, medical results, STI/sexual health, medications, mental health, financial struggles, legal matters → ALWAYS use store_private_data. NEVER use update_preferences.
+  - If the user says something that sounds sensitive but you're unsure: tell them "That sounds like it might be personal — I'm treating it as private and storing it encrypted. Is that right?" Then use store_private_data unless they say otherwise.
+  - If private mode is ON (shown at top of this prompt): everything goes to store_private_data regardless.
+  - update_preferences has a safety net that will reject sensitive content — if it returns SENSITIVE_DATA_DETECTED, call store_private_data instead.
 - Examples: "I hate sushi" → cuisine_avoids; "I'm usually free after 7" → availability_notes; "I'm allergic to peanuts" → food_allergies; "I'm more of a dive bar person" → vibe; "I try to keep nights under $50" → budget_high.
 - Food allergies are the most important — always save them and always factor them in when suggesting venues.
 - After the first week, you should know their neighborhood, rough availability, dietary constraints, and vibe. Build this naturally through conversation, not with a form.
