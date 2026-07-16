@@ -58,6 +58,14 @@ const PORT = process.env.PORT || 3000;
 // Without trust proxy, express-rate-limit throws a ValidationError on every request.
 app.set('trust proxy', 1);
 
+// Temporary request logger for debugging
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
+    console.log(`[req] ${req.method} ${req.path} cookie=${req.headers.cookie ? 'yes' : 'NO'}`);
+  }
+  next();
+});
+
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -1416,6 +1424,7 @@ app.get('/api/contacts/list', webAuth.requireAuth, (req, res) => {
 
   const total = contacts.length;
   const page  = contacts.slice(offset, offset + PAGE);
+  console.log(`[contacts/list] user=${req.user.id} total=${total} offset=${offset} returning=${page.length}`);
   res.json({ contacts: page, total, offset, limit: PAGE });
 });
 
