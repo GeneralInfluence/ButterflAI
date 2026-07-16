@@ -264,10 +264,28 @@
     </button>
   </div>
 
-  <div id="install-banner" style="display:none;margin:0 16px 12px;padding:12px 14px;background:#f0ecff;border:1px solid #c4b5fd;border-radius:12px;font-size:13px;color:#4c1d95;line-height:1.5;">
-    <strong>💡 One-tap contact import</strong><br>
-    Tap <strong>Share <span style="font-style:normal">▢↑</span> → Add to Home Screen</strong> in Safari. Then share contacts directly from the Contacts app to ButterflAI — no more copy-paste.
-    <button onclick="document.getElementById('install-banner').style.display='none'" style="float:right;background:none;border:none;font-size:16px;cursor:pointer;color:#7c3aed;margin-top:-2px;padding:0">✕</button>
+  <!-- iOS not-installed: prompt to install -->
+  <div id="install-banner" style="display:none;margin:0 16px 12px;padding:14px;background:#f0ecff;border:1px solid #c4b5fd;border-radius:12px;font-size:13px;color:#4c1d95;line-height:1.6;">
+    <button onclick="document.getElementById('install-banner').style.display='none'" style="float:right;background:none;border:none;font-size:18px;cursor:pointer;color:#7c3aed;padding:0;margin:-2px 0 0 8px">✕</button>
+    <strong>📲 Import ALL your contacts</strong><br>
+    Add this app to your Home Screen first, then use the free <strong>Shortcuts</strong> app to send your entire address book here in one tap.
+    <button onclick="document.getElementById('shortcut-guide').style.display=document.getElementById('shortcut-guide').style.display==='none'?'block':'none'" style="display:block;margin-top:8px;background:none;border:none;color:#6c47ff;font-size:13px;font-weight:600;cursor:pointer;padding:0;text-decoration:underline">Show me how →</button>
+  </div>
+
+  <!-- iOS installed: Shortcuts guide -->
+  <div id="shortcut-guide" style="display:none;margin:0 16px 12px;padding:14px;background:#fff;border:1px solid #e0d9ff;border-radius:12px;font-size:13px;color:#1a1a1a;line-height:1.7;">
+    <button onclick="document.getElementById('shortcut-guide').style.display='none'" style="float:right;background:none;border:none;font-size:18px;cursor:pointer;color:#888;padding:0;margin:-2px 0 0 8px">✕</button>
+    <strong style="font-size:14px">Import all contacts — 2 min setup, then one tap forever</strong>
+    <ol style="margin:10px 0 0 16px;color:#333;">
+      <li>Open the <strong>Shortcuts</strong> app <span style="color:#888">(comes with every iPhone)</span></li>
+      <li>Tap <strong>+</strong> → tap <strong>Add Action</strong></li>
+      <li>Search <strong>"Find Contacts"</strong> → tap it <span style="color:#888">(leave filters empty = all contacts)</span></li>
+      <li>Tap <strong>+</strong> → search <strong>"Make vCard"</strong> → tap it</li>
+      <li>Tap <strong>+</strong> → search <strong>"Share"</strong> → tap it</li>
+      <li>Tap the <strong>play ▶</strong> button → the share sheet opens → tap <strong>ButterflAI</strong></li>
+      <li>Your contacts appear here for review — tap <strong>Import</strong></li>
+    </ol>
+    <p style="margin-top:10px;color:#888;font-size:12px">After setup, just run the shortcut whenever you want to sync. Name it "Sync ButterflAI" and add it to your home screen for one-tap access.</p>
   </div>
 
   <!-- Paste import -->
@@ -341,9 +359,15 @@
     const _isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
     const _isStandalone = window.navigator.standalone === true;
 
-    // Show install banner on iOS Safari when not yet installed
-    if (_isIOS && !_isStandalone) {
-      document.getElementById('install-banner').style.display = 'block';
+    // iOS: show contextual guidance based on install state
+    if (_isIOS) {
+      if (_isStandalone) {
+        // Already installed as PWA — show Shortcuts guide to import all contacts
+        document.getElementById('shortcut-guide').style.display = 'block';
+      } else {
+        // Not yet installed — prompt to add to home screen first
+        document.getElementById('install-banner').style.display = 'block';
+      }
     }
 
     // Register SW and handle share target redirect
