@@ -405,12 +405,15 @@
           </div>
         </div>
         <div class="detail" id="manage-${e.id}" style="display:none;padding-top:14px;border-top:1px solid #f2f2f7;margin-top:12px">
-          <div style="display:flex;gap:8px;margin-bottom:12px">
+          <div style="display:flex;gap:8px;margin-bottom:10px">
             <button onclick="toggleVisibility('${e.id}','${isPublic ? 'private' : 'public'}',this)" style="flex:1;padding:10px;border-radius:10px;border:none;background:${isPublic ? '#f2f2f7' : 'linear-gradient(135deg,#a78bfa,#7c3aed)'};color:${isPublic ? '#3a3a3c' : '#fff'};font-size:14px;font-weight:600;cursor:pointer">
               ${isPublic ? '🔒 Make Private' : '🌐 Make Public'}
             </button>
             <a href="/event/${e.id}" target="_blank" style="flex:1;padding:10px;border-radius:10px;background:#f2f2f7;color:#3a3a3c;font-size:14px;font-weight:600;text-align:center;text-decoration:none">🔗 Share link</a>
           </div>
+          <button onclick="cancelEvent('${e.id}',this)" style="width:100%;padding:10px;border-radius:10px;border:none;background:#fff0f0;color:#ef4444;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:10px">
+            🚫 Cancel event
+          </button>
           <div id="invitees-${e.id}"><div style="color:#8e8e93;font-size:14px;text-align:center;padding:8px">Loading guest list…</div></div>
         </div>
       </div>`;
@@ -443,6 +446,43 @@
         `).join('');
     } catch (_) {
       el.innerHTML = '<div style="color:#ef4444;font-size:14px">Could not load guest list.</div>';
+    }
+  }
+
+  async function cancelEvent(eventId, btn) {
+    if (!confirm('Cancel this event? All invitees will be notified.')) return;
+    btn.disabled = true; btn.textContent = 'Cancelling…';
+    const r = await fetch(`/api/events/${eventId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'cancelled' })
+    });
+    if (r.ok) {
+      allEvents = allEvents.filter(e => e.id !== eventId);
+      showTab(currentTab);
+      renderCalendar();
+    } else {
+      btn.disabled = false; btn.textContent = '🚫 Cancel event';
+      alert('Could not cancel. Try again.');
+    }
+  }
+
+  async function withdrawRsvp(invitationId, btn) {
+    if (!confirm('Mark yourself as not going?')) return;
+    btn.disabled = true; btn.textContent = 'Updating…';
+    const r = await fetch('/api/events/rsvp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invitation_id: invitationId, status: 'declined' })
+    });
+    if (r.ok) {
+      const ev = invitedEvents.find(e => e.invitation_id === invitationId);
+      if (ev) ev.rsvp_status = 'declined';
+      renderInvited(invitedEvents.filter(e => e.rsvp_status === 'invited' || (e.scheduled_at||0) >= now));
+      renderCalendar();
+    } else {
+      btn.disabled = false; btn.textContent = 'Not going';
+      alert('Could not update. Try again.');
     }
   }
 
@@ -532,6 +572,8 @@
         ${isPending ? `<div style="display:flex;gap:8px;margin-top:12px">
           <button onclick="rsvp('${e.invitation_id}','accepted')" style="flex:1;padding:12px;background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">✓ Accept</button>
           <button onclick="rsvp('${e.invitation_id}','declined')" style="flex:1;padding:12px;background:#f2f2f7;color:#3a3a3c;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">✗ Decline</button>
+        </div>` : e.rsvp_status === 'accepted' ? `<div style="margin-top:10px">
+          <button onclick="withdrawRsvp('${e.invitation_id}',this)" style="width:100%;padding:10px;border-radius:10px;border:none;background:#fff0f0;color:#ef4444;font-size:14px;font-weight:600;cursor:pointer">Not going anymore</button>
         </div>` : ''}
       </div>`;
     }).join('');
