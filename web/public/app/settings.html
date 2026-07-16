@@ -29,6 +29,26 @@
     nav { margin-left: auto; display: flex; gap: 20px; }
     nav a { font-size: 14px; color: var(--purple); text-decoration: none; font-weight: 500; }
     nav a:hover { text-decoration: underline; }
+    /* ── Mobile nav ─────────────────────────────────────────────────────────── */
+    .bottom-nav { display: none; }
+    @media (max-width: 640px) {
+      nav { display: none; }
+      .logo { font-size: 18px; }
+      main { padding-bottom: 80px; }
+      .bottom-nav {
+        display: flex; position: fixed; bottom: 0; left: 0; right: 0;
+        height: 58px; background: #fff; border-top: 1px solid #e5e5e5;
+        z-index: 100; justify-content: space-around; align-items: center;
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      .bottom-nav a {
+        display: flex; flex-direction: column; align-items: center; gap: 2px;
+        font-size: 10px; font-weight: 500; color: #888; text-decoration: none;
+        min-width: 60px; padding: 6px 4px; border-radius: 8px;
+      }
+      .bottom-nav a.active { color: #6c47ff; }
+      .bottom-nav .tab-icon { font-size: 22px; line-height: 1; }
+    }
     main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
     h1 { font-size: 22px; font-weight: 700; margin-bottom: 24px; color: #1a1a1a; }
     section { margin-bottom: 32px; }
@@ -191,6 +211,13 @@
     </div>
   </section>
 </main>
+
+<nav class="bottom-nav">
+  <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
+  <a href="/app/chat"><span class="tab-icon">💬</span>Chat</a>
+  <a href="/app/events"><span class="tab-icon">📅</span>Events</a>
+  <a href="/app/settings" class="active"><span class="tab-icon">⚙️</span>Settings</a>
+</nav>
 
 <script>
   function fmtTs(ts) {

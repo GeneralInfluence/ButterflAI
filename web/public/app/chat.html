@@ -48,9 +48,29 @@
     }
     .header-info h2 { font-size: 16px; font-weight: 700; }
     .header-info p { font-size: 12px; color: #888; }
-    .header-actions { margin-left: auto; display: flex; gap: 12px; }
+    .header-actions { margin-left: auto; display: flex; gap: 12px; align-items: center; }
     .header-actions a {
       font-size: 13px; color: var(--purple); text-decoration: none; font-weight: 500;
+    }
+    /* ── Mobile nav ─────────────────────────────────────────────────────────── */
+    .bottom-nav { display: none; }
+    @media (max-width: 640px) {
+      .header-actions a:not(#loc-btn) { display: none; } /* hide text nav links */
+      /* push input row up above bottom nav */
+      .input-row { padding-bottom: calc(10px + env(safe-area-inset-bottom)); margin-bottom: 58px; }
+      .bottom-nav {
+        display: flex; position: fixed; bottom: 0; left: 0; right: 0;
+        height: 58px; background: #fff; border-top: 1px solid #e5e5e5;
+        z-index: 100; justify-content: space-around; align-items: center;
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      .bottom-nav a {
+        display: flex; flex-direction: column; align-items: center; gap: 2px;
+        font-size: 10px; font-weight: 500; color: #888; text-decoration: none;
+        min-width: 60px; padding: 6px 4px; border-radius: 8px;
+      }
+      .bottom-nav a.active { color: #6c47ff; }
+      .bottom-nav .tab-icon { font-size: 22px; line-height: 1; }
     }
 
     /* Messages */
@@ -431,5 +451,12 @@
     connectSSE();
     checkLocationNeeded();
   </script>
+
+<nav class="bottom-nav">
+  <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
+  <a href="/app/chat" class="active"><span class="tab-icon">💬</span>Chat</a>
+  <a href="/app/events"><span class="tab-icon">📅</span>Events</a>
+  <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
+</nav>
 </body>
 </html>
