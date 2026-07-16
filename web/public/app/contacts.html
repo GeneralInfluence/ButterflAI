@@ -247,21 +247,28 @@
 
   <!-- Action buttons -->
   <div class="toolbar">
-    <!-- Android Chrome: Contact Picker API -->
     <button class="import-btn btn-primary" id="picker-btn" onclick="openContactPicker()" style="display:none">
-      👥 Import from Contacts
+      👥 Import from phone
     </button>
-    <!-- iOS / universal: vCard file upload -->
-    <label class="import-btn btn-primary" id="vcf-btn" style="cursor:pointer">
-      📇 Import contacts file
-      <input type="file" id="vcf-input" accept=".vcf,text/vcard,text/x-vcard" style="display:none" onchange="handleVcfFile(this)">
-    </label>
+    <button class="import-btn btn-primary" id="paste-btn" onclick="togglePaste()">
+      📋 Paste a list
+    </button>
     <button class="import-btn btn-secondary" onclick="toggleManualAdd()">
-      ✏️ Add manually
+      ✏️ Add one
     </button>
   </div>
-  <div id="import-hint" style="margin:0 16px 12px;padding:12px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;font-size:13px;color:#0c4a6e;line-height:1.5;">
-    <strong>iPhone:</strong> Open the Contacts app → tap a contact → scroll down → <em>Share Contact</em> → save the .vcf file, then upload it here. To export multiple, use <a href="https://icloud.com/contacts" target="_blank" style="color:#0c4a6e">iCloud.com</a> → select all → Export vCard.
+
+  <!-- Paste import -->
+  <div class="add-form" id="paste-form">
+    <p style="font-size:13px;color:#555;margin-bottom:10px;line-height:1.5">
+      Paste names and numbers — one per line, or copy straight from Notes, a spreadsheet, or iMessage.<br>
+      <span style="color:#aaa">Examples: <em>Jane Smith 555-123-4567</em> &nbsp;·&nbsp; <em>Mom, +1 917 555 0100</em></span>
+    </p>
+    <textarea id="paste-input" rows="6" placeholder="Jane Smith  555-123-4567&#10;Dad  +1 917 555 0100&#10;Alex Johnson" style="width:100%;padding:10px 12px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:14px;resize:vertical;outline:none;font-family:inherit;line-height:1.5"></textarea>
+    <div class="add-form-btns">
+      <button class="cancel" onclick="togglePaste()">Cancel</button>
+      <button class="save" onclick="parsePaste()">Preview →</button>
+    </div>
   </div>
 
   <!-- Manual add form -->
@@ -474,6 +481,40 @@
         closeModal();
         showToast('Import failed — check your connection.');
       }
+    }
+
+    // ── Paste import ──────────────────────────────────────────────────────────
+
+    function togglePaste() {
+      const form = document.getElementById('paste-form');
+      form.classList.toggle('open');
+      if (form.classList.contains('open')) document.getElementById('paste-input').focus();
+      else document.getElementById('paste-input').value = '';
+    }
+
+    function parsePaste() {
+      const raw = document.getElementById('paste-input').value.trim();
+      if (!raw) return;
+
+      const phoneRe = /(\+?[\d][\d\s\-().]{6,}\d)/;
+      const lines = raw.split(/\n/).map(l => l.trim()).filter(Boolean);
+      pickerCandidates = [];
+
+      for (const line of lines) {
+        const phoneMatch = line.match(phoneRe);
+        const phone = phoneMatch ? phoneMatch[1].replace(/[\s\-().]/g, '') : '';
+        // Name is whatever's left after removing the phone number
+        const name = line.replace(phoneRe, '').replace(/[,;|]+/g, ' ').replace(/\s+/g, ' ').trim();
+        if (name) pickerCandidates.push({ name, phone });
+      }
+
+      if (pickerCandidates.length === 0) {
+        showToast('No contacts found — make sure each line has a name.', 4000);
+        return;
+      }
+      document.getElementById('paste-form').classList.remove('open');
+      document.getElementById('paste-input').value = '';
+      openModal();
     }
 
     // ── vCard file upload (iOS + universal fallback) ──────────────────────────
