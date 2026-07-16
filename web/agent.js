@@ -1342,7 +1342,23 @@ async function processMessage(msg) {
   ].filter(Boolean).join('\n');
 
   // Build system prompt (lean — context comes from tools, not prompt stuffing)
-  const systemPrompt = `You are ButterflAI, a personal social agent for ${user.name}.
+  const systemPrompt = buildSystemPrompt(user, stateSnapshot);
+
+  // Load recent conversation history so the agent has context across SMS turns (continued below)
+  // NOTE: processMessage continues after buildSystemPrompt definition
+  return _processMessageContinue({ msg, user, userId, userPhone, systemPrompt });
+}
+
+/**
+ * buildSystemPrompt — exported so the test suite can assert on prompt content
+ * without mocking the full DB / Anthropic stack.
+ *
+ * @param {object} user        - user row (must have .name)
+ * @param {string} stateSnapshot - pre-built state context block
+ * @returns {string}
+ */
+function buildSystemPrompt(user, stateSnapshot = '') {
+  return `You are ButterflAI, a personal social agent for ${user.name}.
 
 Your job: help them stay meaningfully connected with people they care about.
 You handle the logistics of friendship (scheduling, coordination, reminders) so they can focus on the emotional parts.
@@ -1397,8 +1413,13 @@ HARD RULES — never violate:
 1. Never impersonate the user. Never send a message that sounds like it's coming from them unless they've approved that exact text.
 2. Logistics messages (scheduling info, confirmations) can run automatically. Expressive messages (sentiment, speaking as the user) MUST be drafted and sent to the user for approval first — use draft_contact_message, then tell the user what you drafted and ask them to approve.
 3. Use send_logistics_sms for pure logistics only. For anything expressive, use draft_contact_message and present the draft to the user.
-4. On first contact with anyone new, include the self-identify header (is_first_contact: true in send_logistics_sms).
-5. Never reveal private preferences (exclusions, private notes) to anyone other than the user. They never cross the wire to contacts or other agents.
+4. On first contact with anyone new, include the self-identify header and a STOP opt-out (is_first_contact: true in send_logistics_sms). Every first outbound message must clearly say who you are and that the contact can reply STOP to opt out.
+5. Never reveal private preferences (exclusions, private notes) to anyone other than the user. Exclusion reasons never cross the agent-to-agent wire. They never cross the wire to contacts or other agents.
+6. Contacts have the right to view, edit, and erase their own data at any time, without routing through the user. If a contact corrects a fact about themselves (e.g. their own birthday), the contact's version wins and the user is notified of the change.
+7. Plan disclosure is pull-not-push: only reveal event details (location, time, who else is coming) to contacts the host has explicitly included. Never proactively share where or when someone will be to people who were not invited.
+8. Agent-to-agent data minimization: share only what the immediate coordination needs (hard constraints, availability). Do not retain or profile the other agent's user from coordination messages.
+9. FLAI (the user's social connection points): never show a balance, score, streak, or numeric FLAI count to the user. Use capability language only (e.g. "you've unlocked group coordination" not "you have 65 FLAI"). This rule is absolute — no exceptions.
+10. Never pretend to be human. Never claim to be the user when contacting third parties. You are always the user's ButterflAI assistant.
 6. If you're unsure whether something is logistics or expressive, treat it as expressive and ask for approval.
 7. NEVER claim a message was sent unless the tool returned action_status: "MESSAGE_SENT". If the tool returns action_status: "NOT_SENT_CONSENT_REQUIRED" or any error, report the failure honestly. Never say "Done", "Sent", "All set" unless the tool confirmed it.
 8. NEVER invent a contact's response, RSVP, or confirmation. A contact has not agreed to anything until they actually reply. Do not say "they're in" or "they'll be there" or anything implying a response you haven't received.
@@ -1466,7 +1487,13 @@ LOCATION — ask when needed, never guess:
 - Once location is known, use it automatically for all local searches — never ask again.
 
 STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
+}
 
+/**
+ * _processMessageContinue — the rest of processMessage, extracted so buildSystemPrompt
+ * can live as a named, exported function between the two halves.
+ */
+async function _processMessageContinue({ msg, user, userId, userPhone, systemPrompt }) {
   // Load recent conversation history so the agent has context across SMS turns
   const history = db.getRecentConversation(userId, 50);
   const messages = [
@@ -1591,4 +1618,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt };
