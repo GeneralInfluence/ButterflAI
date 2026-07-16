@@ -62,8 +62,18 @@
     .bottom-nav { display: none; }
     @media (max-width: 640px) {
       .header-actions a:not(#loc-btn) { display: none; } /* hide text nav links */
-      /* push input row up above bottom nav */
-      .input-row { padding-bottom: calc(10px + env(safe-area-inset-bottom)); margin-bottom: 58px; }
+
+      /* Input row: fixed above bottom nav — reliable across Android PWA/gesture-nav quirks */
+      .input-row {
+        position: fixed;
+        left: 0; right: 0;
+        bottom: calc(58px + env(safe-area-inset-bottom));
+        z-index: 50;
+      }
+
+      /* Messages: pad bottom so last message isn't hidden behind fixed input+nav */
+      #messages { padding-bottom: calc(var(--input-h) + 58px + env(safe-area-inset-bottom) + 8px); }
+
       .bottom-nav {
         display: flex; position: fixed; bottom: 0; left: 0; right: 0;
         height: 58px; background: #fff; border-top: 1px solid #e5e5e5;
