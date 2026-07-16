@@ -118,6 +118,17 @@
       </div>
     </div>
 
+    <!-- Spend by reason -->
+    <section>
+      <h2>Token spend by reason</h2>
+      <div class="card" style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Reason</th><th>Events</th><th>Granted</th><th>Burned</th><th>Net</th></tr></thead>
+          <tbody id="reason-body"><tr><td colspan="5" style="color:var(--muted)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Recent ledger entries -->
     <section>
       <h2>Recent ledger entries</h2>
@@ -159,7 +170,7 @@
     async function loadData() {
       const res = await fetch('/api/admin/flai/summary');
       if (!res.ok) { document.body.innerHTML = '<p style="color:red;padding:40px">Access denied or not logged in.</p>'; return; }
-      const { summary, users, recent } = await res.json();
+      const { summary, users, recent, byReason } = await res.json();
 
       // Stats
       const circ = summary.net_circulation || 0;
@@ -188,6 +199,22 @@
         opt.textContent = `${u.name || u.phone} (${fmt(u.balance)} FLAI)`;
         select.appendChild(opt);
       }
+
+      // Spend by reason
+      const rb = document.getElementById('reason-body');
+      rb.innerHTML = '';
+      for (const row of (byReason || [])) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${reasonPill(row.reason)}</td>
+          <td>${fmt(row.events)}</td>
+          <td class="pos">${row.granted > 0 ? '+' + fmt(row.granted) : '—'}</td>
+          <td class="neg">${row.burned > 0 ? '−' + fmt(row.burned) : '—'}</td>
+          <td class="${row.net >= 0 ? 'pos' : 'neg'}" style="font-weight:600">${row.net > 0 ? '+' : ''}${fmt(row.net)}</td>
+        `;
+        rb.appendChild(tr);
+      }
+      if (!byReason?.length) rb.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px">No ledger activity yet.</td></tr>';
 
       // Ledger
       const lb = document.getElementById('ledger-body');

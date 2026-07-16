@@ -952,6 +952,21 @@ module.exports = {
     `).all(limit);
   },
 
+  /** Spend breakdown grouped by reason — useful for admin "how are tokens being used" view */
+  getFlaiSpendByReason() {
+    return db.prepare(`
+      SELECT
+        reason,
+        COUNT(*) AS events,
+        SUM(delta) AS net,
+        SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END) AS granted,
+        ABS(SUM(CASE WHEN delta < 0 THEN delta ELSE 0 END)) AS burned
+      FROM flai_ledger
+      GROUP BY reason
+      ORDER BY net ASC
+    `).all();
+  },
+
   getUsersWithBalances() {
     return db.prepare(`
       SELECT u.id, u.name, u.phone, u.onboarding_state,

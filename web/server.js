@@ -1000,10 +1000,11 @@ app.get('/admin', requireAdminPage, (req, res) => {
 
 // GET /api/admin/flai/summary — circulation stats
 app.get('/api/admin/flai/summary', requireAdmin, (req, res) => {
-  const summary = db.getFlaiLedgerSummary();
-  const users   = db.getUsersWithBalances();
-  const recent  = db.getFlaiLedgerRecent(50);
-  res.json({ summary, users, recent });
+  const summary   = db.getFlaiLedgerSummary();
+  const users     = db.getUsersWithBalances();
+  const recent    = db.getFlaiLedgerRecent(50);
+  const byReason  = db.getFlaiSpendByReason();
+  res.json({ summary, users, recent, byReason });
 });
 
 // POST /api/admin/flai/grant — grant FLAI to a user
