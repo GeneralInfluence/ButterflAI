@@ -133,6 +133,9 @@
 </header>
 
 <main>
+  <!-- Install app prompt slot (populated by install-prompt.js) -->
+  <div id="install-prompt-slot"></div>
+
   <!-- Finish setup banner (shown if onboarding incomplete) -->
   <div class="banner" id="onboarding-banner" style="display:none;">
     <p>⚙️ Your agent isn't fully set up yet.</p>
@@ -247,6 +250,7 @@
   <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
   </script>
   <script src="/update-check.js"></script>
-  <script>__REMOVE__</script>
+  <script src="/install-prompt.js"></script>
+
 </body>
 </html>

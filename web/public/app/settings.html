@@ -231,7 +231,8 @@
 
   <!-- Account -->
   <section>
-    <h2>Account</h2>
+    <h2>App</h2>
+    <div id="install-prompt-slot"></div>
     <div class="card">
       <a class="btn btn-danger" href="/auth/logout">Sign out</a>
     </div>
@@ -401,6 +402,7 @@
   <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
   </script>
   <script src="/update-check.js"></script>
+  <script src="/install-prompt.js"></script>
   <script>__REMOVE__</script>
 </body>
 </html>
