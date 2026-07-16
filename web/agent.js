@@ -780,9 +780,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         threadId: thread_id, kind: 'query', topic, body: agentMsg,
       });
       // Queue message for target agent to process
+      const senderUser = db.getUser(userId);
       db.storeInboundMessage({
         from_phone: targetUser.phone, from_type: 'user', from_id: targetUser.id,
-        channel: 'agent_query', text: `[Agent query from ${user.name}'s agent | thread=${msgId} | topic=${topic}] ${agentMsg}`,
+        channel: 'agent_query', text: `[Agent query from ${senderUser?.name || userId}'s agent | thread=${msgId} | topic=${topic}] ${agentMsg}`,
       });
       return { sent: true, message_id: msgId, to: contact.name, note: 'Their agent will respond; watch for reply_received in next turns' };
     }
@@ -1498,10 +1499,24 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
  * can live as a named, exported function between the two halves.
  */
 async function _processMessageContinue({ msg, user, userId, userPhone, systemPrompt }) {
-  // Load recent conversation history so the agent has context across SMS turns
+  // Load recent conversation history so the agent has context across SMS turns.
+  // Filter: Anthropic only accepts 'user' and 'assistant' roles in messages[].
+  // Strip 'system' role rows (used for injected context) and ensure alternating roles.
   const history = db.getRecentConversation(userId, 50);
+  const rawHistory = history
+    .filter(h => h.role === 'user' || h.role === 'assistant')
+    .map(h => ({ role: h.role, content: h.text }));
+  // Deduplicate consecutive same-role entries (keep last) to avoid role-alternation errors
+  const dedupedHistory = rawHistory.reduce((acc, h) => {
+    if (acc.length > 0 && acc[acc.length - 1].role === h.role) {
+      acc[acc.length - 1] = h; // replace with later message of same role
+    } else {
+      acc.push(h);
+    }
+    return acc;
+  }, []);
   const messages = [
-    ...history.map(h => ({ role: h.role, content: h.text })),
+    ...dedupedHistory,
     { role: 'user', content: msg.text },
   ];
 
