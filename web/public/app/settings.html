@@ -173,10 +173,22 @@
       </div>
       <div class="field">
         <label>Location</label>
-        <div style="display:flex;gap:8px;align-items:center">
-          <div class="val" id="profile-city" style="flex:1">—</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div class="val" id="profile-city" style="flex:1;min-width:80px">—</div>
           <button class="btn btn-secondary" style="padding:6px 12px;font-size:13px" id="loc-btn" onclick="shareLocation()">Share</button>
+          <button class="btn btn-secondary" style="padding:6px 12px;font-size:13px;display:none" id="loc-clear-btn" onclick="clearLocation()">Clear</button>
         </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#555">
+            <input type="checkbox" id="loc-sharing-toggle" onchange="toggleLocationSharing(this.checked)"
+              style="width:18px;height:18px;accent-color:#6c47ff">
+            Let friends' agents see I'm nearby
+          </label>
+        </div>
+        <p style="font-size:12px;color:#aaa;margin-top:6px;line-height:1.4">
+          When on, your city is used to suggest open invites when you're close to a host.<br>
+          When off, your location is hidden from coordination — no one can tell where you are.
+        </p>
       </div>
       <div class="btn-row">
         <a class="btn btn-secondary" href="/auth/google/calendar">Connect Google Calendar</a>
@@ -262,7 +274,11 @@
       document.getElementById('profile-name').textContent = me.name || '—';
       document.getElementById('profile-phone').textContent = me.phone || '—';
       document.getElementById('profile-city').textContent = me.city || '—';
-      if (me.city) document.getElementById('loc-btn').textContent = 'Update';
+      if (me.city) {
+        document.getElementById('loc-btn').textContent = 'Update';
+        document.getElementById('loc-clear-btn').style.display = '';
+      }
+      document.getElementById('loc-sharing-toggle').checked = me.share_location !== false;
       if (me.nickname) {
         document.getElementById('profile-nickname').textContent = me.nickname;
         document.getElementById('nickname-field').style.display = '';
@@ -330,6 +346,24 @@
     }
   }
 
+  async function toggleLocationSharing(share) {
+    await fetch('/api/user/location-sharing', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ share })
+    });
+  }
+
+  async function clearLocation() {
+    if (!confirm('Remove your stored location? Your city will no longer appear to anyone.')) return;
+    const r = await fetch('/api/user/location', { method: 'DELETE' });
+    if (r.ok) {
+      document.getElementById('profile-city').textContent = '—';
+      document.getElementById('loc-btn').textContent = 'Share';
+      document.getElementById('loc-clear-btn').style.display = 'none';
+    }
+  }
+
   async function shareLocation() {
     const btn = document.getElementById('loc-btn');
     if (!navigator.geolocation) { alert('Geolocation not supported by your browser.'); return; }
@@ -346,6 +380,7 @@
         const { city } = await r.json();
         document.getElementById('profile-city').textContent = city || `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
         btn.textContent = 'Update';
+        document.getElementById('loc-clear-btn').style.display = '';
       } else {
         btn.textContent = 'Share';
         alert('Could not save location.');

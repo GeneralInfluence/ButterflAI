@@ -1527,8 +1527,23 @@ app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, 
 
 // GET /api/user/me — current user profile
 app.get('/api/user/me', webAuth.requireAuth, (req, res) => {
-  const { id, name, nickname, also_known_as, phone, city, lat, lng } = req.user;
-  res.json({ id, name, nickname, also_known_as, phone, city, lat, lng });
+  const { id, name, nickname, also_known_as, phone, city, lat, lng, share_location } = req.user;
+  res.json({ id, name, nickname, also_known_as, phone, city, lat, lng,
+    share_location: share_location === 0 ? false : true }); // default true if null/1
+});
+
+// PATCH /api/user/location-sharing — toggle whether location is visible to other agents
+app.patch('/api/user/location-sharing', webAuth.requireAuth, express.json(), (req, res) => {
+  const { share } = req.body;
+  if (typeof share !== 'boolean') return res.status(400).json({ error: 'share must be boolean' });
+  db.updateUser(req.user.id, { share_location: share ? 1 : 0 });
+  res.json({ ok: true, share_location: share });
+});
+
+// DELETE /api/user/location — clear stored location entirely
+app.delete('/api/user/location', webAuth.requireAuth, (req, res) => {
+  db.updateUser(req.user.id, { city: null, lat: null, lng: null, location_updated_at: null });
+  res.json({ ok: true });
 });
 
 // GET /api/push/vapid-key — return the VAPID public key for subscription

@@ -863,8 +863,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         const contact = db.getContact(cid);
         if (!contact) return { contact_id: cid, error: 'not found' };
         const contactUser = contact.phone ? db.getUserByPhone(contact.phone) : null;
-        const city = contactUser?.city || null;
-        const lat = contactUser?.lat, lng = contactUser?.lng;
+        // Respect share_location preference — 0 means hidden from other agents
+        const sharesLocation = !contactUser || contactUser.share_location !== 0;
+        const city = sharesLocation ? (contactUser?.city || null) : null;
+        const lat = sharesLocation ? contactUser?.lat : null;
+        const lng = sharesLocation ? contactUser?.lng : null;
         let distance_km = null, is_nearby = null;
         if (hostLat && hostLng && lat && lng) {
           distance_km = Math.round(haversineKm(hostLat, hostLng, lat, lng));
@@ -874,7 +877,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           contact_id: cid,
           name: contact.nickname || contact.name,
           is_butterflai_user: !!contactUser,
-          city: city || 'unknown',
+          city: sharesLocation ? (city || 'unknown') : 'hidden (user paused location sharing)',
           distance_km,
           is_nearby,
         };
