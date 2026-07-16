@@ -59,19 +59,30 @@
 
   // ── Apply update ──────────────────────────────────────────────────────────
   let waitingWorker = null;
+  let reloading = false;
 
   function applyUpdate() {
+    if (reloading) return;
+    reloading = true;
     if (waitingWorker) {
       waitingWorker.postMessage({ type: 'SKIP_WAITING' });
     } else {
-      // Fallback: hard reload
       location.reload(true);
     }
   }
 
   // When the new SW takes control, reload the page to get fresh assets
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    location.reload();
+    if (!reloading) { reloading = true; location.reload(); }
+  });
+
+  // ── Auto-update on foreground ─────────────────────────────────────────────
+  // When the user brings the app back from background, if a new version is
+  // waiting just reload silently — all state is server-side so it's lossless.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && waitingWorker) {
+      applyUpdate();
+    }
   });
 
   // ── Registration + update detection ──────────────────────────────────────
@@ -79,7 +90,7 @@
     // 1. Check for a SW waiting right now (e.g. user revisited after update deployed)
     if (registration.waiting) {
       waitingWorker = registration.waiting;
-      showUpdateBanner();
+      showUpdateBanner(); // show banner in case they're actively using it
     }
 
     // 2. Detect new SW found while page is open
@@ -87,16 +98,18 @@
       const newWorker = registration.installing;
       newWorker.addEventListener('statechange', () => {
         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-          // New version installed and waiting — existing content still served
           waitingWorker = newWorker;
-          showUpdateBanner();
+          // If app is in background right now, the next foreground will auto-reload.
+          // If app is in foreground (user is actively using it), show the banner.
+          if (document.visibilityState === 'visible') {
+            showUpdateBanner();
+          }
+          // If invisible, we'll silently reload on next visibilitychange above.
         }
       });
     });
 
     // 3. Force an update check on every page load — bypasses the 24h throttle
-    //    Chrome throttles update() to once per 24h in practice, but this
-    //    ensures we at least try on every navigation.
-    registration.update().catch(() => {}); // silently ignore if offline
+    registration.update().catch(() => {});
   });
 })();
