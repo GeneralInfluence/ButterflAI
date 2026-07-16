@@ -1375,6 +1375,7 @@ app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, 
   }
 
   let city = null;
+  let timezone = null;
   try {
     const r = await fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
@@ -1389,14 +1390,24 @@ app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, 
     console.warn('[location] reverse geocode failed:', err.message);
   }
 
-  db.updateUser(req.user.id, {
-    lat,
-    lng,
-    city:                city || req.user.city,
-    location_updated_at: Math.floor(Date.now() / 1000),
-  });
+  // Detect IANA timezone from coordinates via timeapi.io (free, no key needed)
+  try {
+    const tzr = await fetch(`https://timeapi.io/api/timezone/coordinate?latitude=${lat}&longitude=${lng}`);
+    if (tzr.ok) {
+      const tzd = await tzr.json();
+      timezone = tzd.timeZone || null;
+    }
+  } catch (_) {}
 
-  res.json({ ok: true, lat, lng, city });
+  const updates = {
+    lat, lng,
+    city: city || req.user.city,
+    location_updated_at: Math.floor(Date.now() / 1000),
+  };
+  if (timezone) updates.timezone = timezone;
+  db.updateUser(req.user.id, updates);
+
+  res.json({ ok: true, lat, lng, city, timezone });
 });
 
 // GET /api/user/me — current user profile
@@ -1514,7 +1525,13 @@ app.post('/api/events', async (req, res) => {
 });
 
 app.get('/api/events/:userId', (req, res) => {
-  res.json({ events: multiparty.getEventsByHost(req.params.userId) });
+  const events = multiparty.getEventsByHost(req.params.userId);
+  // Attach RSVP summary to each event so host can see who accepted/declined
+  const withRsvp = events.map(e => ({
+    ...e,
+    rsvp: multiparty.getRsvpSummary(e.id),
+  }));
+  res.json({ events: withRsvp });
 });
 
 // GET /api/events/invited — events the logged-in user was invited to

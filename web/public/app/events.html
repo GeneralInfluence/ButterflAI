@@ -366,24 +366,33 @@
       el.innerHTML = '<div class="empty-state">No events — text your agent to get something on the calendar.</div>';
       return;
     }
-    el.innerHTML = events.map((e, i) => `
-      <div class="card" onclick="toggleDetail(${i})">
+    el.innerHTML = events.map((e, i) => {
+      const rsvp = e.rsvp || {};
+      const accepted = rsvp.accepted || 0;
+      const declined = rsvp.declined || 0;
+      const pending  = rsvp.invited  || 0;
+      const total = accepted + declined + pending;
+      const rsvpLine = total > 0
+        ? `${accepted ? `✅ ${accepted}` : ''}${declined ? ` ❌ ${declined}` : ''}${pending ? ` ⏳ ${pending}` : ''}`.trim()
+        : '';
+      return `<div class="card" onclick="toggleDetail(${i})">
         <div class="card-header">
           <div>
-            <div class="card-title">${escHtml(e.activity_type || 'Event')}</div>
-            <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${fmtDate(e.scheduled_at)}</div>
+            <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}</div>
+            <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${fmtDate(e.scheduled_at)} ${fmtTime(e.scheduled_at)}</div>
+            ${rsvpLine ? `<div class="card-sub" style="margin-top:2px;font-size:13px">${rsvpLine}</div>` : ''}
           </div>
           <span class="badge ${statusClass(e.status)}">${escHtml(e.status || 'unknown')}</span>
         </div>
         <div class="detail" id="detail-${i}">
-          ${e.venue_name   ? `<div><strong>Venue:</strong> ${escHtml(e.venue_name)}</div>` : ''}
-          ${e.scheduled_at ? `<div><strong>Date:</strong> ${fmtDate(e.scheduled_at)} ${fmtTime(e.scheduled_at)}</div>` : ''}
-          ${e.activity_type? `<div><strong>Type:</strong> ${escHtml(e.activity_type)}</div>` : ''}
-          ${e.status       ? `<div><strong>Status:</strong> ${escHtml(e.status)}</div>` : ''}
-          ${e.notes        ? `<div><strong>Notes:</strong> ${escHtml(e.notes)}</div>` : ''}
+          ${e.venue_name    ? `<div><strong>Venue:</strong> ${escHtml(e.venue_name)}</div>` : ''}
+          ${e.venue_address ? `<div><strong>Address:</strong> ${escHtml(e.venue_address)}</div>` : ''}
+          ${e.scheduled_at  ? `<div><strong>Date:</strong> ${fmtDate(e.scheduled_at)} ${fmtTime(e.scheduled_at)}</div>` : ''}
+          ${e.notes         ? `<div><strong>Notes:</strong> ${escHtml(e.notes)}</div>` : ''}
+          <div><strong>Share:</strong> <a href="/event/${e.id}" target="_blank" style="color:#7c3aed">butterflai.social/event/${e.id.slice(0,8)}…</a></div>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   }
 
   function toggleDetail(i) {
