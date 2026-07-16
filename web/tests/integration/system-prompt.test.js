@@ -336,3 +336,26 @@ describe('Flexible / open-time events', () => {
     assertContains('without nagging for a time', 'no nag rule');
   });
 });
+
+// ── Location-first coordination algorithm ─────────────────────────────────────
+describe('Location-first coordination algorithm', () => {
+  test('COORDINATION ALGORITHM section exists in prompt', () => {
+    assertContains('COORDINATION ALGORITHM', 'coordination algorithm section');
+  });
+
+  test('check_invitee_locations must be called first before time coordination', () => {
+    assertContains('ASSESS LOCATION FIRST', 'assess location first step');
+    assertContains('check_invitee_locations', 'check_invitee_locations tool referenced in algorithm');
+  });
+
+  test('routing recommendations are defined for all cases', () => {
+    assertContains('"flexible"', 'flexible routing case');
+    assertContains('"mixed"', 'mixed routing case');
+    assertContains('"coordinate"', 'coordinate routing case');
+    assertContains('"host_location_unknown"', 'host location unknown routing case');
+  });
+
+  test('agent must never skip location check', () => {
+    assertContains('NEVER skip step 1', 'never skip location check rule');
+  });
+});

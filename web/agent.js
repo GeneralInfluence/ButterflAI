@@ -271,6 +271,17 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'check_invitee_locations',
+    description: 'Before coordinating time/logistics for a group event, check how far each invitee is from the host. Returns each invitee\'s city, distance, and a ROUTING RECOMMENDATION: "flexible" (all nearby, no need to coordinate time), "mixed" (some nearby, some distant — coordinate time for distant only), or "coordinate" (all distant — must agree on a specific time). ALWAYS call this first when planning a group event where you do not already know everyone\'s location.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_ids: { type: 'array', items: { type: 'string' }, description: 'Contact IDs of invitees to check' },
+      },
+      required: ['contact_ids'],
+    },
+  },
+  {
     name: 'confirm_coordination_invite',
     description: 'Respond to an event invitation from another ButterflAI user. Updates your RSVP status, optionally adds the event to YOUR calendar, and notifies the host\'s agent in the background — without sharing your private preferences.',
     input_schema: {
@@ -833,6 +844,64 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       };
     }
 
+    case 'check_invitee_locations': {
+      // Haversine distance in km between two lat/lng points
+      function haversineKm(lat1, lng1, lat2, lng2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      }
+      const NEARBY_KM = 80; // ~50 miles — close enough for flexible/open invite
+
+      const hostUser = db.getUser(userId);
+      const hostLat = hostUser?.lat, hostLng = hostUser?.lng;
+
+      const results = (toolInput.contact_ids || []).map(cid => {
+        const contact = db.getContact(cid);
+        if (!contact) return { contact_id: cid, error: 'not found' };
+        const contactUser = contact.phone ? db.getUserByPhone(contact.phone) : null;
+        const city = contactUser?.city || null;
+        const lat = contactUser?.lat, lng = contactUser?.lng;
+        let distance_km = null, is_nearby = null;
+        if (hostLat && hostLng && lat && lng) {
+          distance_km = Math.round(haversineKm(hostLat, hostLng, lat, lng));
+          is_nearby = distance_km <= NEARBY_KM;
+        }
+        return {
+          contact_id: cid,
+          name: contact.nickname || contact.name,
+          is_butterflai_user: !!contactUser,
+          city: city || 'unknown',
+          distance_km,
+          is_nearby,
+        };
+      });
+
+      const known = results.filter(r => r.distance_km !== null);
+      const allNearby   = known.length > 0 && known.every(r => r.is_nearby);
+      const anyNearby   = known.some(r => r.is_nearby);
+      const anyDistant  = known.some(r => !r.is_nearby);
+      const anyUnknown  = results.some(r => r.distance_km === null);
+
+      let routing_recommendation;
+      if (!hostLat || !hostLng) {
+        routing_recommendation = 'host_location_unknown — ask user to set their location in Settings, then re-check';
+      } else if (allNearby && !anyUnknown) {
+        routing_recommendation = 'flexible — all invitees are nearby; open invite works, no need to coordinate a specific time';
+      } else if (anyDistant || anyUnknown) {
+        routing_recommendation = anyNearby
+          ? 'mixed — some nearby (flexible invite ok), some distant or unknown (coordinate time via message_agent)'
+          : 'coordinate — invitees are distant or location unknown; agree on a specific time via message_agent';
+      } else {
+        routing_recommendation = 'coordinate — location data incomplete; use message_agent to check availability';
+      }
+
+      return { invitees: results, routing_recommendation, nearby_threshold_km: NEARBY_KM };
+    }
+
     case 'confirm_coordination_invite': {
       const { invitation_id, status, add_to_calendar } = toolInput;
       const inv = db._raw().prepare(`
@@ -1381,7 +1450,15 @@ PRONOUN RESOLUTION — figure out who "him/her/them" means before asking:
 
 AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - Before asking the user anything about a third party (their availability, dietary needs, preferences), use message_agent to ask THEIR agent directly.
-- For planning a group event: message_agent each invitee's agent first for availability and constraints → only then suggest a plan to the user.
+- COORDINATION ALGORITHM — always follow this order when planning a group event:
+  1. ASSESS LOCATION FIRST: call check_invitee_locations before anything else. The tool returns a routing_recommendation.
+  2. Route on the recommendation:
+     - "flexible" → all nearby; use flexible_time: true, skip time coordination entirely
+     - "mixed" → flexible invite for nearby contacts; message_agent only for distant ones
+     - "coordinate" → message_agent each invitee for availability; collect replies; propose reconciled time to host
+     - "host_location_unknown" → tell user to set their location in Settings; meanwhile ask if they want flexible or a specific time
+  3. NEVER skip step 1. Do not assume distance. Do not ask "what time?" when check_invitee_locations says flexible.
+- For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
 - When you receive an [Agent query] or [Agent reply] message, handle it autonomously: answer factual questions about your user from the preferences snapshot, use reply_agent to respond. Only involve your user if the question requires their judgment.
 - Agents talking to agents: share hard constraints freely (allergies, dietary restrictions, availability). Never share soft preferences, exclusion reasons, or private notes.
 - The user should feel like things just got handled — not like they're managing a group chat.
@@ -1438,7 +1515,7 @@ COORDINATING PLANS:
 - create_social_event sends the invite message automatically. Do NOT also call send_logistics_sms for the same invite.
 - NEVER call create_social_event more than once for the same event. If you are uncertain about the time or date, ask the user to clarify BEFORE creating the event — do not create multiple versions and cancel the wrong one.
 - FLEXIBLE / OPEN-TIME events: if the user explicitly says no fixed time — "come when you're ready", "whenever works", "open invite", "drop by any time", "they'll come over when ready" — do NOT ask for a time. Set flexible_time: true and omit scheduled_at. The invite will say "come over whenever works for you." Respect this choice without nagging for a time.
-- LOCATION CONTEXT: if contacts are described as nearby or local, a flexible open-invite makes perfect sense. Do NOT treat "no fixed time" as a missing piece of information when the user has explicitly said it's intentional.
+- LOCATION CONTEXT: use check_invitee_locations to objectively determine proximity — do not guess from descriptions alone. If the tool confirms all invitees are nearby, a flexible open-invite is the right choice; do not ask for a time. If the user says "they're all local" but location is unknown in the DB, trust the user and use flexible_time: true.
 - If the user says something vague like "tonight" or "this weekend" without specifying a time AND has not said they want a flexible/open invite: DO NOT pick a time yourself. ALWAYS try message_agent for each invitee first — the tool will tell you if they're not on ButterflAI. Collect availability from all agents who respond, then propose a reconciled time to the host. Only call create_social_event once you have a confirmed time or the user says flexible_time is fine.
 - TIER CONFUSION — critical: a contact's tier in your contact list (0, 1, 2) reflects your SMS/contact permission, NOT whether they are a ButterflAI user. NEVER assume a Tier 1 contact is "not on ButterflAI" — they very likely ARE. Always call message_agent and let the tool tell you if they don't have an account. Only say they're "not on ButterflAI" if message_agent returns an explicit error saying so.
 - If message_agent succeeds for a contact: wait for their agent to reply via agent_reply channel, then reconcile availability and propose options to the host.
