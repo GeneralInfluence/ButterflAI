@@ -586,11 +586,19 @@ module.exports = {
     }
     const existing = db.prepare('SELECT user_id FROM user_preferences WHERE user_id = ?').get(userId);
     if (!existing) {
-      const cols = ['user_id', ...Object.keys(toWrite)].join(', ');
-      const placeholders = ['?', ...Object.keys(toWrite).map(() => '?')].join(', ');
-      db.prepare(`INSERT INTO user_preferences (${cols}) VALUES (${placeholders})`)
-        .run(userId, ...Object.values(toWrite));
+      // On INSERT, skip null fields — let the DB use column defaults
+      const nonNull = Object.fromEntries(Object.entries(toWrite).filter(([,v]) => v !== null && v !== undefined));
+      if (Object.keys(nonNull).length === 0) {
+        // Nothing to insert — just ensure row exists
+        db.prepare('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(userId);
+      } else {
+        const cols = ['user_id', ...Object.keys(nonNull)].join(', ');
+        const placeholders = ['?', ...Object.keys(nonNull).map(() => '?')].join(', ');
+        db.prepare(`INSERT INTO user_preferences (${cols}) VALUES (${placeholders})`)
+          .run(userId, ...Object.values(nonNull));
+      }
     } else {
+      // On UPDATE, null clears the field — SQLite handles NULL fine
       const sets = Object.keys(toWrite).map(k => `${k} = ?`).join(', ');
       db.prepare(`UPDATE user_preferences SET ${sets}, updated_at = strftime('%s','now') WHERE user_id = ?`)
         .run(...Object.values(toWrite), userId);
