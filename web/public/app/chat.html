@@ -65,22 +65,15 @@
     @media (max-width: 640px) {
       .header-actions a:not(#loc-btn) { display: none; } /* hide text nav links */
 
-      /* Input row: fixed above bottom nav — reliable across Android PWA/gesture-nav quirks */
-      .input-row {
-        position: fixed;
-        left: 0; right: 0;
-        bottom: calc(58px + env(safe-area-inset-bottom));
-        z-index: 50;
+      /* Chat layout on mobile: body is a flex column.
+         Input row stays IN THE FLOW (not fixed) — this means #messages gets exactly
+         the right height with zero padding-bottom math.
+         Body padding-bottom carves out space for the fixed bottom-nav underneath. */
+      body {
+        padding-bottom: calc(58px + env(safe-area-inset-bottom));
       }
-
-      /* Messages: pad bottom so last message isn't hidden behind fixed input+nav */
-      #messages {
-        /* Extra padding so last message isn't under the fixed input + nav */
-        padding-bottom: calc(var(--input-h) + 58px + env(safe-area-inset-bottom) + 20px);
-        /* scroll-padding-bottom tells scrollIntoView to treat the input+nav zone
-           as off-limits — the anchor will scroll to just above the input bar */
-        scroll-padding-bottom: calc(var(--input-h) + 58px + env(safe-area-inset-bottom) + 20px);
-      }
+      /* #messages needs no extra padding — input row is below it in the flow */
+      #messages { padding-bottom: 16px; }
 
       .bottom-nav {
         display: flex; position: fixed; bottom: 0; left: 0; right: 0;
@@ -250,15 +243,16 @@
       <div class="emoji">🦋</div>
       <p>Start chatting with your ButterflAI</p>
     </div>
-    <!-- scroll anchor: always sits below the last message so scrollIntoView clears the input bar -->
-    <div id="scroll-anchor" style="height:1px;flex-shrink:0;"></div>
-  </div>
-  <div class="msg bot typing" id="typing">
-    <div class="bubble">
-      <div class="dot"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
+    <!-- typing indicator lives inside #messages so it doesn't affect flex column height -->
+    <div class="msg bot typing" id="typing">
+      <div class="bubble">
+        <div class="dot"></div>
+        <div class="dot"></div>
+        <div class="dot"></div>
+      </div>
     </div>
+    <!-- scroll anchor: always the last child; messages insert before it -->
+    <div id="scroll-anchor" style="height:1px;flex-shrink:0;"></div>
   </div>
 
   <div class="input-row">
@@ -405,7 +399,7 @@
       const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
       div.innerHTML = `<div class="bubble">${escHtml(text)}</div><div class="ts">${time}</div>`;
       // Insert before the scroll anchor so anchor stays last
-      messagesEl.insertBefore(div, scrollAnchor);
+      messagesEl.insertBefore(div, typingEl);
       // Track latest message timestamp for catch-up polling after SSE reconnect
       if (ts && ts > lastMsgTs) lastMsgTs = ts;
     }
@@ -420,7 +414,7 @@
         <span>📍 Share your location so I can find things near you</span>
         <button onclick="shareLocationInline(this)" style="background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap">Share location</button>
       </div>`;
-      messagesEl.insertBefore(div, scrollAnchor);
+      messagesEl.insertBefore(div, typingEl);
       scrollToBottom();
     }
 
@@ -446,10 +440,10 @@
 
     const scrollAnchor = document.getElementById('scroll-anchor');
     function scrollToBottom() {
-      // scrollIntoView on the anchor element is more reliable than scrollTop = scrollHeight:
-      // it always clears the fixed input bar regardless of padding-bottom calculation edge cases.
+      // Input row is now in-flow (not fixed), so #messages gets exact height automatically.
+      // Simple scrollTop = scrollHeight reliably scrolls to the bottom without padding math.
       requestAnimationFrame(() => {
-        scrollAnchor.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+        messagesEl.scrollTop = messagesEl.scrollHeight;
       });
     }
 
