@@ -1597,6 +1597,53 @@ app.post('/api/events/:id/public-rsvp', express.json(), (req, res) => {
   res.json(result);
 });;
 
+// GET /api/events/:id/manage — full event detail + invitee list (organizer only)
+app.get('/api/events/:id/manage', webAuth.requireAuth, (req, res) => {
+  const event = multiparty.getEvent(req.params.id);
+  if (!event || event.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
+  const invitees = db._raw().prepare(`
+    SELECT ei.id AS invitation_id, ei.status, ei.source, c.name, c.phone
+    FROM event_invitations ei
+    JOIN contacts c ON c.id = ei.contact_id
+    WHERE ei.event_id = ?
+    ORDER BY c.name ASC
+  `).all(event.id);
+  res.json({ event, invitees });
+});
+
+// PATCH /api/events/:id — update event_type or status
+app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => {
+  const event = multiparty.getEvent(req.params.id);
+  if (!event || event.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
+  const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address'];
+  const updates = {};
+  for (const k of allowed) {
+    if (req.body[k] !== undefined) updates[k] = req.body[k];
+  }
+  if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nothing to update' });
+  const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+  db._raw().prepare(`UPDATE social_events SET ${sets} WHERE id = ?`).run(...Object.values(updates), event.id);
+  res.json({ ok: true });
+});
+
+// POST /api/events/:id/invite — invite additional contacts
+app.post('/api/events/:id/invite', webAuth.requireAuth, express.json(), async (req, res) => {
+  const event = multiparty.getEvent(req.params.id);
+  if (!event || event.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
+  const { contact_ids } = req.body;
+  if (!Array.isArray(contact_ids) || !contact_ids.length) return res.status(400).json({ error: 'contact_ids required' });
+  const result = await multiparty.inviteContacts(event.id, contact_ids);
+  res.json({ ok: true, ...result });
+});
+
+// DELETE /api/events/:id/invite/:invitationId — remove an invitee
+app.delete('/api/events/:id/invite/:invitationId', webAuth.requireAuth, (req, res) => {
+  const event = multiparty.getEvent(req.params.id);
+  if (!event || event.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
+  db._raw().prepare('DELETE FROM event_invitations WHERE id = ? AND event_id = ?').run(req.params.invitationId, event.id);
+  res.json({ ok: true });
+});
+
 app.get('/api/events/:userId/:eventId', (req, res) => {
   const event = multiparty.getEvent(req.params.eventId);
   if (!event || event.host_user_id !== req.params.userId) return res.status(404).json({ error: 'Not found' });

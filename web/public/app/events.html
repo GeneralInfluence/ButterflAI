@@ -375,28 +375,88 @@
       const rsvpLine = total > 0
         ? `${accepted ? `✅ ${accepted}` : ''}${declined ? ` ❌ ${declined}` : ''}${pending ? ` ⏳ ${pending}` : ''}`.trim()
         : '';
-      return `<div class="card" onclick="toggleDetail(${i})">
-        <div class="card-header">
+      const isPublic = e.event_type === 'public';
+      return `<div class="card">
+        <div class="card-header" onclick="toggleManage('${e.id}', this)" style="cursor:pointer">
           <div>
             <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}</div>
             <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${fmtDate(e.scheduled_at)} ${fmtTime(e.scheduled_at)}</div>
             ${rsvpLine ? `<div class="card-sub" style="margin-top:2px;font-size:13px">${rsvpLine}</div>` : ''}
           </div>
-          <span class="badge ${statusClass(e.status)}">${escHtml(e.status || 'unknown')}</span>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <span class="badge ${statusClass(e.status)}">${escHtml(e.status || 'unknown')}</span>
+            <span style="font-size:11px;color:#8e8e93;font-weight:500">${isPublic ? '🌐 Public' : '🔒 Private'}</span>
+          </div>
         </div>
-        <div class="detail" id="detail-${i}">
-          ${e.venue_name    ? `<div><strong>Venue:</strong> ${escHtml(e.venue_name)}</div>` : ''}
-          ${e.venue_address ? `<div><strong>Address:</strong> ${escHtml(e.venue_address)}</div>` : ''}
-          ${e.scheduled_at  ? `<div><strong>Date:</strong> ${fmtDate(e.scheduled_at)} ${fmtTime(e.scheduled_at)}</div>` : ''}
-          ${e.notes         ? `<div><strong>Notes:</strong> ${escHtml(e.notes)}</div>` : ''}
-          <div><strong>Share:</strong> <a href="/event/${e.id}" target="_blank" style="color:#7c3aed">butterflai.social/event/${e.id.slice(0,8)}…</a></div>
+        <div class="detail" id="manage-${e.id}" style="display:none;padding-top:14px;border-top:1px solid #f2f2f7;margin-top:12px">
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button onclick="toggleVisibility('${e.id}','${isPublic ? 'private' : 'public'}',this)" style="flex:1;padding:10px;border-radius:10px;border:none;background:${isPublic ? '#f2f2f7' : 'linear-gradient(135deg,#a78bfa,#7c3aed)'};color:${isPublic ? '#3a3a3c' : '#fff'};font-size:14px;font-weight:600;cursor:pointer">
+              ${isPublic ? '🔒 Make Private' : '🌐 Make Public'}
+            </button>
+            <a href="/event/${e.id}" target="_blank" style="flex:1;padding:10px;border-radius:10px;background:#f2f2f7;color:#3a3a3c;font-size:14px;font-weight:600;text-align:center;text-decoration:none">🔗 Share link</a>
+          </div>
+          <div id="invitees-${e.id}"><div style="color:#8e8e93;font-size:14px;text-align:center;padding:8px">Loading guest list…</div></div>
         </div>
       </div>`;
     }).join('');
   }
 
-  function toggleDetail(i) {
-    document.getElementById(`detail-${i}`)?.classList.toggle('open');
+  async function toggleManage(eventId, headerEl) {
+    const drawer = document.getElementById(`manage-${eventId}`);
+    const isOpen = drawer.style.display !== 'none';
+    drawer.style.display = isOpen ? 'none' : '';
+    if (!isOpen) await loadInvitees(eventId);
+  }
+
+  async function loadInvitees(eventId) {
+    const el = document.getElementById(`invitees-${eventId}`);
+    try {
+      const { invitees } = await fetch(`/api/events/${eventId}/manage`).then(r => r.json());
+      if (!invitees.length) {
+        el.innerHTML = '<div style="color:#8e8e93;font-size:14px;text-align:center;padding:8px">No invites sent yet.</div>';
+        return;
+      }
+      const statusIcon = { accepted: '✅', declined: '❌', invited: '⏳', no_response: '—' };
+      el.innerHTML = `<div style="font-size:12px;font-weight:600;color:#8e8e93;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Guest list</div>` +
+        invitees.map(inv => `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f9f9f9">
+            <span style="font-size:16px">${statusIcon[inv.status] || '—'}</span>
+            <div style="flex:1;font-size:14px;color:#1c1c1e">${escHtml(inv.name || inv.phone || 'Guest')}</div>
+            <button onclick="removeInvite('${eventId}','${inv.invitation_id}',this)" style="background:none;border:none;color:#ef4444;font-size:13px;cursor:pointer;padding:4px 8px">Remove</button>
+          </div>
+        `).join('');
+    } catch (_) {
+      el.innerHTML = '<div style="color:#ef4444;font-size:14px">Could not load guest list.</div>';
+    }
+  }
+
+  async function toggleVisibility(eventId, newType, btn) {
+    btn.disabled = true;
+    const r = await fetch(`/api/events/${eventId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_type: newType })
+    });
+    if (r.ok) {
+      // Update local data and re-render
+      const ev = allEvents.find(e => e.id === eventId);
+      if (ev) ev.event_type = newType;
+      showTab(currentTab);
+    } else {
+      btn.disabled = false;
+      alert('Could not update. Try again.');
+    }
+  }
+
+  async function removeInvite(eventId, invitationId, btn) {
+    btn.disabled = true;
+    const r = await fetch(`/api/events/${eventId}/invite/${invitationId}`, { method: 'DELETE' });
+    if (r.ok) {
+      btn.closest('div[style]').remove();
+    } else {
+      btn.disabled = false;
+      alert('Could not remove. Try again.');
+    }
   }
 
   function showTab(tab) {
