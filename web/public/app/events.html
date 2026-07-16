@@ -369,6 +369,20 @@
       return;
     }
     el.innerHTML = events.map((e, i) => {
+      // Invited events (past accepted/declined) render as a simpler read-only card
+      if (e._isInvite) {
+        const statusLabel = { accepted: '✅ Went', declined: '❌ Declined', invited: '⏳ Pending', no_response: '—' }[e.rsvp_status] || e.rsvp_status;
+        return `<div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}</div>
+              <div class="card-sub">Hosted by ${escHtml(e.host_name || '?')} · ${fmtDate(e.scheduled_at)} ${fmtTime(e.scheduled_at)}</div>
+              ${e.venue_name ? `<div class="card-sub" style="margin-top:2px">📍 ${escHtml(e.venue_name)}</div>` : ''}
+            </div>
+            <span class="badge">${statusLabel}</span>
+          </div>
+        </div>`;
+      }
       const rsvp = e.rsvp || {};
       const accepted = rsvp.accepted || 0;
       const declined = rsvp.declined || 0;
@@ -467,10 +481,22 @@
     document.getElementById('tab-invited').classList.toggle('active', tab === 'invited');
     document.getElementById('tab-past').classList.toggle('active',    tab === 'past');
     if (tab === 'invited') {
-      renderInvited(invitedEvents);
+      // Invited tab: pending invites + upcoming accepted invites
+      renderInvited(invitedEvents.filter(e =>
+        e.rsvp_status === 'invited' || (e.scheduled_at||0) >= now
+      ));
       return;
     }
-    const filtered = allEvents.filter(e => tab === 'upcoming' ? (e.scheduled_at||0) >= now : (e.scheduled_at||0) < now);
+    // Past tab: hosted past events + past accepted/declined invitations
+    const pastInvites = tab === 'past'
+      ? invitedEvents
+          .filter(e => !e.flexible_time && (e.scheduled_at||0) < now)
+          .map(e => ({ ...e, _isInvite: true, title: e.title, status: e.rsvp_status }))
+      : [];
+    const filtered = [
+      ...allEvents.filter(e => tab === 'upcoming' ? (e.scheduled_at||0) >= now : (e.scheduled_at||0) < now),
+      ...pastInvites,
+    ];
     filtered.sort((a, b) => tab === 'upcoming' ? (a.scheduled_at||0) - (b.scheduled_at||0) : (b.scheduled_at||0) - (a.scheduled_at||0));
     renderList(filtered);
   }
