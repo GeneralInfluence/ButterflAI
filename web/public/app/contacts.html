@@ -247,16 +247,21 @@
 
   <!-- Action buttons -->
   <div class="toolbar">
-    <button class="import-btn btn-primary" id="picker-btn" onclick="openContactPicker()">
-      📱 Import from Contacts
+    <!-- Android Chrome: Contact Picker API -->
+    <button class="import-btn btn-primary" id="picker-btn" onclick="openContactPicker()" style="display:none">
+      👥 Import from Contacts
     </button>
+    <!-- iOS / universal: vCard file upload -->
+    <label class="import-btn btn-primary" id="vcf-btn" style="cursor:pointer">
+      📇 Import contacts file
+      <input type="file" id="vcf-input" accept=".vcf,text/vcard,text/x-vcard" style="display:none" onchange="handleVcfFile(this)">
+    </label>
     <button class="import-btn btn-secondary" onclick="toggleManualAdd()">
       ✏️ Add manually
     </button>
   </div>
-  <!-- Fallback hint shown when Contact Picker API unavailable -->
-  <div id="picker-hint" style="display:none;margin:0 16px 12px;padding:12px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;font-size:13px;color:#92400e;line-height:1.5;">
-    <strong>Open in Safari</strong> to import contacts automatically — Safari on iOS supports direct contact access. Or use "Add manually" above.
+  <div id="import-hint" style="margin:0 16px 12px;padding:12px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;font-size:13px;color:#0c4a6e;line-height:1.5;">
+    <strong>iPhone:</strong> Open the Contacts app → tap a contact → scroll down → <em>Share Contact</em> → save the .vcf file, then upload it here. To export multiple, use <a href="https://icloud.com/contacts" target="_blank" style="color:#0c4a6e">iCloud.com</a> → select all → Export vCard.
   </div>
 
   <!-- Manual add form -->
@@ -330,44 +335,21 @@
       setTimeout(() => el.classList.remove('show'), ms);
     }
 
-    // ── Contact Picker API ────────────────────────────────────────────────────
-    // iOS Safari exposes navigator.contacts but NOT window.ContactsManager —
-    // so check the method directly, not the global constructor.
+    // ── Contact Picker API (Android Chrome only) ──────────────────────────────
+    // NOTE: iOS Safari does NOT support the Contact Picker API.
+    // iOS uses vCard (.vcf) file upload instead (see handleVcfFile below).
     const supportsContactPicker = !!(navigator.contacts && typeof navigator.contacts.select === 'function');
-    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 
-    if (!supportsContactPicker) {
-      if (isIOS) {
-        // On iOS but API still missing (very old iOS, or edge case) — show hint
-        document.getElementById('picker-hint').style.display = 'block';
-        document.getElementById('picker-hint').innerHTML =
-          '<strong>iOS 14.5+ required</strong> — update your iPhone to enable automatic contact import, or use "Add manually" above.';
-      } else {
-        // Desktop: hide the import button, only manual add makes sense
-        document.getElementById('picker-btn').style.display = 'none';
-      }
-    } else {
-      // API supported — hide the hint
-      document.getElementById('picker-hint').style.display = 'none';
+    if (supportsContactPicker) {
+      // Android Chrome: show the native picker button, hide file upload
+      document.getElementById('picker-btn').style.display = 'flex';
+      document.getElementById('vcf-btn').style.display = 'none';
+      document.getElementById('import-hint').style.display = 'none';
     }
 
     async function openContactPicker() {
-      if (!supportsContactPicker) {
-        showToast(isIOS
-          ? 'Update iOS to 14.5 or later to import contacts automatically.'
-          : 'Contact import is only available on iOS Safari and Android Chrome.'
-        , 4000);
-        return;
-      }
       try {
         const props = ['name', 'tel'];
-        if (navigator.contacts.getProperties) {
-          const supported = await navigator.contacts.getProperties();
-          if (!supported.includes('name') || !supported.includes('tel')) {
-            showToast('Contact access not supported on this device.');
-            return;
-          }
-        }
         const raw = await navigator.contacts.select(props, { multiple: true });
         if (!raw || raw.length === 0) return;
 
@@ -492,6 +474,49 @@
         closeModal();
         showToast('Import failed — check your connection.');
       }
+    }
+
+    // ── vCard file upload (iOS + universal fallback) ──────────────────────────
+
+    function parseVCards(text) {
+      // Split on BEGIN:VCARD boundaries, handle CRLF and LF
+      const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const cards = normalized.split(/BEGIN:VCARD/i).slice(1); // drop empty first element
+      const results = [];
+      for (const card of cards) {
+        // Full name: FN field
+        const fnMatch = card.match(/^FN:(.+)$/mi);
+        const name = fnMatch ? fnMatch[1].trim() : null;
+        if (!name) continue;
+
+        // Phone: first TEL field found (may be TEL;TYPE=CELL: or TEL:)
+        const telMatch = card.match(/^TEL[^:]*:(.+)$/mi);
+        const phone = telMatch ? telMatch[1].trim().replace(/\s+/g, '') : '';
+
+        results.push({ name, phone });
+      }
+      return results;
+    }
+
+    function handleVcfFile(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          pickerCandidates = parseVCards(e.target.result);
+          if (pickerCandidates.length === 0) {
+            showToast('No contacts found in that file.', 4000);
+            return;
+          }
+          openModal();
+        } catch (err) {
+          showToast('Could not read contacts file.');
+        }
+      };
+      reader.readAsText(file);
+      // Reset so the same file can be re-selected if needed
+      input.value = '';
     }
 
     // ── Manual add ────────────────────────────────────────────────────────────
