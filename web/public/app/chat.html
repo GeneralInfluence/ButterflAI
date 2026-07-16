@@ -74,7 +74,13 @@
       }
 
       /* Messages: pad bottom so last message isn't hidden behind fixed input+nav */
-      #messages { padding-bottom: calc(var(--input-h) + 58px + env(safe-area-inset-bottom) + 8px); }
+      #messages {
+        /* Extra padding so last message isn't under the fixed input + nav */
+        padding-bottom: calc(var(--input-h) + 58px + env(safe-area-inset-bottom) + 20px);
+        /* scroll-padding-bottom tells scrollIntoView to treat the input+nav zone
+           as off-limits — the anchor will scroll to just above the input bar */
+        scroll-padding-bottom: calc(var(--input-h) + 58px + env(safe-area-inset-bottom) + 20px);
+      }
 
       .bottom-nav {
         display: flex; position: fixed; bottom: 0; left: 0; right: 0;
@@ -411,7 +417,7 @@
       // scrollIntoView on the anchor element is more reliable than scrollTop = scrollHeight:
       // it always clears the fixed input bar regardless of padding-bottom calculation edge cases.
       requestAnimationFrame(() => {
-        scrollAnchor.scrollIntoView({ behavior: 'instant', block: 'end' });
+        scrollAnchor.scrollIntoView({ behavior: 'instant', block: 'nearest' });
       });
     }
 
