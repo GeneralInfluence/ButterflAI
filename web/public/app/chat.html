@@ -323,8 +323,7 @@
         if (data.role === 'assistant') {
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
-          appendMessage('bot', data.text, data.ts);
-          scrollToBottom();
+          appendMessage('bot', data.text, data.ts); // appendMessage handles scroll for bot messages
         }
         if (data.redirect) { location.href = data.redirect; }
       };
@@ -397,11 +396,21 @@
       const div  = document.createElement('div');
       div.className = `msg ${role}`;
       const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
-      div.innerHTML = `<div class="bubble">${escHtml(text)}</div><div class="ts">${time}</div>`;
-      // Insert before the scroll anchor so anchor stays last
+      div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="ts">${time}</div>`;
+      // Insert before typing indicator so anchor stays last
       messagesEl.insertBefore(div, typingEl);
       // Track latest message timestamp for catch-up polling after SSE reconnect
       if (ts && ts > lastMsgTs) lastMsgTs = ts;
+      // For bot messages: scroll to show the TOP of the new message (not the bottom),
+      // so long responses are readable from the beginning.
+      // For user messages: scroll to bottom so the sent message is visible.
+      if (role === 'bot') {
+        requestAnimationFrame(() => {
+          div.scrollIntoView({ behavior: 'instant', block: 'start' });
+        });
+      } else {
+        scrollToBottom();
+      }
     }
 
     function showLocationPrompt() {
@@ -448,7 +457,15 @@
     }
 
     function escHtml(t) {
-      return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+      return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // Render markdown subset: bold, italic, newlines. XSS-safe (escapes HTML first).
+    function renderText(t) {
+      return escHtml(t)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')  // **bold**
+        .replace(/\*(.+?)\*/g,     '<em>$1</em>')           // *italic*
+        .replace(/\n/g, '<br>');
     }
 
     // ── Location ───────────────────────────────────────────────────────────────
