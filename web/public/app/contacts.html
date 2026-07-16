@@ -742,6 +742,32 @@
       }
     })();
 
+    // ── DEBUG: temporary panel to diagnose blank contacts ─────────────────────
+    (async function debugContacts() {
+      const panel = document.createElement('div');
+      panel.id = 'dbg-panel';
+      panel.style.cssText = 'background:#1c1c1e;color:#fff;font-family:monospace;font-size:11px;padding:10px;margin:8px;border-radius:8px;white-space:pre-wrap;word-break:break-all;';
+      document.querySelector('main').appendChild(panel);
+      function dbg(msg) { panel.textContent += msg + '\n'; console.log('[contacts-dbg]', msg); }
+      try {
+        dbg('load() called');
+        const r = await fetch('/api/contacts/list?offset=0');
+        dbg('fetch status: ' + r.status);
+        if (r.status !== 200) { dbg('ERROR: non-200'); return; }
+        const data = await r.json();
+        dbg('total=' + data.total + ' contacts.length=' + (data.contacts||[]).length);
+        dbg('contacts: ' + JSON.stringify((data.contacts||[]).map(c=>({name:c.name,tier:c.tier}))));
+        const list = document.getElementById('list');
+        dbg('list element: ' + (list ? 'found' : 'MISSING'));
+        if (list && data.contacts.length) {
+          list.innerHTML = data.contacts.map(c =>
+            `<div class="contact-item"><div class="initials">${(c.nickname||c.name||'?')[0].toUpperCase()}</div><div class="contact-info"><div class="contact-name">${c.nickname||c.name}</div><div class="contact-phone">${c.phone||''}</div></div><span class="tier-badge tier-${c.tier}">${['Saved','Connected','ButterflAI'][c.tier]||'T'+c.tier}</span></div>`
+          ).join('');
+          dbg('rendered ' + data.contacts.length + ' rows');
+        }
+      } catch(e) { dbg('EXCEPTION: ' + e.message + '\n' + e.stack); }
+    })();
+
     load();
   </script>
 <script src="/update-check.js"></script>
