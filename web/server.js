@@ -834,6 +834,72 @@ function escapeXml(str) {
 
 // ── Referral routes ───────────────────────────────────────────────────────────
 
+// GET /event/:id — public event invite page
+app.get('/event/:id', (req, res) => {
+  const event = multiparty.getEvent(req.params.id);
+  if (!event || event.status === 'cancelled') {
+    return res.status(404).send('Event not found or cancelled.');
+  }
+  const host = db.getUser(event.host_user_id);
+  const hostName = host?.name || 'Someone';
+  const dt = new Date(event.scheduled_at * 1000);
+  const dateStr = dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' });
+  const timeStr = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: 'America/New_York' });
+  res.send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${event.title} — ButterflAI</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,sans-serif;background:#f2f2f7;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#fff;border-radius:20px;padding:32px 24px;max-width:420px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+.emoji{font-size:48px;text-align:center;margin-bottom:16px}
+h1{font-size:22px;font-weight:700;color:#1c1c1e;margin-bottom:8px;text-align:center}
+.host{font-size:15px;color:#8e8e93;text-align:center;margin-bottom:24px}
+.detail{display:flex;gap:12px;align-items:flex-start;margin-bottom:14px}
+.detail-icon{font-size:20px;flex-shrink:0;width:28px;text-align:center}
+.detail-text{font-size:15px;color:#3a3a3c;line-height:1.4}
+.detail-label{font-size:12px;color:#8e8e93;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+.divider{border:none;border-top:1px solid #f2f2f7;margin:20px 0}
+.btn{display:block;width:100%;padding:16px;border-radius:14px;font-size:17px;font-weight:600;text-align:center;text-decoration:none;cursor:pointer;border:none;margin-bottom:10px}
+.btn-primary{background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff}
+.btn-secondary{background:#f2f2f7;color:#3a3a3c}
+.powered{font-size:12px;color:#c7c7cc;text-align:center;margin-top:16px}
+</style>
+</head><body>
+<div class="card">
+  <div class="emoji">${event.activity_type === 'party' ? '🎉' : event.activity_type === 'pool' ? '🏊' : '🦋'}</div>
+  <h1>${event.title}</h1>
+  <p class="host">Hosted by ${hostName}</p>
+  <div class="detail">
+    <div class="detail-icon">📅</div>
+    <div class="detail-text">
+      <div class="detail-label">When</div>
+      ${dateStr}<br>${timeStr}
+    </div>
+  </div>
+  ${event.venue_name ? `<div class="detail">
+    <div class="detail-icon">📍</div>
+    <div class="detail-text">
+      <div class="detail-label">Where</div>
+      ${event.venue_name}${event.venue_address ? `<br><span style="color:#8e8e93">${event.venue_address}</span>` : ''}
+    </div>
+  </div>` : ''}
+  ${event.notes ? `<div class="detail">
+    <div class="detail-icon">💬</div>
+    <div class="detail-text">
+      <div class="detail-label">Notes</div>
+      ${event.notes}
+    </div>
+  </div>` : ''}
+  <hr class="divider">
+  <a class="btn btn-primary" href="/join">RSVP via ButterflAI</a>
+  <p class="powered">Powered by 🦋 ButterflAI</p>
+</div>
+</body></html>`);
+});
+
 // GET /r/:token — referral landing (redirect to join with ref param)
 app.get('/r/:token', (req, res) => {
   const token = req.params.token;

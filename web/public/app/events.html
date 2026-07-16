@@ -392,7 +392,10 @@
     currentTab = tab;
     document.getElementById('tab-upcoming').classList.toggle('active', tab === 'upcoming');
     document.getElementById('tab-past').classList.toggle('active', tab === 'past');
-    renderList(allEvents.filter(e => tab === 'upcoming' ? (e.scheduled_at||0) >= now : (e.scheduled_at||0) < now));
+    const filtered = allEvents.filter(e => tab === 'upcoming' ? (e.scheduled_at||0) >= now : (e.scheduled_at||0) < now);
+    // Upcoming: soonest first; Past: most recent first
+    filtered.sort((a, b) => tab === 'upcoming' ? (a.scheduled_at||0) - (b.scheduled_at||0) : (b.scheduled_at||0) - (a.scheduled_at||0));
+    renderList(filtered);
   }
 
   // ── Calendar view ────────────────────────────────────────────────────────────
