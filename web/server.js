@@ -61,7 +61,7 @@ app.set('trust proxy', 1);
 // Temporary request logger for debugging
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
-    console.log(`[req] ${req.method} ${req.path} cookie=${req.headers.cookie ? 'yes' : 'NO'}`);
+    console.log(`[req] ${req.method} ${req.path} cookie=${req.headers.cookie ? 'yes' : 'NO'} ip=${req.ip}`);
   }
   next();
 });
@@ -1403,6 +1403,12 @@ app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res)
     console.error('[chat/send] failed to store message:', err.message);
     res.status(500).json({ error: 'Failed to send message.' });
   }
+});
+
+// GET /api/debug/me — debug: who am I + contact count
+app.get('/api/debug/me', webAuth.requireAuth, (req, res) => {
+  const contacts = db.getContactsByUser(req.user.id);
+  res.json({ userId: req.user.id, name: req.user.name, phone: req.user.phone, contactCount: contacts.length, contacts: contacts.map(c => ({ name: c.name, tier: c.tier })) });
 });
 
 // GET /api/contacts/list — contacts for the authenticated user
