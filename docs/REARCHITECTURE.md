@@ -127,6 +127,7 @@ v1 runs all enclaves under one operator but with **real boundaries in code** (si
 **Phase 1 — identity & isolation:**
 5. Per-user SQLite split (G7, PLAN item 8).
 6. Ed25519 per-agent keypairs; sign/verify every protocol message; retire shared HMAC (G6).
+7. **Thread the user's timezone through the coordination date pipeline** (deferred from the Phase 0 tz sweep). `desires.js` (`today`/`nextWeek`), `coord-loop.js` (desire expiry), and `coordination.js` (`_today`) all judge the user's "today"/"this week" by the UTC/process date. They are currently UTC-consistent (so not broken, just UTC-centric); the correct fix is to anchor these to each user's stored timezone as part of this rewrite — not a process-local patch, which would be a prod no-op and break the UTC-consistency.
 
 **Phase 2 — confidential compute:**
 7. Carve out the "sensitive reasoning core" as an enclave binary (decrypt + reason + emit). Orchestrator ↔ enclave over vsock.
