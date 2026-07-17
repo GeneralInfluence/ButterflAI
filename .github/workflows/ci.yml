@@ -9,6 +9,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Run the suite under both UTC and a UTC-negative zone. GitHub runners default to UTC,
+    # which MASKS timezone bugs (date/day-of-week math that only diverges off-UTC). Running
+    # America/Los_Angeles too catches that whole class before it reaches prod (the app's
+    # default user timezone is America/Los_Angeles).
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: ['UTC', 'America/Los_Angeles']
     defaults:
       run:
         working-directory: web
@@ -25,12 +33,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
+      - name: Run tests (TZ=${{ matrix.tz }})
         run: npm test
         env:
           NODE_ENV: test
           DB_PATH: ':memory:'
           JWT_SECRET: ci-test-secret
+          TZ: ${{ matrix.tz }}
 
   deploy:
     needs: test

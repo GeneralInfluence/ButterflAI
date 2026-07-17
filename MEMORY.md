@@ -16,12 +16,12 @@ stack:
   data: sqlite
   hosting: fly.io
   human_channel: sms_twilio            # CHANGED: Telegram removed as primary; SMS is now the human interface
-  agent_to_agent_channel: mcp
+  agent_to_agent_channel: sqlite_queue_today__federated_protocol_target   # CORRECTED 2026-07-17: MCP was the vision, never built. Reality today = inbound_messages queue (channel=agent_query / agent_reply). Target = federated signed protocol, see docs/REARCHITECTURE.md §2.2
   chain: base                          # encrypted prefs as NFT metadata; wallet integration via ClawBank
 channels:
   human_to_own_agent: sms              # voice-to-text on phone keyboard covers "talking" to agent
   agent_to_contact: sms                # invites + non-tier2 coordination
-  agent_to_agent: mcp                  # never carries private preferences
+  agent_to_agent: sqlite_message_queue # CORRECTED: inbound_messages, channel=agent_query/agent_reply — NOT mcp. Must not carry private preferences; federation is the target (REARCHITECTURE.md)
 agent_topology:
   model: master_agent_plus_ephemeral_per_user_subagents
   identity_keys: [phone_number, mcp_key]   # both map to same user_id
@@ -64,6 +64,10 @@ build_state:
   wallet_nft_privacy_layer: deprecated              # did not deliver real revocation; replaced by §2 governance
   private_data_governance: spec_complete_not_built  # server-side encrypted + audited; see IMPLEMENTATION.md §2
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
+  web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
+  flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
+  test_suite: live_382_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  ci_cd: live                               # push to main → auto-deploy after tests pass
 permission_model:
   source_of_truth: four_flag_edge            # tiers are UI over this
   flags: [can_store, can_infer, can_contact, can_coordinate]
@@ -198,7 +202,6 @@ A contact agreeing to be messaged has NOT agreed to be modeled. The agent may kn
 9. Hold Tier-2 live coordination until non-retention enforcement (Open Q1) is decided.
 
 ---
-*Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*
 
 ## Core UX Principle [LOCKED 2026-06-19]
 
@@ -264,3 +267,167 @@ When coordination is needed:
 6. **Cadence intelligence** — who hasn't been seen in a while, what's the right nudge
 
 The user should feel like they have a brilliant EA who knows them deeply, handles everything quietly, and only surfaces what actually needs their attention.
+
+---
+
+## 7. Test suite — mandatory reading before any code change `[LOCKED]`
+
+**Location:** `butterflai-repo/web/tests/` — full developer docs at `web/tests/TESTING.md`
+
+**Current state (2026-07-16, updated):** 327 tests passing across 13 files.
+
+### system-prompt.test.js — behavioral rule coverage `[LOCKED]`
+
+**File:** `web/tests/integration/system-prompt.test.js`
+**Purpose:** Asserts that every behavioral guardrail and interaction-pattern rule is present in the text the LLM actually receives. Tests call `buildSystemPrompt()` (exported from `agent.js`) and assert on string content — no Anthropic API calls needed.
+
+**Process — mandatory for every new interaction pattern or rule:**
+1. Identify the rule (from real usage, a bug postmortem, or a product decision)
+2. Encode it clearly in the system prompt in `buildSystemPrompt()` (in `web/agent.js`)
+3. Add an assertion in `system-prompt.test.js` that checks for the canonical phrase
+4. Run `node --test tests/integration/system-prompt.test.js` — must be green before commit
+
+**Examples of rules already covered (33 assertions as of 2026-07-16):**
+- Self-identify + STOP on every first outbound contact
+- `send_contact_invite` is ONLY for Tier 0 onboarding — NEVER for social invites → use `create_social_event`
+- "invite my [group] to [X]" → `manage_contact_group` → `create_social_event` with all members
+- Vague time ("tonight") → ask invitees or host, never invent a time like 7 PM
+- Expressive messages need user approval before send; logistics can auto-run
+- Contact edit conflict: contact's version wins, user notified
+- Plan disclosure is pull-not-push, only to host-chosen invitees
+- Exclusion reasons never cross agent-to-agent wire
+- FLAI: capability language only, no balance/score shown ever
+- One clarifying question max; direct commands execute immediately
+
+**When a new pattern is found in production:**
+- Do NOT just fix the code. Also update `system-prompt.test.js` so the fix can't regress.
+- The test is the durable memory of "we learned this the hard way."
+
+```
+tests/unit/
+  cadence.test.js       8 tests  — isNudgeDue(), buildNudgeText() pure logic
+  flai.test.js         10 tests  — FLAI ledger, burn hooks, baseline grant, stubs
+  lift.test.js          5 tests  — estimators, discovery stub, inputs JSON
+  referral.test.js      8 tests  — token idempotency, round-trip, redeem, reward
+
+tests/integration/
+  auth.test.js         12 tests  — OTP, JWT, protected route redirects (security)
+  api.test.js          11 tests  — health, user, contacts, dashboard, referral
+  onboarding.test.js    7 tests  — web signup, referral redemption, setup wizard
+  sms-flows.test.js     9 tests  — STOP, START, nudge confirm, attendance batched
+  events.test.js       ~80 tests — event dedup, event_type, RSVP, notifications,
+                                   management endpoints, public RSVP, nicknames,
+                                   profile update, push subscriptions
+  rendering.test.js    83 tests  — PWA meta tags (all pages), mobile layout,
+                                   manifest.json, sw.js compliance, static assets,
+                                   install-prompt.js, update-check.js, auth guards
+
+tests/consent.test.js  12 tests  — consent gate, opt-out, E.164 (legacy, keep)
+tests/coordination.test.js 5 tests — agent-to-agent MCP stubs
+```
+
+**Run tests:**
+```sh
+cd butterflai-repo/web
+npm test               # all 283 tests — run this before every commit
+npm run test:unit      # unit only (~1s)
+npm run test:integration  # HTTP tests (~5-10s)
+npm run test:eval      # LLM agent evals (slow + costs credits — manual only)
+```
+
+**Sandbox constraint:** The sandbox cannot compile `better-sqlite3` from source.
+- `better-sqlite3` binary must be fetched via `npx prebuild-install --download` after any `npm install` wipes it.
+- Current working version: `12.11.1` (has Node v127 / ABI prebuilts).
+- `NODE_ENV=development` is required for devDependencies (supertest) to install.
+- Never run bare `npm install --ignore-scripts` without backing up + restoring the binary first.
+
+### Rules the agent MUST follow `[LOCKED]`
+
+1. **Every new route, migration, or feature ships with tests.** No exceptions. If you add a table, add DB helper tests. If you add a route, add an integration test. If you add a tool to the agent, add an eval scenario.
+
+2. **Every bug fix ships with a regression test** that would have caught the bug. Bugs caught by tests in this project: static middleware auth bypass, phone validation, migration 018 duplicate column, updateContact missing nickname in allowlist, conversation_history CHECK constraint blocking system role, referral redirect expectation mismatch.
+
+3. **Run `npm test` before every commit.** CI does this automatically (push to main → tests → deploy), but always verify locally first.
+
+4. **Never delete or skip tests to make the build pass.** Fix the code or fix the test (with a comment explaining why the test expectation changed).
+
+5. **Rendering tests (rendering.test.js) must stay green.** They enforce mobile layout correctness — failures here mean real users on Android/iOS will see broken UI.
+
+6. **After adding a migration, check `ensureEventTables()` in multiparty.js** — if you add columns to `social_events` or `event_invitations`, add them to both the migration AND the `CREATE TABLE IF NOT EXISTS` in `ensureEventTables()` so tests (which run fresh) see the right schema.
+
+4. **When tests fail, fix them before shipping.** Do not comment out, skip, or delete tests to make a build pass. If behavior changed intentionally, update the test AND the TESTING.md docs.
+
+5. **When adding a migration,** add it to the right directory:
+   - `db/migrations/` (root) for files `001`–`008` (shared base)
+   - `web/db/migrations/` for files `009`+ (web-layer)
+   - `db.js` applies both directories in sorted order. Tests and production are identical.
+
+6. **Integration tests use `:memory:` SQLite.** Each test file gets a fresh DB with all migrations applied. Never rely on pre-existing DB state — set up all fixtures in `before()` hooks.
+
+7. **No real external calls in tests.** Always inject `sms._setClient(mockClient)` before tests that trigger SMS. Never set `ANTHROPIC_API_KEY` in unit/integration tests. Eval tests (`test:eval`) are the only place real API calls happen.
+
+### CI/CD pipeline `[LOCKED]`
+
+```
+git push (any branch)  →  GitHub Actions runs npm test
+git push main          →  tests pass → flyctl deploy --remote-only (auto)
+```
+
+**Required GitHub secret:** `FLY_API_TOKEN` (set in repo Settings → Secrets → Actions). Without it the deploy step fails but tests still run.
+
+**Nightly eval job:** `.github/workflows/eval.yml` — runs agent evals against real API. Requires `ANTHROPIC_API_KEY` + Twilio secrets. Trigger manually or it runs at 06:00 UTC.
+
+### When tests need updating
+
+| Situation | What to do |
+|---|---|
+| Added a new API route | Add a test in `tests/integration/api.test.js` or a new integration file |
+| Added a new migration / table | Add DB helper tests in the relevant `tests/unit/` file |
+| Added a new SMS pending action type | Add a test case in `tests/integration/sms-flows.test.js` |
+| Changed existing behavior | Update the test that covers that behavior; do not delete it |
+| Added a new agent tool | Add an eval scenario in `tests/agent-eval.js` |
+| Fixed a bug | Add a regression test that would have caught it |
+| Added a FLAI burn event | Add it to `tests/unit/flai.test.js` — verify it never throws |
+
+### Hard-learned implementation details `[LOCKED]`
+
+These are specific facts about the current implementation. Do not change them without updating this list.
+
+1. **`agentStatusEl` is module-scope in `chat.html`** (top-level `<script>`, not inside any function). It is declared alongside `messagesEl`, `inputEl`, `typingEl`, etc. Do not move it inside a function — other handlers reference it across scope boundaries.
+
+2. **`buildSystemPrompt(user, stateSnapshot, { sensitiveMode } = {})`** — third argument is a destructured options object. Signature is `(user, stateSnapshot = '', { sensitiveMode = false } = {})`. Do not collapse `sensitiveMode` into a closed-over variable or revert the third param. The test suite in `system-prompt.test.js` calls this directly and depends on the third param being injectable.
+
+3. **`catchUpMessages()` poll floor is `pendingSince - 5`** — subtracts 5 seconds to absorb client/server clock skew. Only renders assistant-role messages when `pendingSince > 0` (filters out user echoes); when no response after 90s, clears `pendingSince` and gives up. Never simplify this to `pendingSince` directly — you'll miss the message edge case.
+
+### Sandbox note (local dev)
+
+The OpenClaw sandbox (Node 22) cannot compile `better-sqlite3` from source — compilation is killed by resource limits. Tests still run because a pre-compiled binary is available at:
+```
+butterflai/web/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+```
+Copy it to `butterflai-repo/web/node_modules/better-sqlite3/build/Release/` if the binary goes missing.
+
+GitHub Actions (Node 20, ubuntu-latest) builds everything cleanly from `npm ci` — no workaround needed in CI.
+
+---
+
+## 8. Rearchitecture: coordination + privacy `[LOCKED 2026-07-17]`
+
+Owner locked a rearchitecture of the two weakest subsystems. **Full design: `docs/REARCHITECTURE.md`** (read it before touching coordination or crypto). Summary of locked decisions:
+
+1. **Privacy → confidential compute (TEE).** `[LOCKED 2026-07-17]` Private-data decryption moves into an attested enclave (AWS Nitro / GCP Confidential Space). KMS releases the data key **only** against a matching enclave attestation, so the operator genuinely **cannot** read private data. This *upgrades* §3.8 and the `private_data_model` yaml: the "trust-based, we hold the keys" model was the interim; the target is attestation-gated. Until the enclave ships, §3.8 still describes reality — state it honestly.
+2. **Coordination → federated agents + enforced protocol.** `[LOCKED 2026-07-17]` Converge on the typed `butterflai-coord/1.0` protocol; retire the deployed free-text `message_agent` relay. Add per-agent Ed25519 identity (anchored to wallet/Base — this is the retained wallet-identity role, path to ERC-8004), signed messages, and **attestation-gated cross-agent data release**. This is the chosen answer to **Open Q1 (§5.1)** — non-retention is *verified* (a peer releases data only after the requester proves by attestation it runs purging code), not promised. Q1 stays open until built, but the mechanism is decided.
+3. **Reasoning model = Anthropic, in the trust set, zero-retention, disclosed.** `[LOCKED 2026-07-17]` The enclave calls Claude for reasoning; Anthropic is a named, disclosed member of the trust set under zero-retention terms, and the enclave minimizes plaintext sent (derived facts, not raw private notes). Public claim names Anthropic; never claim "no one can read it" in v1. Self-hosting the model in-enclave is the north star.
+4. **Infra = AWS/GCP for the enclave.** `[LOCKED 2026-07-17]` The Gateway (SMS, web, ciphertext storage, routing) stays on Fly; the sensitive-compute enclave runs on AWS/GCP.
+5. **The OpenClaw agent is the system Guardian.** `[LOCKED 2026-07-17]` It uses its heartbeat to continuously run the privacy/coordination tests, verify the purge job deleted, watch the audit log for anomalies, verify enclave attestation health, and flag invariant drift — from **outside** the plaintext boundary (it never holds the enclave key post-Phase-2). See `docs/REARCHITECTURE.md` §2.4.
+
+**Build order:** Phase 0 (no TEE needed) first — make `purge_after` actually delete ✅, close the agent-query context leak ✅, fail closed on missing secrets ✅, and wire the Guardian heartbeat (joint w/ OpenClaw). Then identity+isolation, then the enclave, then attestation-gated federation. Each phase stays deployable.
+
+**Crypto-store finding (2026-07-17):** the two private-data stores are NOT redundant. `crypto.js`→`private_data` = prefs blob under the strong KMS-wrapped per-record scheme (also the calendar-token cipher); `sensitive.js`→`user_private_data` = categorized sensitive facts (health/sexual/legal) under a weaker single derived key. So the most-sensitive data has the weaker crypto. Re-keying `user_private_data` onto the KMS-wrapped scheme is **deferred to Phase 2** (the enclave re-keys everything anyway — doing it now would re-key twice). See `docs/REARCHITECTURE.md` Phase 2 item 10.
+
+> **Canonical docs (2026-07-17):** Shared project docs now live at **repo root** — single source of truth. This file is the merged canonical `MEMORY.md` (combines the former root behavioral sections + the `.claude/` test-suite + rearchitecture sections). The `.claude/` duplicates were removed; `.claude/` now holds only `settings.local.json` (Claude Code config). Session history moved to `docs/sessions/`. `CLAUDE.md` imports project docs from root and reads OpenClaw's identity files from `workspace/`.
+>
+> **Deferred to a joint session with the OpenClaw agent** (owner-directed, do NOT do unilaterally): rewriting `workspace/AGENTS.md` so OpenClaw reads/writes these root docs (and stops regenerating a separate copy), and removing the now-stale `workspace/MEMORY.md`. Until then, `workspace/` is left untouched and OpenClaw still boots from its own copies.
+
+---
+*Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*

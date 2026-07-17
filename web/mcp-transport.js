@@ -57,8 +57,13 @@ function sign(body) {
 
 function verifySignature(body, sig) {
   if (!MCP_SECRET) {
-    // No secret configured: accept in dev, warn
-    console.warn('[mcp] MCP_SHARED_SECRET not set — skipping inbound verification');
+    // Fail closed in production: an unauthenticated inbound agent message must not be
+    // trusted. Only the non-production path stays lenient (for local dev / tests).
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[mcp] MCP_SHARED_SECRET not set — rejecting inbound (fail closed)');
+      return false;
+    }
+    console.warn('[mcp] MCP_SHARED_SECRET not set — skipping inbound verification (non-production only)');
     return true;
   }
   const expected = sign(body);

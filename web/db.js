@@ -780,6 +780,31 @@ module.exports = {
       .run(fromAgentId, date, category);
   },
 
+  // ── Retention: hard-purge expired coordination data ─────────────────────────
+  // Non-retention enforcement (PRIVACY.md / docs/REARCHITECTURE.md). Deletes every
+  // coordination session past its purge_after, that session's peer rows (which hold
+  // another user's availability), and every expired ambient signal. datetime()
+  // normalises the stored ISO-8601 strings so the comparison is correct regardless
+  // of 'T'/'Z' formatting. Runs on the coord-loop tick. Returns deletion counts.
+  purgeExpiredCoordination() {
+    const run = db.transaction(() => {
+      const peers = db.prepare(`
+        DELETE FROM coord_session_peers
+        WHERE session_id IN (
+          SELECT id FROM coordination_sessions WHERE datetime(purge_after) < datetime('now')
+        )
+      `).run().changes;
+      const sessions = db.prepare(`
+        DELETE FROM coordination_sessions WHERE datetime(purge_after) < datetime('now')
+      `).run().changes;
+      const ambient = db.prepare(`
+        DELETE FROM ambient_signals WHERE datetime(expires_at) < datetime('now')
+      `).run().changes;
+      return { peers, sessions, ambient };
+    });
+    return run();
+  },
+
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
 
   getWallet(userId) {

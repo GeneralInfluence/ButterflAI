@@ -209,7 +209,12 @@ async function findFreeSlots(userId, { duration_mins = 90, search_days = 21, cou
 
   const busy = resp.data.calendars?.primary?.busy || [];
 
-  // Time-of-day windows (local hour ranges)
+  // Resolve the user's real calendar timezone. ALL wall-clock reasoning below happens in
+  // it, not the server's zone — Fly/Docker default to UTC, so "8am" was being built as
+  // 08:00 UTC (= midnight PDT), producing free slots at the wrong hour for the user.
+  const tz = (await getCalendarTimezone(userId)) || 'America/Los_Angeles';
+
+  // Time-of-day windows, as wall-clock HOURS in the user's timezone.
   const timeWindows = {
     morning:   { start: 8,  end: 12 },
     lunch:     { start: 11, end: 14 },
@@ -218,37 +223,32 @@ async function findFreeSlots(userId, { duration_mins = 90, search_days = 21, cou
   };
   const window = timeWindows[preferred_time] || { start: 9, end: 21 };
 
+  const nowMs = now.getTime();
+  const endMs = end.getTime();
+  const durMs = duration_mins * 60 * 1000;
+  const today = _tzParts(nowMs, tz); // today's date, in the user's zone
   const freeSlots = [];
-  const cursor = new Date(now);
-  cursor.setMinutes(0, 0, 0);
-  cursor.setHours(window.start);
 
-  while (freeSlots.length < count && cursor < end) {
-    const slotStart = new Date(cursor);
-    const slotEnd = new Date(cursor.getTime() + duration_mins * 60 * 1000);
+  for (let dayOffset = 0; dayOffset < search_days && freeSlots.length < count; dayOffset++) {
+    // Anchor at noon to read this day's Y/M/D in-zone without DST edge issues.
+    const dayAnchor = _wallToUtcMs(today.year, today.month, today.day, 12, 0, tz) + dayOffset * 86400000;
+    const dp = _tzParts(dayAnchor, tz);
 
-    // Skip if outside window
-    if (cursor.getHours() < window.start || slotEnd.getHours() > window.end) {
-      cursor.setHours(cursor.getHours() + 1);
-      if (cursor.getHours() >= window.end) {
-        cursor.setDate(cursor.getDate() + 1);
-        cursor.setHours(window.start);
+    let h = window.start;
+    while (h * 60 + duration_mins <= window.end * 60 && freeSlots.length < count) {
+      const slotStartMs = _wallToUtcMs(dp.year, dp.month, dp.day, h, 0, tz);
+      const slotEndMs   = slotStartMs + durMs;
+      if (slotStartMs < nowMs || slotEndMs > endMs) { h += 1; continue; }
+
+      const sIso = new Date(slotStartMs).toISOString();
+      const eIso = new Date(slotEndMs).toISOString();
+      const conflict = busy.some(b => b.start < eIso && b.end > sIso);
+      if (!conflict) {
+        freeSlots.push({ start: sIso, end: eIso, label: formatSlotLabel(slotStartMs, tz) });
+        h += Math.max(1, Math.ceil(duration_mins / 60)); // non-overlapping suggestions
+      } else {
+        h += 1;
       }
-      continue;
-    }
-
-    // Check against busy periods
-    const conflict = busy.some(b => b.start < slotEnd.toISOString() && b.end > slotStart.toISOString());
-
-    if (!conflict) {
-      freeSlots.push({
-        start: slotStart.toISOString(),
-        end: slotEnd.toISOString(),
-        label: formatSlotLabel(slotStart),
-      });
-      cursor.setTime(slotEnd.getTime()); // skip past this slot
-    } else {
-      cursor.setHours(cursor.getHours() + 1);
     }
   }
 
@@ -288,17 +288,44 @@ async function createEvent(userId, { title, start, end, description, location })
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatSlotLabel(date) {
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const d = days[date.getDay()];
-  const m = months[date.getMonth()];
-  const day = date.getDate();
-  const h = date.getHours();
-  const ampm = h >= 12 ? 'pm' : 'am';
-  const hour = h % 12 || 12;
-  return `${d} ${m} ${day} at ${hour}${ampm}`;
+// ── Timezone helpers (DST-aware wall-clock <-> UTC, no external deps) ──────────
+
+// Wall-clock parts of an instant, as seen in IANA `tz`.
+function _tzParts(instantMs, tz) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const p = {};
+  for (const part of dtf.formatToParts(new Date(instantMs))) p[part.type] = part.value;
+  return { year: +p.year, month: +p.month, day: +p.day, hour: +p.hour % 24, minute: +p.minute, second: +p.second };
+}
+
+// Offset (ms) = tz wall time minus UTC, at the given instant.
+function _tzOffsetMs(instantMs, tz) {
+  const p = _tzParts(instantMs, tz);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - instantMs;
+}
+
+// The UTC instant (ms) whose wall clock in `tz` is (year, month[1-12], day, hour, minute).
+// Two-pass correction resolves DST transitions (offset differs before/after the jump).
+function _wallToUtcMs(year, month, day, hour, minute, tz) {
+  const guess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const off1  = _tzOffsetMs(guess, tz);
+  let t = guess - off1;
+  const off2 = _tzOffsetMs(t, tz);
+  if (off2 !== off1) t = guess - off2;
+  return t;
+}
+
+function formatSlotLabel(instant, tz = 'America/Los_Angeles') {
+  const d = instant instanceof Date ? instant : new Date(instant);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', hour12: true,
+  }).formatToParts(d);
+  const g = t => (parts.find(p => p.type === t) || {}).value || '';
+  return `${g('weekday')} ${g('month')} ${g('day')} at ${g('hour')}${g('dayPeriod').toLowerCase()}`;
 }
 
 function hasCalendarConnected(userId) {
@@ -391,4 +418,8 @@ module.exports = {
   findFreeSlots,
   getCalendarTimezone: getCalendarTimezoneUnified,
   hasAnyCalendarConnected,
+  // Exposed for tests
+  _wallToUtcMs,
+  _tzParts,
+  formatSlotLabel,
 };

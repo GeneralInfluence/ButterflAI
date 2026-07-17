@@ -116,8 +116,22 @@ async function tick(transport = stubTransport) {
     await tickDesires(transport);
     await tickRecurring();
     await tickEscalations();
+    tickPurge();
   } catch (err) {
     console.error('[coord] tick error:', err.message);
+  }
+}
+
+// Non-retention: hard-delete coordination data past its purge_after / expiry.
+// A peer's availability must not linger after the event it was shared for.
+function tickPurge() {
+  try {
+    const { peers, sessions, ambient } = db.purgeExpiredCoordination();
+    if (peers || sessions || ambient) {
+      console.log(`[coord] purged expired: sessions=${sessions} peers=${peers} ambient=${ambient}`);
+    }
+  } catch (err) {
+    console.error('[coord] purge error:', err.message);
   }
 }
 
@@ -269,8 +283,12 @@ function _runTick() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function _addDays(dateStr, days) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
+  // All-UTC arithmetic. Parsing as UTC midnight then advancing with LOCAL setDate()/
+  // getDate() (and reading back via UTC toISOString()) lands a day early when the span
+  // crosses a DST transition in a UTC-negative zone. setUTCDate keeps it DST- and
+  // locale-independent.
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
