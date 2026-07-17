@@ -119,8 +119,10 @@ v1 runs all enclaves under one operator but with **real boundaries in code** (si
 1. Make `purge_after` actually delete (G3). Add the executor + a test that a purged session leaves no peer rows.
 2. **Close the agent-query context leak (G1/G5) — architectural, not a prompt rule.** Root cause: processing an `agent_query` inbound loads the *full* user state (incl. `extra_notes`, `availability_notes`, health fields, `comm_style`) into the system prompt, and that same context composes the outbound `message_agent` — there is no structural wall. Fix in `processMessage()` / the state-snapshot builder: when `channel === 'agent_query'`, build a **coordination-only** snapshot (calendar availability, hard dietary constraints, event details) — no `extra_notes`, no health notes, no `comm_style`, nothing expressive. Add a `system-prompt.test.js` assertion that agent-query processing excludes private prefs. Then also route any residual `message_agent` output through `validateOutbound`+`scrubForAgentMessage`. (This is the enclave's `coord_desires`-view discipline pushed into the reasoning path — same principle, earlier.)
 3. Fail closed on missing `MCP_SHARED_SECRET` and `ENCRYPTION_KEY`; delete insecure fallbacks (G4/G6).
-4. Unify the two private-data stores into one path (G4).
+4. ~~Unify the two private-data stores~~ — **deferred to Phase 2** (see finding below). Phase 0 keeps only the guardrail that the sensitive store never persists plaintext (covered by `privacy.test.js` Invariant 1 + `tests/unit/sensitive-store-encrypted.test.js`).
 5. Stand up the **Guardian heartbeat** (§2.4): add the privacy/coordination test run, the purge-verification query, and the audit-log anomaly scan to `workspace/HEARTBEAT.md` so the OpenClaw agent runs them every cycle. This makes the hardening self-monitoring from day one.
+
+**Finding that reshaped the store work (2026-07-17):** the two "crypto stores" are NOT redundant copies. `crypto.js`→`private_data` holds the per-user prefs blob (private_notes, exclusions) under the **strong** scheme (KMS-wrapped, per-record data keys) and is *also* the cipher for Google/Apple calendar tokens. `sensitive.js`→`user_private_data` holds the categorized **sensitive facts** (health/sexual/legal/mental-health) with per-category sharing consent, under a **weaker** single derived key. So the most sensitive data currently has the weaker crypto. Merging schemas is unnecessary (they hold different shapes); the correct fix is to **re-key `user_private_data` onto the KMS-wrapped per-record scheme** — which is exactly what the Phase 2 enclave already does (it re-keys all private data into KMS-attestation-gated storage). Doing it now would re-key twice, so it moves to Phase 2.
 
 **Phase 1 — identity & isolation:**
 5. Per-user SQLite split (G7, PLAN item 8).
@@ -130,6 +132,7 @@ v1 runs all enclaves under one operator but with **real boundaries in code** (si
 7. Carve out the "sensitive reasoning core" as an enclave binary (decrypt + reason + emit). Orchestrator ↔ enclave over vsock.
 8. `KMS_PROVIDER=nitro`: attestation-gated key release. Operator can no longer decrypt.
 9. Ephemeral in-enclave coordination session memory.
+10. **Unify the private-data crypto (deferred from Phase 0.4):** re-key `user_private_data` from its single derived key onto `crypto.js`'s KMS-wrapped per-record scheme, so the most-sensitive data is on the same attestation-gated path as everything else and there is one cipher codebase-wide. Defensive migration: auto-detect each row's current scheme, decrypt, re-encrypt under the enclave-gated key, with dry-run + backup. This is a natural sub-step of the enclave re-key, not a separate migration.
 
 **Phase 3 — enforced federation:**
 10. Attestation handshake before cross-agent data release (the spine).
