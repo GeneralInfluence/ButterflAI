@@ -1430,6 +1430,8 @@ app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res)
       channel: 'webchat',
       text,
     });
+    // Immediately push a "thinking" status so the UI shows activity before the agent fires
+    sse.push(req.user.id, { role: 'status', text: 'Thinking…' });
     res.json({ ok: true });
   } catch (err) {
     console.error('[chat/send] failed to store message:', err.message);

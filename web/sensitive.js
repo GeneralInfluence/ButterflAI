@@ -263,18 +263,28 @@ function getAccessLog(userId, limit = 20) {
   ).all(userId, limit);
 }
 
-// ── Sensitive mode session flag ───────────────────────────────────────────────
-// Stored in memory only — resets on server restart. Per-user boolean.
-// For persistence between sessions, store in DB (future).
-const sensitiveModeUsers = new Set();
+// ── Sensitive mode flag — persisted in user_preferences ──────────────────────
+// Survives server restarts. Stored as `sensitive_mode INTEGER` in user_preferences.
 
 function setSensitiveMode(userId, on) {
-  if (on) sensitiveModeUsers.add(userId);
-  else sensitiveModeUsers.delete(userId);
+  try {
+    const db = getDb();
+    const raw = db._raw();
+    const existing = raw.prepare('SELECT user_id FROM user_preferences WHERE user_id = ?').get(userId);
+    if (!existing) {
+      raw.prepare('INSERT INTO user_preferences (user_id, sensitive_mode) VALUES (?, ?)').run(userId, on ? 1 : 0);
+    } else {
+      raw.prepare('UPDATE user_preferences SET sensitive_mode = ?, updated_at = strftime(\'%s\',\'now\') WHERE user_id = ?').run(on ? 1 : 0, userId);
+    }
+  } catch (_) { /* non-fatal */ }
 }
 
 function isSensitiveMode(userId) {
-  return sensitiveModeUsers.has(userId);
+  try {
+    const db = getDb();
+    const row = db._raw().prepare('SELECT sensitive_mode FROM user_preferences WHERE user_id = ?').get(userId);
+    return !!(row?.sensitive_mode);
+  } catch { return false; }
 }
 
 // ── Agent message scrubber ────────────────────────────────────────────────────

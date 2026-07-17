@@ -1834,7 +1834,17 @@ async function tick() {
       try {
         await processMessage(msg);
       } catch (err) {
-        console.error(`[agent] failed to process message ${msg.id}:`, err.message);
+        // Log full stack so silent failures are visible in Fly logs
+        console.error(`[agent] failed to process message ${msg.id}: ${err.message}\n${err.stack}`);
+        // Push an apology to the user's chat so they know something went wrong
+        if (msg.from_id && msg.channel === 'webchat') {
+          try {
+            sse.push(msg.from_id, { role: 'status', text: '' }); // clear thinking indicator
+            const errReply = "Sorry, I hit a snag processing that — could you try again?";
+            db.appendConversation(msg.from_id, 'assistant', errReply);
+            sse.push(msg.from_id, { role: 'assistant', text: errReply, ts: Math.floor(Date.now() / 1000) });
+          } catch (_) {}
+        }
       } finally {
         db.markMessageProcessed(msg.id);
       }
