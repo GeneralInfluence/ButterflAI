@@ -16,7 +16,20 @@ const { v4: uuidv4 } = require('uuid');
 // ── Encryption helpers ────────────────────────────────────────────────────────
 
 function getEncryptionKey() {
-  const raw = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || 'dev-insecure-key';
+  // Fail closed: never encrypt/decrypt private data under a hardcoded default key.
+  // (The removed 'dev-insecure-key' fallback silently encrypted real data under a
+  // public constant.) JWT_SECRET remains a fallback so data already encrypted under
+  // it stays decryptable; migrating to a dedicated ENCRYPTION_KEY is Phase 0.4.
+  const raw = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET;
+  if (!raw) {
+    throw new Error(
+      'Refusing to run: neither ENCRYPTION_KEY nor JWT_SECRET is set. Private data must ' +
+      'not be encrypted under a hardcoded default. Set ENCRYPTION_KEY in the environment.'
+    );
+  }
+  if (process.env.NODE_ENV === 'production' && !process.env.ENCRYPTION_KEY) {
+    console.warn('[sensitive] PRODUCTION is using JWT_SECRET as the private-data key (key reuse). Set a dedicated ENCRYPTION_KEY and migrate — see docs/REARCHITECTURE.md Phase 0.4.');
+  }
   // Derive a 32-byte key
   return crypto.createHash('sha256').update(raw).digest();
 }
