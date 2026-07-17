@@ -24,6 +24,7 @@ The OpenClaw agent that owns this repo has its own identity, operating rules, an
 
 @.claude/MEMORY.md
 @.claude/PRIVACY.md
+@docs/REARCHITECTURE.md
 @.claude/IMPLEMENTATION.md
 @.claude/COORDINATION_PLAN.md
 @.claude/LAUNCH_CHECKLIST.md

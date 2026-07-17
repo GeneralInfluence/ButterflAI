@@ -339,4 +339,20 @@ Copy it to `butterflai-repo/web/node_modules/better-sqlite3/build/Release/` if t
 GitHub Actions (Node 20, ubuntu-latest) builds everything cleanly from `npm ci` — no workaround needed in CI.
 
 ---
+
+## 8. Rearchitecture: coordination + privacy `[LOCKED 2026-07-17]`
+
+Owner locked a rearchitecture of the two weakest subsystems. **Full design: `docs/REARCHITECTURE.md`** (read it before touching coordination or crypto). Summary of locked decisions:
+
+1. **Privacy → confidential compute (TEE).** `[LOCKED 2026-07-17]` Private-data decryption moves into an attested enclave (AWS Nitro / GCP Confidential Space). KMS releases the data key **only** against a matching enclave attestation, so the operator genuinely **cannot** read private data. This *upgrades* §3.8 and the `private_data_model` yaml: the "trust-based, we hold the keys" model was the interim; the target is attestation-gated. Until the enclave ships, §3.8 still describes reality — state it honestly.
+2. **Coordination → federated agents + enforced protocol.** `[LOCKED 2026-07-17]` Converge on the typed `butterflai-coord/1.0` protocol; retire the deployed free-text `message_agent` relay. Add per-agent Ed25519 identity (anchored to wallet/Base — this is the retained wallet-identity role, path to ERC-8004), signed messages, and **attestation-gated cross-agent data release**. This is the chosen answer to **Open Q1 (§5.1)** — non-retention is *verified* (a peer releases data only after the requester proves by attestation it runs purging code), not promised. Q1 stays open until built, but the mechanism is decided.
+3. **Reasoning model = Anthropic, in the trust set, zero-retention, disclosed.** `[LOCKED 2026-07-17]` The enclave calls Claude for reasoning; Anthropic is a named, disclosed member of the trust set under zero-retention terms, and the enclave minimizes plaintext sent (derived facts, not raw private notes). Public claim names Anthropic; never claim "no one can read it" in v1. Self-hosting the model in-enclave is the north star.
+4. **Infra = AWS/GCP for the enclave.** `[LOCKED 2026-07-17]` The Gateway (SMS, web, ciphertext storage, routing) stays on Fly; the sensitive-compute enclave runs on AWS/GCP.
+5. **The OpenClaw agent is the system Guardian.** `[LOCKED 2026-07-17]` It uses its heartbeat to continuously run the privacy/coordination tests, verify the purge job deleted, watch the audit log for anomalies, verify enclave attestation health, and flag invariant drift — from **outside** the plaintext boundary (it never holds the enclave key post-Phase-2). See `docs/REARCHITECTURE.md` §2.4.
+
+**Build order:** Phase 0 (no TEE needed) first — make `purge_after` actually delete, close the free-text leak, fail closed on missing secrets, unify the two crypto stores, and wire the Guardian heartbeat. Then identity+isolation, then the enclave, then attestation-gated federation. Each phase stays deployable.
+
+> **Doc-drift note (2026-07-17):** `MEMORY.md` / `PRIVACY.md` / `COORDINATION_PLAN.md` exist in three trees — root, `.claude/` (canonical; loaded by `CLAUDE.md`), and `workspace/`. They have diverged (root `MEMORY.md` is staler than this one). Treat `.claude/` as source of truth. Consolidating to one source is recommended — flagged to owner.
+
+---
 *Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*

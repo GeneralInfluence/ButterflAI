@@ -106,3 +106,17 @@ Sensitive data does not appear in any `agent_messages` payload.
 4. **The system prompt is not an enforcement layer for privacy.** Rules in the prompt may be misinterpreted. Privacy invariants are enforced in code and verified by tests.
 
 5. **When in doubt, don't send it.** The default for all sensitive data is: don't cross any boundary unless there is an explicit, code-verified consent record.
+
+---
+
+## Trust model evolution — confidential compute `[LOCKED 2026-07-17]`
+
+The current trust model is honest but interim: ButterflAI holds the encryption keys and **can** read private data (`sensitive.js` / `crypto.js`), disclosed plainly, controlled by audit + minimization. The owner has locked a move to **confidential compute**: private-data decryption moves into an **attested enclave** (AWS Nitro / GCP Confidential Space), and KMS releases the data key **only** against a matching enclave attestation — so the operator genuinely **cannot** read private data. Full design in `docs/REARCHITECTURE.md`.
+
+This **strengthens** every invariant above; it does not weaken any. Additional invariants that take effect as the enclave ships:
+
+- **Decryption happens only inside the attested enclave.** No operator process (including the Guardian, §below) can obtain the key to decrypt `user_private_data`.
+- **Reasoning uses Anthropic under zero-retention, disclosed.** Decrypted data may be sent to the Anthropic API (Claude) for reasoning, transiently, under zero-retention terms. Anthropic is a named member of the trust set. **The public claim names Anthropic; never claim "no one can read your data" — the honest claim in v1 is "our operators cannot read it; it is processed transiently by Anthropic under zero-retention terms."** The enclave sends the model only minimized derived facts, never the raw private blob.
+- **Non-retention across agents is verified, not promised.** A peer agent releases another user's data only after the requester proves, by attestation, that it runs the audited code that purges (answers `MEMORY.md` §5 Open Q1).
+
+**The Guardian:** the OpenClaw agent continuously verifies these invariants from outside the enclave (runs `privacy.test.js`, checks the purge job ran, scans the audit log, verifies attestation health). It supervises the boundary without being able to read through it. Note: before the enclave ships, keys are env vars, so this "cannot read" property is a target, not yet a fact — state it that way.
