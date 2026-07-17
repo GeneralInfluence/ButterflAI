@@ -1443,6 +1443,11 @@ async function processMessage(msg) {
   const calendarProvider   = calendar.getCalendarProvider(userId);   // 'google' | 'apple' | null
   const calendarConnected  = !!calendarProvider;
   const prefs = db.getPreferences(userId);
+  // agent_query = another user's agent is asking us something, and we compose an
+  // outbound reply to them. In that mode private/soft context must NOT enter the
+  // snapshot — it is the structural wall that stops it leaking into the peer-facing
+  // message. See PRIVACY.md / docs/REARCHITECTURE.md Phase 0. Enforced in code.
+  const coordinationOnly = msg.channel === 'agent_query';
   const contactCount = db.getContactsByUser(userId).length;
   const pendingEvents = (() => {
     try {
@@ -1493,23 +1498,7 @@ async function processMessage(msg) {
 
   const agentNotes = user.agent_notes?.trim();
   const inSensitiveMode = sensitive.isSensitiveMode(userId);
-  const prefsSection = (() => {
-    if (!prefs) return '- Preferences: not set yet (ask conversationally to learn them)';
-    const parts = [];
-    if (prefs.food_allergies?.length)       parts.push(`⚠️  Allergies: ${prefs.food_allergies.join(', ')}`);
-    if (prefs.dietary_restrictions?.length) parts.push(`Diet: ${prefs.dietary_restrictions.join(', ')}`);
-    if (prefs.cuisine_loves?.length)        parts.push(`Loves: ${prefs.cuisine_loves.join(', ')}`);
-    if (prefs.cuisine_avoids?.length)       parts.push(`Avoids: ${prefs.cuisine_avoids.join(', ')}`);
-    if (prefs.activity_loves?.length)       parts.push(`Activities: ${prefs.activity_loves.join(', ')}`);
-    if (prefs.activity_avoids?.length)      parts.push(`Dislikes: ${prefs.activity_avoids.join(', ')}`);
-    if (prefs.vibe?.length)                 parts.push(`Vibe: ${prefs.vibe.join(', ')}`);
-    if (prefs.budget_low || prefs.budget_high) parts.push(`Budget: $${prefs.budget_low || 0}–$${prefs.budget_high || '?'}/outing`);
-    if (prefs.neighborhood)                 parts.push(`Location: ${prefs.neighborhood}${prefs.city ? ', ' + prefs.city : ''}`);
-    if (prefs.availability_notes)           parts.push(`Usually free: ${prefs.availability_notes}`);
-    if (prefs.comm_style)                   parts.push(`Comm style: ${prefs.comm_style}`);
-    if (prefs.extra_notes)                  parts.push(`Notes: ${prefs.extra_notes}`);
-    return parts.length ? parts.map(p => `- ${p}`).join('\n') : '- Preferences: set but empty — keep learning through conversation';
-  })();
+  const prefsSection = buildPrefsSection(prefs, { coordinationOnly });
 
   const stateSnapshot = [
     `## Current state`,
@@ -1522,10 +1511,12 @@ async function processMessage(msg) {
       if (!groups.length) return '- Groups: none yet';
       return '- Groups: ' + groups.map(g => `${g.emoji || ''}${g.name} (${g.members.length})`).join(', ');
     })(),
-    `\n## ${user.name}'s preferences\n${prefsSection}`,
-    `\n## Open events\n${pendingEvents}`,
+    coordinationOnly
+      ? `\n## ${user.name}'s hard constraints (coordination-only context)\n${prefsSection}`
+      : `\n## ${user.name}'s preferences\n${prefsSection}`,
+    coordinationOnly ? '' : `\n## Open events\n${pendingEvents}`,
     pendingCoordination,
-    agentNotes ? `\n## Remembered facts (use these — don't ask again)\n${agentNotes}` : '',
+    (agentNotes && !coordinationOnly) ? `\n## Remembered facts (use these — don't ask again)\n${agentNotes}` : '',
   ].filter(Boolean).join('\n');
 
   // Build system prompt (lean — context comes from tools, not prompt stuffing)
@@ -1534,6 +1525,50 @@ async function processMessage(msg) {
   // Load recent conversation history so the agent has context across SMS turns (continued below)
   // NOTE: processMessage continues after buildSystemPrompt definition
   return _processMessageContinue({ msg, user, userId, userPhone, systemPrompt });
+}
+
+/**
+ * buildPrefsSection — renders a user's preferences for the state snapshot.
+ *
+ * coordinationOnly=true is used when the agent is answering ANOTHER user's agent
+ * (channel === 'agent_query'). In that mode ONLY hard constraints (allergies,
+ * dietary restrictions) are rendered — never soft preferences or free-text notes
+ * (availability_notes, comm_style, extra_notes, cuisine/activity/vibe/budget/
+ * neighborhood). This is a structural wall: private context cannot leak into a
+ * message composed for a peer because it never enters the prompt. Enforced in
+ * code and verified by tests, NOT by a system-prompt rule. See PRIVACY.md and
+ * docs/REARCHITECTURE.md Phase 0.
+ *
+ * Exported for the test suite.
+ */
+function buildPrefsSection(prefs, { coordinationOnly = false } = {}) {
+  if (!prefs) {
+    return coordinationOnly
+      ? '- No hard dietary constraints on file'
+      : '- Preferences: not set yet (ask conversationally to learn them)';
+  }
+  const parts = [];
+  // HARD CONSTRAINTS — safety-critical; the only fields allowed to cross for coordination.
+  if (prefs.food_allergies?.length)       parts.push(`⚠️  Allergies: ${prefs.food_allergies.join(', ')}`);
+  if (prefs.dietary_restrictions?.length) parts.push(`Diet: ${prefs.dietary_restrictions.join(', ')}`);
+
+  if (coordinationOnly) {
+    // Nothing below this line may enter a peer-facing composition.
+    return parts.length ? parts.map(p => `- ${p}`).join('\n') : '- No hard dietary constraints on file';
+  }
+
+  // SOFT PREFERENCES + free-text notes — only in the user's OWN session, never a peer's.
+  if (prefs.cuisine_loves?.length)        parts.push(`Loves: ${prefs.cuisine_loves.join(', ')}`);
+  if (prefs.cuisine_avoids?.length)       parts.push(`Avoids: ${prefs.cuisine_avoids.join(', ')}`);
+  if (prefs.activity_loves?.length)       parts.push(`Activities: ${prefs.activity_loves.join(', ')}`);
+  if (prefs.activity_avoids?.length)      parts.push(`Dislikes: ${prefs.activity_avoids.join(', ')}`);
+  if (prefs.vibe?.length)                 parts.push(`Vibe: ${prefs.vibe.join(', ')}`);
+  if (prefs.budget_low || prefs.budget_high) parts.push(`Budget: $${prefs.budget_low || 0}–$${prefs.budget_high || '?'}/outing`);
+  if (prefs.neighborhood)                 parts.push(`Location: ${prefs.neighborhood}${prefs.city ? ', ' + prefs.city : ''}`);
+  if (prefs.availability_notes)           parts.push(`Usually free: ${prefs.availability_notes}`);
+  if (prefs.comm_style)                   parts.push(`Comm style: ${prefs.comm_style}`);
+  if (prefs.extra_notes)                  parts.push(`Notes: ${prefs.extra_notes}`);
+  return parts.length ? parts.map(p => `- ${p}`).join('\n') : '- Preferences: set but empty — keep learning through conversation';
 }
 
 /**
@@ -1864,4 +1899,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection };
