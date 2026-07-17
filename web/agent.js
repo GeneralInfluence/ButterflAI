@@ -1529,7 +1529,7 @@ async function processMessage(msg) {
   ].filter(Boolean).join('\n');
 
   // Build system prompt (lean — context comes from tools, not prompt stuffing)
-  const systemPrompt = buildSystemPrompt(user, stateSnapshot);
+  const systemPrompt = buildSystemPrompt(user, stateSnapshot, { sensitiveMode: inSensitiveMode });
 
   // Load recent conversation history so the agent has context across SMS turns (continued below)
   // NOTE: processMessage continues after buildSystemPrompt definition
@@ -1544,9 +1544,9 @@ async function processMessage(msg) {
  * @param {string} stateSnapshot - pre-built state context block
  * @returns {string}
  */
-function buildSystemPrompt(user, stateSnapshot = '') {
+function buildSystemPrompt(user, stateSnapshot = '', { sensitiveMode = false } = {}) {
   return `You are ButterflAI, a personal social agent for ${user.name}.
-${inSensitiveMode ? '\n🔒 PRIVATE MODE IS ON: The user has activated private mode. EVERYTHING they say this session must be stored via store_private_data, not update_preferences. Treat all content as sensitive regardless of what it sounds like.\n' : ''}
+${sensitiveMode ? '\n🔒 PRIVATE MODE IS ON: The user has activated private mode. EVERYTHING they say this session must be stored via store_private_data, not update_preferences. Treat all content as sensitive regardless of what it sounds like.\n' : ''}
 Your job: help them stay meaningfully connected with people they care about.
 You handle the logistics of friendship (scheduling, coordination, reminders) so they can focus on the emotional parts.
 
