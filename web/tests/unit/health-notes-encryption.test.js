@@ -66,9 +66,10 @@ describe('update_preferences routes health notes to the encrypted store', () => 
   });
 });
 
-describe('get_contact_hard_constraints honors the health consent gate (reading encrypted)', () => {
+describe('get_contact_hard_constraints enforces PER-EDGE consent (Invariant 2)', () => {
   const owner = makeUser('+15551110010', 'Contact Owner');   // the contact, who is also a user
   const asker = makeUser('+15551110011', 'The Asker');       // requesting user
+  const other = makeUser('+15551110012', 'Third Party');     // a different requester
   let contactId;
 
   before(() => {
@@ -77,24 +78,61 @@ describe('get_contact_hard_constraints honors the health consent gate (reading e
     db.createContact({ id: contactId, invited_by_user_id: asker.id, name: 'Contact Owner', phone: owner.phone, tier: 2 });
   });
 
-  test('shares the note when the owner approved (health_sharing_approved=1)', async () => {
-    db.upsertPreferences(owner.id, { health_sharing_approved: 1 });
-    const r = await executeTool('get_contact_hard_constraints', { contact_id: contactId }, asker.id, asker.phone);
-    assert.equal(r.health_safety_notes, 'on PrEP, HIV negative');
-  });
-
-  test('withholds the note (null + explanation) when NOT approved', async () => {
-    db.upsertPreferences(owner.id, { health_sharing_approved: 0 });
+  test('withholds by default — no global toggle grants access', async () => {
     const r = await executeTool('get_contact_hard_constraints', { contact_id: contactId }, asker.id, asker.phone);
     assert.equal(r.health_safety_notes, null);
     assert.match(r.health_sharing_note, /has not approved/);
   });
 
-  test('logs the shared read against the requesting user as accessor', () => {
-    db.upsertPreferences(owner.id, { health_sharing_approved: 1 });
-    sensitive.readPrivateDataAsAccessor(owner.id, KEY, asker.id, 'test share');
-    const log = sensitive.getAccessLog(owner.id, 10);
+  test('shares only after the owner approved THIS requester specifically', async () => {
+    sensitive.approveSharing(owner.id, KEY, asker.id);
+    const r = await executeTool('get_contact_hard_constraints', { contact_id: contactId }, asker.id, asker.phone);
+    assert.equal(r.health_safety_notes, 'on PrEP, HIV negative');
+  });
+
+  test('approval for the asker does NOT leak to a different user (per-edge)', () => {
+    // owner approved asker (above) but never `other`.
+    const shared = sensitive.readPrivateDataForSharing(owner.id, KEY, other.id);
+    assert.equal(shared.allowed, false);
+  });
+
+  test('revocation withdraws access', async () => {
+    assert.equal(sensitive.revokeSharing(owner.id, KEY, asker.id), true);
+    const r = await executeTool('get_contact_hard_constraints', { contact_id: contactId }, asker.id, asker.phone);
+    assert.equal(r.health_safety_notes, null);
+  });
+
+  test('every share attempt is logged against the requester', () => {
+    const log = sensitive.getAccessLog(owner.id, 20);
     assert.ok(log.some(e => e.accessor_id === asker.id && e.action === 'share'), 'accessor must be logged');
+  });
+});
+
+describe('approve_private_sharing / revoke_private_sharing tools', () => {
+  const owner = makeUser('+15551110050', 'Tool Owner');
+  const friend = makeUser('+15551110051', 'Tool Friend');
+  let cid;
+
+  before(() => {
+    sensitive.storePrivateData(owner.id, KEY, 'lactose intolerant + on meds', 'HEALTH');
+    cid = uuidv4();
+    db.createContact({ id: cid, invited_by_user_id: owner.id, name: 'Tool Friend', phone: friend.phone, tier: 2 });
+  });
+
+  test('approve_private_sharing grants per-edge access; revoke removes it', async () => {
+    const a = await executeTool('approve_private_sharing', { contact_id: cid, data_key: KEY }, owner.id, owner.phone);
+    assert.equal(a.approved, true);
+    assert.deepEqual(sensitive.listSharingApprovals(owner.id, KEY), [friend.id]);
+    assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, true);
+
+    const r = await executeTool('revoke_private_sharing', { contact_id: cid, data_key: KEY }, owner.id, owner.phone);
+    assert.equal(r.revoked, true);
+    assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, false);
+  });
+
+  test('approving a non-existent datum is an error, not a silent grant', async () => {
+    const a = await executeTool('approve_private_sharing', { contact_id: cid, data_key: 'health.nonexistent' }, owner.id, owner.phone);
+    assert.ok(a.error);
   });
 });
 

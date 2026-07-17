@@ -251,6 +251,43 @@ function approveSharing(ownerUserId, dataKey, approvedUserId) {
 }
 
 /**
+ * Revoke a previously-granted per-edge sharing approval (owner → recipient, for one datum).
+ * Consent is per user-pair, so it must be individually revocable.
+ */
+function revokeSharing(ownerUserId, dataKey, revokedUserId) {
+  const db = getDb();
+  const raw = db._raw();
+  const row = raw.prepare(
+    'SELECT sharing_approved_to FROM user_private_data WHERE user_id = ? AND data_key = ?'
+  ).get(ownerUserId, dataKey);
+  if (!row) return false;
+
+  let approved = [];
+  try { approved = JSON.parse(row.sharing_approved_to || '[]'); } catch { approved = []; }
+  const next = approved.filter(id => id !== revokedUserId);
+  if (next.length === approved.length) return false; // nothing to revoke
+
+  raw.prepare(
+    'UPDATE user_private_data SET sharing_approved_to = ?, updated_at = strftime(\'%s\',\'now\') WHERE user_id = ? AND data_key = ?'
+  ).run(JSON.stringify(next), ownerUserId, dataKey);
+
+  logAccess(ownerUserId, null, dataKey, 'share', `revoked sharing with user ${revokedUserId}`);
+  return true;
+}
+
+/**
+ * Who is this datum currently shared with? Returns an array of approved user_ids.
+ */
+function listSharingApprovals(ownerUserId, dataKey) {
+  const db = getDb();
+  const row = db._raw().prepare(
+    'SELECT sharing_approved_to FROM user_private_data WHERE user_id = ? AND data_key = ?'
+  ).get(ownerUserId, dataKey);
+  if (!row) return [];
+  try { return JSON.parse(row.sharing_approved_to || '[]'); } catch { return []; }
+}
+
+/**
  * Does a private datum exist for this user+key? Metadata only — no decrypt, no value.
  * Used to tell "has health info but not shared" from "has none" without exposing it.
  */
@@ -259,28 +296,6 @@ function hasPrivateData(userId, dataKey) {
   return !!db._raw()
     .prepare('SELECT 1 FROM user_private_data WHERE user_id = ? AND data_key = ?')
     .get(userId, dataKey);
-}
-
-/**
- * Read a private datum on behalf of a DIFFERENT accessor, when an external consent gate
- * has already authorized the read (e.g. the owner's health_sharing_approved flag). Logs
- * the access with the accessor's id. Returns the decrypted value, or null if absent.
- *
- * Unlike readPrivateDataForSharing (which enforces the per-record sharing_approved_to
- * list), this trusts the CALLER to have checked authorization — so callers MUST gate it.
- */
-function readPrivateDataAsAccessor(ownerUserId, dataKey, accessorUserId, context = 'gated shared read') {
-  const db = getDb();
-  const row = db._raw()
-    .prepare('SELECT encrypted_v, iv, auth_tag FROM user_private_data WHERE user_id = ? AND data_key = ?')
-    .get(ownerUserId, dataKey);
-  if (!row) return null;
-  logAccess(ownerUserId, accessorUserId, dataKey, 'share', context);
-  try {
-    return decrypt(row.encrypted_v, row.iv, row.auth_tag);
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -344,12 +359,6 @@ function logAccess(userId, accessorId, dataKey, action, context) {
   } catch { /* non-fatal — never suppress the main operation for a log failure */ }
 }
 
-// Audit that an agent learned a user HAS a private datum (existence disclosed) without the
-// value being shared — e.g. get_contact_hard_constraints when sharing wasn't approved.
-function logExistenceProbe(ownerUserId, accessorUserId, dataKey) {
-  logAccess(ownerUserId, accessorUserId, dataKey, 'probe', 'existence disclosed (sharing not approved)');
-}
-
 function getAccessLog(userId, limit = 20) {
   const db = getDb();
   const raw = db._raw();
@@ -411,11 +420,11 @@ module.exports = {
   readPrivateData,
   listPrivateData,
   readPrivateDataForSharing,
-  readPrivateDataAsAccessor,
   hasPrivateData,
   migratePlaintextHealthNotes,
-  logExistenceProbe,
   approveSharing,
+  revokeSharing,
+  listSharingApprovals,
   deletePrivateData,
   HEALTH_NOTES_KEY,
   getAccessLog,

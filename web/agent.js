@@ -286,6 +286,30 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'approve_private_sharing',
+    description: 'Record the USER\'s consent to share ONE private datum with ONE specific contact (per-edge consent). Call this ONLY after the user has explicitly agreed to share that item with that person — e.g. they said "yes, tell Kaylee my dietary/health note". data_key is the private item\'s key (e.g. "health.safety_notes"). This is what allows the contact\'s agent to later receive it via get_contact_hard_constraints. Never call it preemptively.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_id: { type: 'string', description: 'The contact the user is approving to receive the item' },
+        data_key:   { type: 'string', description: 'Key of the private datum, e.g. "health.safety_notes"' },
+      },
+      required: ['contact_id', 'data_key'],
+    },
+  },
+  {
+    name: 'revoke_private_sharing',
+    description: 'Withdraw the user\'s consent to share ONE private datum with ONE specific contact. Call when the user says to stop sharing something with someone.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_id: { type: 'string', description: 'The contact to stop sharing with' },
+        data_key:   { type: 'string', description: 'Key of the private datum, e.g. "health.safety_notes"' },
+      },
+      required: ['contact_id', 'data_key'],
+    },
+  },
+  {
     name: 'check_invitee_locations',
     description: 'Before coordinating time/logistics for a group event, check how far each invitee is from the host. Returns each invitee\'s city, distance, and a ROUTING RECOMMENDATION: "flexible" (all nearby, no need to coordinate time), "mixed" (some nearby, some distant — coordinate time for distant only), or "coordinate" (all distant — must agree on a specific time). ALWAYS call this first when planning a group event where you do not already know everyone\'s location.',
     input_schema: {
@@ -609,6 +633,8 @@ function toolStatusLine(toolName, input) {
     case 'message_agent':          return `Checking in with ${input.contact_name || "your friend"}'s agent…`;
     case 'reply_agent':            return `Replying to agent…`;
     case 'get_contact_hard_constraints': return `Checking hard constraints…`;
+    case 'approve_private_sharing': return `Noting your sharing consent…`;
+    case 'revoke_private_sharing':  return `Updating what's shared…`;
     case 'check_invitee_locations':return `Checking everyone's locations…`;
     case 'confirm_coordination_invite': return `Confirming coordination…`;
     case 'record_rsvp':            return `Recording RSVP…`;
@@ -941,8 +967,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (contact.invited_by_user_id !== userId) return { error: 'Contact not in your address book' };
       const contactUser = db.getUserByPhone(contact.phone);
       if (!contactUser) return { is_butterflai_user: false, note: 'Contact is not a ButterflAI user — ask them directly' };
-      const contactPrefs = db.getPreferences(contactUser.id);
-      if (!contactPrefs) return { is_butterflai_user: true, constraints_known: false };
+      // Don't gate the private-data sharing check behind having a prefs row — a contact may
+      // have an (encrypted) health note but no user_preferences row.
+      const contactPrefs = db.getPreferences(contactUser.id) || {};
       const result = {
         is_butterflai_user: true,
         constraints_known: true,
@@ -950,25 +977,44 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         dietary_restrictions: contactPrefs.dietary_restrictions || [],
         // Deliberately omit: vibe, budget, soft preferences — those are private
       };
-      // Health/safety notes live in the ENCRYPTED store (never plaintext prefs). Share only
-      // if the contact explicitly approved (consent gate = health_sharing_approved). The read
-      // is logged against the requesting user as accessor.
-      if (contactPrefs.health_sharing_approved === 1) {
-        const note = sensitive.readPrivateDataAsAccessor(
-          contactUser.id, sensitive.HEALTH_NOTES_KEY, userId,
-          'get_contact_hard_constraints — owner approved sharing'
-        );
-        if (note) {
-          result.health_safety_notes = note;
-          result.health_sharing_note = 'User has approved sharing this with other agents';
-        }
-      } else if (sensitive.hasPrivateData(contactUser.id, sensitive.HEALTH_NOTES_KEY)) {
-        // Existence is disclosed (not the value) so the agent knows to ask — audit it.
-        sensitive.logExistenceProbe(contactUser.id, userId, sensitive.HEALTH_NOTES_KEY);
+      // Health/safety notes are PRIVATE. Consent is PER-EDGE (PRIVACY.md Invariant 2): the
+      // contact must have approved sharing this datum with THIS requesting user specifically —
+      // not a global toggle. readPrivateDataForSharing enforces the per-record approved list
+      // and logs the attempt. (health_sharing_approved is deprecated as a gate.)
+      const shared = sensitive.readPrivateDataForSharing(contactUser.id, sensitive.HEALTH_NOTES_KEY, userId);
+      if (shared.allowed) {
+        result.health_safety_notes = shared.value;
+        result.health_sharing_note = 'Contact approved sharing this with you';
+      } else if (shared.reason === 'not_approved') {
+        // The note exists but is not shared with you — surface only that it exists, never the
+        // value, so your agent knows to ask the user to request it.
         result.health_safety_notes = null;
-        result.health_sharing_note = 'User has health info on file but has not approved automatic sharing — their agent must ask them first';
+        result.health_sharing_note = 'Contact has health info on file but has not approved sharing it with you — their agent must ask them first';
       }
+      // reason 'not_found' → contact has no health note on file; say nothing about it.
       return result;
+    }
+
+    case 'approve_private_sharing': {
+      // Per-edge consent: record that this user approved sharing ONE datum with ONE contact.
+      const contact = db.getContact(toolInput.contact_id);
+      if (!contact?.phone) return { error: 'Contact not found or no phone' };
+      if (contact.invited_by_user_id !== userId) return { error: 'Contact not in your address book' };
+      const contactUser = db.getUserByPhone(contact.phone);
+      if (!contactUser) return { error: 'Contact is not a ButterflAI user — nothing to share agent-to-agent' };
+      const ok = sensitive.approveSharing(userId, toolInput.data_key, contactUser.id);
+      if (!ok) return { error: 'No such private item on file', data_key: toolInput.data_key };
+      return { approved: true, data_key: toolInput.data_key, contact: contact.name };
+    }
+
+    case 'revoke_private_sharing': {
+      const contact = db.getContact(toolInput.contact_id);
+      if (!contact?.phone) return { error: 'Contact not found or no phone' };
+      if (contact.invited_by_user_id !== userId) return { error: 'Contact not in your address book' };
+      const contactUser = db.getUserByPhone(contact.phone);
+      if (!contactUser) return { revoked: false, note: 'Contact is not a ButterflAI user' };
+      const ok = sensitive.revokeSharing(userId, toolInput.data_key, contactUser.id);
+      return { revoked: ok, data_key: toolInput.data_key, contact: contact.name };
     }
 
     case 'check_invitee_locations': {
@@ -1661,7 +1707,9 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   1. FACTUAL QUERIES (health info, allergies, availability from stored prefs): handle SILENTLY. Check stored preferences, call reply_agent with the answer. Do NOT mention to your user. The coordination is invisible.
   2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join"): SURFACE THIS TO YOUR USER immediately and naturally. Say "Hey, [Name] is heading to [place] tonight around [time] — want to go?" Then relay their answer back via reply_agent. Do not reveal agent-to-agent mechanics; just present the social opportunity like a friend texting.
 - Only escalate a FACTUAL query to your user if: (a) the answer genuinely requires their personal decision (not just stored data), AND (b) you have already tried to answer from stored preferences and cannot. Ask your user privately without naming the other agent: "someone asked if you have X on file, do you want to share that?"
-- HEALTH DATA CONSENT GATE: health_safety_notes is only shared with another agent if the user has set health_sharing_approved=true in their preferences. get_contact_hard_constraints returns this automatically. If the field is null or health_sharing_approved=false, you MUST ask your user before sharing any health info — even if you know the answer from stored data. This is a hard gate, not a soft suggestion.
+- PRIVATE DATA IS SHARED PER-PERSON, NEVER GLOBALLY. Private information (anything the user put in private mode, or that reads as sensitive — health, sexual, financial, legal, mental-health, relationship) is shared with a contact ONLY if the user has approved sharing THAT specific item with THAT specific contact. Consent is per user-pair. There is no "share with everyone" setting.
+- When coordinating and a private item would genuinely help (e.g. a dietary or health constraint for a dinner), ASK the user first: "Want me to share [item] with [contact]?" If they say yes, call approve_private_sharing(contact_id, data_key) and then proceed. If they have not approved, do NOT reveal it — even if you know the answer from stored data. get_contact_hard_constraints enforces this in code and will withhold anything not approved for that specific contact; never try to route around it.
+- When the user tells you something that reads as private, treat it as private by default and tell them you are keeping it private (they can downgrade it if they want). Do not share it with anyone until they approve that specific share.
 - "LET EVERYONE KNOW" ABOUT SENSITIVE DATA: If the user says "let everyone know [health/personal info]" or "tell everybody [sensitive thing]", do NOT broadcast to all contacts. Instead: (1) store it via update_preferences, (2) confirm it's saved, (3) ask "Who specifically would you like me to share this with?" — health info requires per-person consent, not a bulk broadcast. Never message_agent all contacts at once for personal health data.
 - Agents talking to agents: share hard constraints freely (allergies, dietary restrictions, availability). Never share soft preferences, exclusion reasons, or private notes. Never reveal what the other agent said verbatim to your user.
 - AGENT MESSAGE TONE: When sending messages via message_agent, write as a professional coordinator — factual, brief, no meta-commentary. Do NOT say "discreetly", "just between us", "no awkward conversation needed", or anything that signals you're hiding something from humans. The coordination is normal background logistics.

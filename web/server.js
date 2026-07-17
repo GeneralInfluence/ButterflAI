@@ -1632,7 +1632,11 @@ app.delete('/api/user/preferences/:field', webAuth.requireAuth, (req, res) => {
   res.json({ ok: true, cleared: field });
 });
 
-// PATCH /api/user/preferences/health-sharing — toggle consent to share health notes with other agents
+// PATCH /api/user/preferences/health-sharing — DEPRECATED.
+// Consent is now per-edge (per contact), enforced via sensitive.sharing_approved_to — a
+// single global "share health with anyone" toggle is no longer the gate and no longer
+// affects sharing. Retained so the current settings page does not 404; the per-contact
+// management UI is the replacement (see docs). This writes the (now-inert) flag only.
 app.patch('/api/user/preferences/health-sharing', webAuth.requireAuth, express.json(), (req, res) => {
   const { approved } = req.body;
   if (typeof approved !== 'boolean') return res.status(400).json({ error: 'approved must be boolean' });

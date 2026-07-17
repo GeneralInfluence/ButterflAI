@@ -95,6 +95,39 @@ Sensitive data does not appear in any `agent_messages` payload.
 
 ---
 
+## Private-data sharing: per-edge consent `[LOCKED 2026-07-17]`
+
+Consent to share private information is **per user-pair** — a directed edge between two nodes
+in the ButterflAI network, for one specific datum. There is no global "share with everyone"
+setting. This is the enforcement of Invariant 2 ("approved sharing that category with User B
+*specifically*"), generalized to all private data.
+
+**How information becomes private:**
+1. The user enters **private mode** (explicit — everything that session is private, Invariant 7), or
+2. The **classifier** flags it as possibly sensitive and it is treated as private by default
+   until the user says otherwise (Invariant 6).
+
+**When the user is asked to approve a share:** either **immediately after classification**, or
+**lazily at coordination time** when that private item would genuinely help (e.g. a dietary or
+health constraint for a dinner). The agent asks "share [item] with [contact]?" and only on an
+explicit yes records the per-edge approval.
+
+**Enforcement (in code, not prompt):**
+- Storage: private data lives encrypted in `user_private_data` with a per-record
+  `sharing_approved_to` list of user_ids (`sensitive.js`).
+- Grant / revoke: `approveSharing` / `revokeSharing` (owner, dataKey, otherUserId); the agent
+  tools `approve_private_sharing` / `revoke_private_sharing` call them only after user consent.
+- Read: `readPrivateDataForSharing(owner, dataKey, requester)` returns the value ONLY if the
+  requester is in the approved list, and logs every attempt. `get_contact_hard_constraints`
+  uses this — it can never return a private datum the owner did not approve for that requester.
+- **Deprecated:** the global `health_sharing_approved` boolean no longer gates anything.
+  Existing global approvals do NOT grant per-edge access — users re-approve per contact.
+
+**Test:** `tests/unit/health-notes-encryption.test.js` (per-edge share/withhold/revoke, no
+cross-user leak) and `privacy.test.js` Invariant 2.
+
+---
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.
