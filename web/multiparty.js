@@ -264,9 +264,16 @@ async function handleRsvpReply(contactPhone, body) {
 
   if (!invitation) return null;
 
+  // Resolve the host's timezone once and render every event time in it. The contact was
+  // originally invited in the host's tz, so all downstream strings — classifier context,
+  // host SMS, host conversation history, and the contact's confirmation — must match it.
+  // Without a tz, formatEventDate defaults to LA and shows the wrong day/time.
+  const host   = db.getUser(invitation.host_user_id);
+  const hostTz = host?.timezone || 'America/Los_Angeles';
+
   // Use Claude to classify the reply — regex can't handle natural language
   const classification = await classifyRsvp(
-    `${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at)}`,
+    `${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at, hostTz)}`,
     body
   );
 
@@ -287,16 +294,15 @@ async function handleRsvpReply(contactPhone, body) {
 
   // Notify the host and write to their conversation history so the agent
   // knows about this RSVP on the next turn (RSVP happens out-of-band).
-  const host = db.getUser(invitation.host_user_id);
   if (host) {
     const emoji = isYes ? '✅' : '❌';
     const msg = isYes
-      ? `${emoji} ${contact.name} is in for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at)}!`
-      : `${emoji} ${contact.name} can't make it for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at)}.`;
+      ? `${emoji} ${contact.name} is in for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at, hostTz)}!`
+      : `${emoji} ${contact.name} can't make it for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at, hostTz)}.`;
 
     // Persist RSVP into host's conversation history so agent has full context
     db.appendConversation(host.id, 'assistant',
-      `[System] RSVP received: ${contact.name} has ${status} the invite for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at)}.`
+      `[System] RSVP received: ${contact.name} has ${status} the invite for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at, hostTz)}.`
     );
 
     if (host.phone) {
@@ -305,7 +311,7 @@ async function handleRsvpReply(contactPhone, body) {
   }
 
   return isYes
-    ? `You're in! 🎉 See you on ${formatEventDate(invitation.scheduled_at)}.`
+    ? `You're in! 🎉 See you on ${formatEventDate(invitation.scheduled_at, hostTz)}.`
     : `No worries! Hope to catch you another time.`;
 }
 

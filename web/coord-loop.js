@@ -283,8 +283,12 @@ function _runTick() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function _addDays(dateStr, days) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
+  // All-UTC arithmetic. Parsing as UTC midnight then advancing with LOCAL setDate()/
+  // getDate() (and reading back via UTC toISOString()) lands a day early when the span
+  // crosses a DST transition in a UTC-negative zone. setUTCDate keeps it DST- and
+  // locale-independent.
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 

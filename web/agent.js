@@ -1281,7 +1281,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'whats_happening': {
-      const date    = toolInput.date || new Date().toISOString().slice(0, 10);
+      // Default to the USER's local calendar date (en-CA → YYYY-MM-DD), not the UTC date.
+      // In the evening in a UTC-negative zone, the UTC date is already tomorrow, so
+      // "what's happening tonight?" would query the wrong day's ambient signals.
+      const whTz    = db.getUser(userId)?.timezone || 'America/Los_Angeles';
+      const date    = toolInput.date || new Date().toLocaleDateString('en-CA', { timeZone: whTz });
       const signals = coord.getAmbientSummary(date);
 
       if (!signals.length) {
@@ -1464,7 +1468,7 @@ async function processMessage(msg) {
             `).all(e.id)
           : [];
         const inviteeList = invitations.map(i => `${i.name} (${i.status})`).join(', ') || 'no invitees yet';
-        const ts = new Date(e.scheduled_at * 1000).toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+        const ts = new Date(e.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
         return `  - eventId="${e.id}" | "${e.title}" | ${ts} | invitees: ${inviteeList}`;
       }).join('\n');
     } catch (_) { return '  (none)'; }

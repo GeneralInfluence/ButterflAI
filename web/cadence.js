@@ -204,7 +204,7 @@ async function runAttendanceGate() {
         const existing = db.getAttendanceConfirmation(event.id, user.id);
         if (existing) continue; // already asked
 
-        const eventLabel = formatEventLabel(event);
+        const eventLabel = formatEventLabel(event, user.timezone);
         confirmations.push({
           id: uuidv4(),
           event_id: event.id,
@@ -254,11 +254,14 @@ async function runAttendanceGate() {
   }
 }
 
-function formatEventLabel(event) {
+function formatEventLabel(event, timezone) {
   const type = event.activity_type || 'activity';
   if (event.scheduled_at) {
     const d = new Date(event.scheduled_at * 1000);
-    const day = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    // Render in the user's timezone, matching every sibling formatter (multiparty
+    // formatEventDate, server formatEventDetails). Without timeZone, toLocaleDateString
+    // uses the server's runtime zone and shows the wrong day-of-week/date.
+    const day = d.toLocaleDateString('en-US', { timeZone: timezone || 'America/Los_Angeles', weekday: 'long', month: 'short', day: 'numeric' });
     return `${type} on ${day}`;
   }
   return type;
@@ -277,4 +280,4 @@ function startNudgeLoop() {
   runNudgeScan().then(() => runAttendanceGate()).catch(err => console.error('[cadence] initial run error:', err));
 }
 
-module.exports = { startNudgeLoop, runNudgeScan, runAttendanceGate, isNudgeDue, buildNudgeText };
+module.exports = { startNudgeLoop, runNudgeScan, runAttendanceGate, isNudgeDue, buildNudgeText, formatEventLabel };

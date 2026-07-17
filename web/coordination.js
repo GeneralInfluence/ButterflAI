@@ -711,9 +711,13 @@ function _friendlySlot(isoStart) {
 
 function _dayToIso(day, time, windowStart) {
   const days = ['sun','mon','tue','wed','thu','fri','sat'];
-  const base  = new Date(windowStart);
+  // Parse and compute entirely in UTC. Mixing a UTC-parsed date (new Date('YYYY-MM-DD')
+  // is UTC midnight) with a LOCAL getDay() shifted the weekday by one under any non-UTC
+  // runtime, moving the resolved slot to the wrong calendar day. getUTCDay() keeps the
+  // weekday consistent with the UTC-based toISOString() output — tz-independent.
+  const base  = new Date(`${windowStart}T00:00:00Z`);
   const targetDay = days.indexOf(day);
-  const diff = (targetDay - base.getDay() + 7) % 7;
+  const diff = (targetDay - base.getUTCDay() + 7) % 7;
   const date  = new Date(base.getTime() + diff * 86400 * 1000);
   return `${date.toISOString().slice(0, 10)}T${time}:00`;
 }
