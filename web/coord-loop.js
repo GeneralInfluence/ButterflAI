@@ -116,8 +116,22 @@ async function tick(transport = stubTransport) {
     await tickDesires(transport);
     await tickRecurring();
     await tickEscalations();
+    tickPurge();
   } catch (err) {
     console.error('[coord] tick error:', err.message);
+  }
+}
+
+// Non-retention: hard-delete coordination data past its purge_after / expiry.
+// A peer's availability must not linger after the event it was shared for.
+function tickPurge() {
+  try {
+    const { peers, sessions, ambient } = db.purgeExpiredCoordination();
+    if (peers || sessions || ambient) {
+      console.log(`[coord] purged expired: sessions=${sessions} peers=${peers} ambient=${ambient}`);
+    }
+  } catch (err) {
+    console.error('[coord] purge error:', err.message);
   }
 }
 
