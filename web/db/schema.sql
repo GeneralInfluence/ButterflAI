@@ -1,1 +1,1 @@
-/home/node/clawd/workspace/butterflai-repo/db/schema.sql
+../../db/schema.sql
