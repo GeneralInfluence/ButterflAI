@@ -304,7 +304,12 @@ function migratePlaintextHealthNotes() {
   const run = raw.transaction(() => {
     let n = 0;
     for (const r of rows) {
-      storePrivateData(r.user_id, HEALTH_NOTES_KEY, r.health_safety_notes, 'HEALTH');
+      // Never clobber an existing encrypted note — that value is newer and authoritative.
+      // Only adopt the legacy plaintext when there is nothing encrypted yet. Either way,
+      // clear the plaintext column so no health data lingers in user_preferences.
+      if (!hasPrivateData(r.user_id, HEALTH_NOTES_KEY)) {
+        storePrivateData(r.user_id, HEALTH_NOTES_KEY, r.health_safety_notes, 'HEALTH');
+      }
       raw.prepare('UPDATE user_preferences SET health_safety_notes = NULL WHERE user_id = ?').run(r.user_id);
       n++;
     }
@@ -337,6 +342,12 @@ function logAccess(userId, accessorId, dataKey, action, context) {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(uuidv4(), userId, accessorId || null, dataKey, action, context || null);
   } catch { /* non-fatal — never suppress the main operation for a log failure */ }
+}
+
+// Audit that an agent learned a user HAS a private datum (existence disclosed) without the
+// value being shared — e.g. get_contact_hard_constraints when sharing wasn't approved.
+function logExistenceProbe(ownerUserId, accessorUserId, dataKey) {
+  logAccess(ownerUserId, accessorUserId, dataKey, 'probe', 'existence disclosed (sharing not approved)');
 }
 
 function getAccessLog(userId, limit = 20) {
@@ -403,6 +414,7 @@ module.exports = {
   readPrivateDataAsAccessor,
   hasPrivateData,
   migratePlaintextHealthNotes,
+  logExistenceProbe,
   approveSharing,
   deletePrivateData,
   HEALTH_NOTES_KEY,

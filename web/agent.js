@@ -894,18 +894,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const input = { ...toolInput };
 
       // health_safety_notes is HEALTH-category sensitive data — it must NEVER be written to
-      // plaintext user_preferences (PRIVACY.md Invariant 1). Route it to the encrypted store
-      // under the canonical key so get_contact_hard_constraints can still share it (gated by
-      // health_sharing_approved). Pull it out BEFORE the classifier so it doesn't trip the
-      // safety net, and never let it reach db.upsertPreferences.
-      let healthStored = false;
-      if (typeof input.health_safety_notes === 'string' && input.health_safety_notes.trim()) {
-        sensitive.storePrivateData(userId, sensitive.HEALTH_NOTES_KEY, input.health_safety_notes.trim(), 'HEALTH');
-        healthStored = true;
-      }
+      // plaintext user_preferences (PRIVACY.md Invariant 1). Decide the health action, then
+      // remove the field so it can never reach db.upsertPreferences.
+      const hasHealthField = Object.prototype.hasOwnProperty.call(input, 'health_safety_notes');
+      const healthValue = typeof input.health_safety_notes === 'string' ? input.health_safety_notes.trim() : '';
       delete input.health_safety_notes;
 
-      // Safety net on the remaining fields: if anything still looks sensitive, redirect.
+      // Safety net on the remaining fields FIRST. If they're sensitive, reject the WHOLE call
+      // BEFORE committing the health note — no partial commit.
       const allValues = Object.values(input).filter(v => typeof v === 'string').join(' ');
       const check = sensitive.classifyText(allValues);
       if (check.sensitive) {
@@ -915,8 +911,24 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           detected_category: check.category,
         };
       }
-      db.upsertPreferences(userId, input);
-      return { saved: true, fields: [...Object.keys(input), ...(healthStored ? ['health_safety_notes (encrypted)'] : [])] };
+
+      // Apply the health action: a non-empty value stores (encrypted); an explicit empty /
+      // whitespace value CLEARS it, so "delete my health note" actually deletes.
+      let healthAction = null;
+      if (hasHealthField) {
+        if (healthValue) {
+          sensitive.storePrivateData(userId, sensitive.HEALTH_NOTES_KEY, healthValue, 'HEALTH');
+          healthAction = 'health_safety_notes (encrypted)';
+        } else {
+          sensitive.deletePrivateData(userId, sensitive.HEALTH_NOTES_KEY);
+          healthAction = 'health_safety_notes (cleared)';
+        }
+      }
+
+      // Only touch prefs if there are non-health fields (upsertPreferences can't build an
+      // empty UPDATE — and a health-only call has nothing left to write here).
+      if (Object.keys(input).length > 0) db.upsertPreferences(userId, input);
+      return { saved: true, fields: [...Object.keys(input), ...(healthAction ? [healthAction] : [])] };
     }
 
     case 'get_contact_hard_constraints': {
@@ -925,6 +937,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       // Health/safety notes ONLY if the contact has explicitly approved sharing them (health_sharing_approved=1)
       const contact = db.getContact(toolInput.contact_id);
       if (!contact?.phone) return { error: 'Contact not found or no phone' };
+      // Scope to the requester's OWN address book — never resolve another user's contact_id.
+      if (contact.invited_by_user_id !== userId) return { error: 'Contact not in your address book' };
       const contactUser = db.getUserByPhone(contact.phone);
       if (!contactUser) return { is_butterflai_user: false, note: 'Contact is not a ButterflAI user — ask them directly' };
       const contactPrefs = db.getPreferences(contactUser.id);
@@ -949,6 +963,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           result.health_sharing_note = 'User has approved sharing this with other agents';
         }
       } else if (sensitive.hasPrivateData(contactUser.id, sensitive.HEALTH_NOTES_KEY)) {
+        // Existence is disclosed (not the value) so the agent knows to ask — audit it.
+        sensitive.logExistenceProbe(contactUser.id, userId, sensitive.HEALTH_NOTES_KEY);
         result.health_safety_notes = null;
         result.health_sharing_note = 'User has health info on file but has not approved automatic sharing — their agent must ask them first';
       }

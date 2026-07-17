@@ -98,6 +98,38 @@ describe('get_contact_hard_constraints honors the health consent gate (reading e
   });
 });
 
+describe('clearing + scoping (adversarial review follow-ups)', () => {
+  test('an empty health_safety_notes value DELETES the encrypted note (user can clear it)', async () => {
+    const u = makeUser('+15551110030', 'Clearer');
+    await executeTool('update_preferences', { health_safety_notes: 'temporary note' }, u.id, u.phone);
+    assert.equal(sensitive.readPrivateData(u.id, KEY), 'temporary note');
+    await executeTool('update_preferences', { health_safety_notes: '   ' }, u.id, u.phone);
+    assert.equal(sensitive.readPrivateData(u.id, KEY), null, 'blank value must clear the note');
+    assert.equal(sensitive.hasPrivateData(u.id, KEY), false);
+  });
+
+  test('a sensitive sibling field rejects the call WITHOUT committing the health note', async () => {
+    const u = makeUser('+15551110031', 'Partial');
+    const r = await executeTool('update_preferences',
+      { health_safety_notes: 'HIV negative', extra_notes: 'I have severe depression and take antidepressants' },
+      u.id, u.phone);
+    assert.equal(r.error, 'SENSITIVE_DATA_DETECTED');
+    assert.equal(sensitive.hasPrivateData(u.id, KEY), false, 'health note must NOT be stored when the call is rejected');
+  });
+
+  test('get_contact_hard_constraints refuses a contact_id not in the requester\'s address book', async () => {
+    const owner = makeUser('+15551110040', 'Owner40');
+    const other = makeUser('+15551110041', 'Other41');   // owns the contact
+    const asker = makeUser('+15551110042', 'Asker42');    // does NOT own it
+    const cid = uuidv4();
+    db.createContact({ id: cid, invited_by_user_id: other.id, name: 'Owner40', phone: owner.phone, tier: 2 });
+    sensitive.storePrivateData(owner.id, KEY, 'confidential', 'HEALTH');
+    db.upsertPreferences(owner.id, { health_sharing_approved: 1 });
+    const r = await executeTool('get_contact_hard_constraints', { contact_id: cid }, asker.id, asker.phone);
+    assert.match(r.error || '', /not in your address book/);
+  });
+});
+
 describe('migratePlaintextHealthNotes moves legacy plaintext to the encrypted store', () => {
   const legacy = makeUser('+15551110020', 'Legacy User');
 
@@ -114,5 +146,18 @@ describe('migratePlaintextHealthNotes moves legacy plaintext to the encrypted st
 
     // Idempotent: a second run finds nothing.
     assert.equal(sensitive.migratePlaintextHealthNotes().migrated, 0);
+  });
+
+  test('does NOT clobber an existing encrypted note with stale plaintext', () => {
+    const u = makeUser('+15551110021', 'Coexist User');
+    // Authoritative, current value already encrypted...
+    sensitive.storePrivateData(u.id, KEY, 'CURRENT: HIV- on PrEP', 'HEALTH');
+    // ...and a stale plaintext value lingering in the column.
+    db.upsertPreferences(u.id, { health_safety_notes: 'STALE: old panel 2024' });
+
+    sensitive.migratePlaintextHealthNotes();
+
+    assert.equal(sensitive.readPrivateData(u.id, KEY), 'CURRENT: HIV- on PrEP', 'encrypted value must be preserved, not clobbered');
+    assert.equal(plaintextInPrefs(u.id) ?? null, null, 'stale plaintext still cleared');
   });
 });
