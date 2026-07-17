@@ -337,17 +337,31 @@
 
     // ── Catch-up: fetch any messages that arrived while SSE was disconnected ──
     async function catchUpMessages() {
-      if (!lastMsgTs) return;
       try {
-        const r = await fetch(`/api/chat/messages?since=${lastMsgTs}`);
+        // When waiting for a reply, poll since pendingSince-5 to absorb client/server clock skew
+        // (client clock can be a few seconds ahead of server, causing responses to be missed).
+        // When catching up after SSE reconnect, use lastMsgTs as usual.
+        const pollSince = pendingSince > 0
+          ? Math.max(0, pendingSince - 5)
+          : lastMsgTs;
+        if (!pollSince) return;
+
+        const r = await fetch(`/api/chat/messages?since=${pollSince}`);
         if (!r.ok) return;
         const { messages } = await r.json();
-        if (messages.length) {
+
+        // While waiting for a reply, only surface NEW assistant messages.
+        // User's own message was already rendered optimistically — skip it to avoid duplicates.
+        const toRender = pendingSince > 0
+          ? messages.filter(m => m.role === 'assistant')
+          : messages;
+
+        if (toRender.length) {
           pendingSince = 0;
           agentStatusEl.textContent = '';
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
-          messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at));
+          toRender.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at));
           scrollToBottom();
         } else if (pendingSince > 0) {
           // We sent a message but no reply yet — keep the typing indicator visible
@@ -411,7 +425,7 @@
       });
 
       if (emptyEl.parentNode) emptyEl.remove();
-      appendMessage('me', text, Date.now() / 1000);
+      appendMessage('me', text, Date.now() / 1000, false); // false = don't update lastMsgTs (client clock may be ahead of server)
       scrollToBottom();
       pendingSince = Math.floor(Date.now() / 1000);
       typingEl.classList.add('visible');
@@ -439,7 +453,7 @@
     }
 
     // ── DOM helpers ────────────────────────────────────────────────────────────
-    function appendMessage(role, text, ts) {
+    function appendMessage(role, text, ts, updateTs = true) {
       // Strip and handle {"action":"REQUEST_LOCATION"} anywhere in bot messages
       if (role === 'bot') {
         const locMatch = text.match(/\{"action"\s*:\s*"REQUEST_LOCATION"\}/);
@@ -455,8 +469,9 @@
       div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="ts">${time}</div>`;
       // Insert before typing indicator so anchor stays last
       messagesEl.insertBefore(div, typingEl);
-      // Track latest message timestamp for catch-up polling after SSE reconnect
-      if (ts && ts > lastMsgTs) lastMsgTs = ts;
+      // Track latest message timestamp for catch-up polling — only from server-sourced messages,
+      // not optimistic client-side renders (client clock can be ahead of server, causing missed polls)
+      if (updateTs && ts && ts > lastMsgTs) lastMsgTs = ts;
       // For bot messages: scroll to show the TOP of the new message (not the bottom),
       // so long responses are readable from the beginning.
       // For user messages: scroll to bottom so the sent message is visible.
