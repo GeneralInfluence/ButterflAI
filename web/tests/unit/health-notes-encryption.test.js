@@ -106,6 +106,21 @@ describe('get_contact_hard_constraints enforces PER-EDGE consent (Invariant 2)',
     const log = sensitive.getAccessLog(owner.id, 20);
     assert.ok(log.some(e => e.accessor_id === asker.id && e.action === 'share'), 'accessor must be logged');
   });
+
+  test('the DEPRECATED global health_sharing_approved flag does NOT grant access', async () => {
+    // Fresh pair with a VALID address-book contact (so the scoping check passes) and the
+    // global toggle ON — but no per-edge approval. Must still be denied. Guards against a
+    // regression that re-introduces the global gate before the per-edge check.
+    const gOwner = makeUser('+15551110013', 'Global Owner');
+    const gAsker = makeUser('+15551110014', 'Global Asker');
+    sensitive.storePrivateData(gOwner.id, KEY, 'should stay private', 'HEALTH');
+    db.upsertPreferences(gOwner.id, { health_sharing_approved: 1 });      // global toggle ON
+    const cid = uuidv4();
+    db.createContact({ id: cid, invited_by_user_id: gAsker.id, name: 'Global Owner', phone: gOwner.phone, tier: 2 });
+    const r = await executeTool('get_contact_hard_constraints', { contact_id: cid }, gAsker.id, gAsker.phone);
+    assert.equal(r.health_safety_notes, null, 'global flag must NOT release the note');
+    assert.match(r.health_sharing_note || '', /has not approved/);
+  });
 });
 
 describe('approve_private_sharing / revoke_private_sharing tools', () => {

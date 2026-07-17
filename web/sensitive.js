@@ -213,6 +213,7 @@ function readPrivateDataForSharing(ownerUserId, dataKey, requestingUserId) {
 
   let approved = [];
   try { approved = JSON.parse(row.sharing_approved_to || '[]'); } catch { approved = []; }
+  if (!Array.isArray(approved)) approved = []; // fail closed on any non-array (never substring-match a scalar)
 
   if (!approved.includes(requestingUserId)) {
     logAccess(ownerUserId, requestingUserId, dataKey, 'share', 'denied — not in approved list');
@@ -240,6 +241,7 @@ function approveSharing(ownerUserId, dataKey, approvedUserId) {
 
   let approved = [];
   try { approved = JSON.parse(row.sharing_approved_to || '[]'); } catch { approved = []; }
+  if (!Array.isArray(approved)) approved = []; // fail closed on any non-array (never substring-match a scalar)
   if (!approved.includes(approvedUserId)) approved.push(approvedUserId);
 
   raw.prepare(
@@ -264,6 +266,7 @@ function revokeSharing(ownerUserId, dataKey, revokedUserId) {
 
   let approved = [];
   try { approved = JSON.parse(row.sharing_approved_to || '[]'); } catch { approved = []; }
+  if (!Array.isArray(approved)) approved = []; // fail closed on any non-array (never substring-match a scalar)
   const next = approved.filter(id => id !== revokedUserId);
   if (next.length === approved.length) return false; // nothing to revoke
 
@@ -284,7 +287,7 @@ function listSharingApprovals(ownerUserId, dataKey) {
     'SELECT sharing_approved_to FROM user_private_data WHERE user_id = ? AND data_key = ?'
   ).get(ownerUserId, dataKey);
   if (!row) return [];
-  try { return JSON.parse(row.sharing_approved_to || '[]'); } catch { return []; }
+  try { const a = JSON.parse(row.sharing_approved_to || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
 }
 
 /**
