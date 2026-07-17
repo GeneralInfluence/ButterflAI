@@ -273,7 +273,8 @@
     const messagesEl = document.getElementById('messages');
     const inputEl    = document.getElementById('msg-input');
     const sendBtn    = document.getElementById('send-btn');
-    const typingEl   = document.getElementById('typing');
+    const typingEl      = document.getElementById('typing');
+    const agentStatusEl = document.getElementById('agent-status');
     const emptyEl    = document.getElementById('empty-state');
     let eventSource    = null;
     let lastMsgTs      = 0;    // unix timestamp of newest message shown in UI
@@ -381,8 +382,6 @@
     function connectSSE() {
       if (eventSource) { eventSource.close(); }
       eventSource = new EventSource('/api/chat/stream');
-    const agentStatusEl = document.getElementById('agent-status');
-
       eventSource.onmessage = e => {
         const data = JSON.parse(e.data);
         if (data.role === 'status') {
