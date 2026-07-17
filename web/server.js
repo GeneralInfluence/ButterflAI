@@ -1609,6 +1609,10 @@ app.get('/api/user/private-data/access-log', webAuth.requireAuth, (req, res) => 
 // GET /api/user/preferences — return everything the agent has stored about this user
 app.get('/api/user/preferences', webAuth.requireAuth, (req, res) => {
   const prefs = db.getPreferences(req.user.id) || {};
+  // health_safety_notes lives encrypted (not in plaintext prefs). Surface it to the OWNER's
+  // own settings view by decrypting on read (logged); the plaintext column stays NULL.
+  const note = sensitive.readPrivateData(req.user.id, sensitive.HEALTH_NOTES_KEY, 'owner settings view');
+  if (note) prefs.health_safety_notes = note;
   res.json({ preferences: prefs });
 });
 
@@ -1619,7 +1623,12 @@ app.delete('/api/user/preferences/:field', webAuth.requireAuth, (req, res) => {
     'availability_notes','comm_style','extra_notes','health_safety_notes','health_sharing_approved'];
   const { field } = req.params;
   if (!SAFE_FIELDS.includes(field)) return res.status(400).json({ error: 'Unknown field' });
-  db.upsertPreferences(req.user.id, { [field]: null });
+  if (field === 'health_safety_notes') {
+    // Lives in the encrypted store — hard-delete there (also logs the deletion).
+    sensitive.deletePrivateData(req.user.id, sensitive.HEALTH_NOTES_KEY);
+  } else {
+    db.upsertPreferences(req.user.id, { [field]: null });
+  }
   res.json({ ok: true, cleared: field });
 });
 
@@ -2200,6 +2209,14 @@ process.on('unhandledRejection', (reason) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
+  // One-time, idempotent: move any plaintext health notes into the encrypted store before
+  // serving traffic (PRIVACY.md Invariant 1). No-op once migrated.
+  try {
+    const { migrated } = sensitive.migratePlaintextHealthNotes();
+    if (migrated) console.log(`[startup] migrated ${migrated} plaintext health note(s) to encrypted store`);
+  } catch (e) {
+    console.error('[startup] health-notes migration failed:', e.message);
+  }
   app.listen(PORT, () => {
     console.log(`ButterflAI web running on :${PORT}`);
     startAgentLoop();

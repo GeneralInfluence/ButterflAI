@@ -270,7 +270,7 @@ const TOOL_DEFINITIONS = [
         availability_notes:    { type: 'string', description: 'Free-form, e.g. "weeknight evenings after 7, weekend afternoons"' },
         comm_style:            { type: 'string', enum: ['brief', 'detailed', 'just handle it'] },
         extra_notes:           { type: 'string', description: 'Anything else worth remembering' },
-        health_safety_notes:   { type: 'string', description: 'Health/safety information the user has consented to share with trusted contacts\' agents when asked — e.g. "STI tests current as of 2026-06", "non-smoker", "sober". Only store if the user explicitly says they\'re comfortable sharing this with other agents.' },
+        health_safety_notes:   { type: 'string', description: 'Health/safety information the user has consented to share with trusted contacts\' agents when asked — e.g. "STI tests current as of 2026-06", "non-smoker", "sober". Stored ENCRYPTED at rest (never in plaintext prefs). Only store if the user explicitly says they\'re comfortable sharing this with other agents.' },
       },
     },
   },
@@ -891,19 +891,32 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'update_preferences': {
-      // Safety net: if any value looks sensitive, redirect to store_private_data
-      const allValues = Object.values(toolInput).filter(v => typeof v === 'string').join(' ');
+      const input = { ...toolInput };
+
+      // health_safety_notes is HEALTH-category sensitive data — it must NEVER be written to
+      // plaintext user_preferences (PRIVACY.md Invariant 1). Route it to the encrypted store
+      // under the canonical key so get_contact_hard_constraints can still share it (gated by
+      // health_sharing_approved). Pull it out BEFORE the classifier so it doesn't trip the
+      // safety net, and never let it reach db.upsertPreferences.
+      let healthStored = false;
+      if (typeof input.health_safety_notes === 'string' && input.health_safety_notes.trim()) {
+        sensitive.storePrivateData(userId, sensitive.HEALTH_NOTES_KEY, input.health_safety_notes.trim(), 'HEALTH');
+        healthStored = true;
+      }
+      delete input.health_safety_notes;
+
+      // Safety net on the remaining fields: if anything still looks sensitive, redirect.
+      const allValues = Object.values(input).filter(v => typeof v === 'string').join(' ');
       const check = sensitive.classifyText(allValues);
       if (check.sensitive) {
-        // Don't store in plaintext — return an instruction to use the right tool
         return {
           error: 'SENSITIVE_DATA_DETECTED',
           message: 'This data appears sensitive. Use store_private_data with the appropriate category instead of update_preferences.',
           detected_category: check.category,
         };
       }
-      db.upsertPreferences(userId, toolInput);
-      return { saved: true, fields: Object.keys(toolInput) };
+      db.upsertPreferences(userId, input);
+      return { saved: true, fields: [...Object.keys(input), ...(healthStored ? ['health_safety_notes (encrypted)'] : [])] };
     }
 
     case 'get_contact_hard_constraints': {
@@ -923,11 +936,19 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         dietary_restrictions: contactPrefs.dietary_restrictions || [],
         // Deliberately omit: vibe, budget, soft preferences — those are private
       };
-      // Health/safety notes: only shared if the user has explicitly approved (consent gate)
-      if (contactPrefs.health_safety_notes && contactPrefs.health_sharing_approved === 1) {
-        result.health_safety_notes = contactPrefs.health_safety_notes;
-        result.health_sharing_note = 'User has approved sharing this with other agents';
-      } else if (contactPrefs.health_safety_notes) {
+      // Health/safety notes live in the ENCRYPTED store (never plaintext prefs). Share only
+      // if the contact explicitly approved (consent gate = health_sharing_approved). The read
+      // is logged against the requesting user as accessor.
+      if (contactPrefs.health_sharing_approved === 1) {
+        const note = sensitive.readPrivateDataAsAccessor(
+          contactUser.id, sensitive.HEALTH_NOTES_KEY, userId,
+          'get_contact_hard_constraints — owner approved sharing'
+        );
+        if (note) {
+          result.health_safety_notes = note;
+          result.health_sharing_note = 'User has approved sharing this with other agents';
+        }
+      } else if (sensitive.hasPrivateData(contactUser.id, sensitive.HEALTH_NOTES_KEY)) {
         result.health_safety_notes = null;
         result.health_sharing_note = 'User has health info on file but has not approved automatic sharing — their agent must ask them first';
       }
@@ -1903,4 +1924,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, executeTool };

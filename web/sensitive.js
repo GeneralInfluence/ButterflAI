@@ -13,6 +13,12 @@
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
+// Canonical key for the user's shareable health/safety note in the encrypted store.
+// It has a fixed key (unlike free-form store_private_data entries) so the agent-to-agent
+// hard-constraints path can find it. The value is HEALTH-category sensitive data and must
+// live ONLY here (encrypted), never in plaintext user_preferences (PRIVACY.md Invariant 1).
+const HEALTH_NOTES_KEY = 'health.safety_notes';
+
 // ── Encryption helpers ────────────────────────────────────────────────────────
 
 function getEncryptionKey() {
@@ -245,6 +251,71 @@ function approveSharing(ownerUserId, dataKey, approvedUserId) {
 }
 
 /**
+ * Does a private datum exist for this user+key? Metadata only — no decrypt, no value.
+ * Used to tell "has health info but not shared" from "has none" without exposing it.
+ */
+function hasPrivateData(userId, dataKey) {
+  const db = getDb();
+  return !!db._raw()
+    .prepare('SELECT 1 FROM user_private_data WHERE user_id = ? AND data_key = ?')
+    .get(userId, dataKey);
+}
+
+/**
+ * Read a private datum on behalf of a DIFFERENT accessor, when an external consent gate
+ * has already authorized the read (e.g. the owner's health_sharing_approved flag). Logs
+ * the access with the accessor's id. Returns the decrypted value, or null if absent.
+ *
+ * Unlike readPrivateDataForSharing (which enforces the per-record sharing_approved_to
+ * list), this trusts the CALLER to have checked authorization — so callers MUST gate it.
+ */
+function readPrivateDataAsAccessor(ownerUserId, dataKey, accessorUserId, context = 'gated shared read') {
+  const db = getDb();
+  const row = db._raw()
+    .prepare('SELECT encrypted_v, iv, auth_tag FROM user_private_data WHERE user_id = ? AND data_key = ?')
+    .get(ownerUserId, dataKey);
+  if (!row) return null;
+  logAccess(ownerUserId, accessorUserId, dataKey, 'share', context);
+  try {
+    return decrypt(row.encrypted_v, row.iv, row.auth_tag);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One-time, idempotent migration: move any plaintext health_safety_notes still sitting in
+ * user_preferences into the encrypted store, then NULL the plaintext column. Safe to run on
+ * every startup — after the first pass there is nothing left to move. See PRIVACY.md
+ * Invariant 1 and migration 025 (the column is retained but must stay NULL).
+ */
+function migratePlaintextHealthNotes() {
+  const db = getDb();
+  const raw = db._raw();
+  let rows;
+  try {
+    rows = raw.prepare(
+      "SELECT user_id, health_safety_notes FROM user_preferences WHERE health_safety_notes IS NOT NULL AND health_safety_notes != ''"
+    ).all();
+  } catch {
+    return { migrated: 0 }; // column absent (e.g. a minimal test schema) — nothing to do
+  }
+  if (!rows.length) return { migrated: 0 };
+  const run = raw.transaction(() => {
+    let n = 0;
+    for (const r of rows) {
+      storePrivateData(r.user_id, HEALTH_NOTES_KEY, r.health_safety_notes, 'HEALTH');
+      raw.prepare('UPDATE user_preferences SET health_safety_notes = NULL WHERE user_id = ?').run(r.user_id);
+      n++;
+    }
+    return n;
+  });
+  const migrated = run();
+  if (migrated) console.log(`[sensitive] migrated ${migrated} plaintext health note(s) to the encrypted store`);
+  return { migrated };
+}
+
+/**
  * Delete a private datum. Hard delete with audit log entry.
  */
 function deletePrivateData(userId, dataKey) {
@@ -329,8 +400,12 @@ module.exports = {
   readPrivateData,
   listPrivateData,
   readPrivateDataForSharing,
+  readPrivateDataAsAccessor,
+  hasPrivateData,
+  migratePlaintextHealthNotes,
   approveSharing,
   deletePrivateData,
+  HEALTH_NOTES_KEY,
   getAccessLog,
   setSensitiveMode,
   isSensitiveMode,
