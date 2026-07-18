@@ -212,15 +212,15 @@
       </div>
       <div id="health-notes-display" style="font-size:14px;color:#555;min-height:20px;margin-bottom:8px">—</div>
       <button onclick="clearField('health_safety_notes')" id="clear-health-btn" style="display:none;padding:6px 12px;border-radius:8px;background:#fff0f0;color:#ef4444;border:none;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">Clear health notes</button>
-      <div style="display:flex;align-items:center;gap:10px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#555">
-          <input type="checkbox" id="health-sharing-toggle" onchange="toggleHealthSharing(this.checked)"
-            style="width:18px;height:18px;accent-color:#6c47ff">
-          Allow my agent to share this with other agents when asked
-        </label>
-      </div>
-      <p style="font-size:12px;color:#aaa;margin-top:6px;line-height:1.4">When off (default), your agent will ask you before sharing with anyone.</p>
+      <p style="font-size:12px;color:#aaa;margin-top:6px;line-height:1.4">Sharing is now per-person — choose exactly who can see each private item under <strong>Private info sharing</strong> below.</p>
     </div>
+  </section>
+
+  <!-- Private info sharing — per-contact (per-edge) consent -->
+  <section>
+    <h2>🔗 Private info sharing</h2>
+    <p style="font-size:13px;color:#888;margin:-4px 0 12px;line-height:1.5">You control who can see each private item, one person at a time. Your agent can never share these without your explicit yes.</p>
+    <div id="sharing-list"><div style="color:#aaa;font-size:14px">Loading…</div></div>
   </section>
 
   <!-- Your data -->
@@ -332,10 +332,66 @@
         healthEl.textContent = '—';
         clearHealthBtn.style.display = 'none';
       }
-      document.getElementById('health-sharing-toggle').checked = !!p.health_sharing_approved;
     } catch (_) {
       document.getElementById('prefs-list').innerHTML = '<div style="color:#aaa;font-size:14px">Could not load.</div>';
     }
+  }
+
+  // ── Per-contact private-data sharing ─────────────────────────────────────────
+  async function loadSharing() {
+    const el = document.getElementById('sharing-list');
+    try {
+      const { items, shareable_contacts } = await fetch('/api/user/private-sharing').then(r => r.json());
+      if (!items || !items.length) {
+        el.innerHTML = '<div style="color:#aaa;font-size:14px">No private items yet. Anything you mark private will appear here so you can choose who sees it.</div>';
+        return;
+      }
+      el.innerHTML = items.map(it => {
+        const chips = (it.shared_with || []).map(c => `
+          <span style="display:inline-flex;align-items:center;gap:6px;background:#f2effe;color:#6c47ff;border-radius:14px;padding:4px 10px;font-size:13px;margin:2px 4px 2px 0">
+            ${escHtml(c.name)}
+            ${c.contact_id ? `<button title="Stop sharing" onclick="revokeShare('${escHtml(it.data_key)}','${c.contact_id}')" style="border:none;background:none;color:#6c47ff;cursor:pointer;font-size:14px;line-height:1;padding:0">✕</button>` : ''}
+          </span>`).join('') || '<span style="color:#aaa;font-size:13px">Not shared with anyone</span>';
+        const options = (shareable_contacts || []).map(c => `<option value="${c.contact_id}">${escHtml(c.name)}</option>`).join('');
+        return `
+          <div style="border:1px solid #f2f2f7;border-radius:12px;padding:12px;margin-bottom:10px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:6px">🔒 ${escHtml(it.label)}</div>
+            <div style="margin-bottom:8px">${chips}</div>
+            ${options ? `
+              <div style="display:flex;gap:8px;align-items:center">
+                <select id="share-sel-${escHtml(it.data_key)}" style="flex:1;padding:6px;border:1px solid #e5e5ea;border-radius:8px;font-size:13px">
+                  <option value="">Share with…</option>${options}
+                </select>
+                <button onclick="approveShareFromSelect('${escHtml(it.data_key)}')" style="padding:6px 12px;border:none;border-radius:8px;background:#6c47ff;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Share</button>
+              </div>` : '<div style="color:#aaa;font-size:12px">Add ButterflAI contacts to share with them.</div>'}
+          </div>`;
+      }).join('');
+    } catch (_) {
+      el.innerHTML = '<div style="color:#aaa;font-size:14px">Could not load sharing.</div>';
+    }
+  }
+
+  async function approveShareFromSelect(dataKey) {
+    const sel = document.getElementById('share-sel-' + dataKey);
+    const contactId = sel && sel.value;
+    if (!contactId) return;
+    await approveShare(dataKey, contactId);
+  }
+
+  async function approveShare(dataKey, contactId) {
+    const r = await fetch('/api/user/private-sharing/approve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data_key: dataKey, contact_id: contactId })
+    });
+    if (r.ok) await loadSharing(); else alert('Could not share. Try again.');
+  }
+
+  async function revokeShare(dataKey, contactId) {
+    const r = await fetch('/api/user/private-sharing/revoke', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data_key: dataKey, contact_id: contactId })
+    });
+    if (r.ok) await loadSharing(); else alert('Could not update. Try again.');
   }
 
   function escHtml(s) {
@@ -346,14 +402,6 @@
     const r = await fetch(`/api/user/preferences/${field}`, { method: 'DELETE' });
     if (r.ok) await loadPreferences();
     else alert('Could not clear. Try again.');
-  }
-
-  async function toggleHealthSharing(approved) {
-    await fetch('/api/user/preferences/health-sharing', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ approved })
-    });
   }
 
   async function load() {
@@ -379,6 +427,9 @@
 
       // Preferences — what the agent knows
       await loadPreferences();
+
+      // Per-contact private-data sharing
+      await loadSharing();
 
       // Audit
       const { audit } = await fetch(`/api/user/${me.id}/audit`).then(r => r.json());

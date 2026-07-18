@@ -828,6 +828,27 @@ async function handlePendingAction(user, body, pending) {
     return `Got it — thanks for confirming! 🦋`;
   }
 
+  if (pending.action_type === 'approve_share') {
+    // Code-gated per-edge consent. The grant requires the explicit keyword SHARE — NOT a
+    // bare "yes"/"ok", which could be a reply the user meant for a different pending prompt
+    // (confused-deputy). So a casual affirmative can never leak private data; it fails closed.
+    db.deletePendingAction(pending.id);
+    const wantsShare = /\bshare\b/i.test(lower);
+    const declines   = isNo || /\b(keep\s+(it\s+)?private|cancel|don'?t)\b/i.test(lower);
+    if (wantsShare) {
+      const ok = sensitive.approveSharing(user.id, payload.data_key, payload.contact_user_id);
+      return ok
+        ? `Done — ${payload.contact_name}'s ButterflAI can now factor that in. You can revoke anytime in Settings. 🔒`
+        : `Hmm, I couldn't find that item to share — nothing was shared.`;
+    }
+    if (declines) {
+      return `Kept private — I won't share it with ${payload.contact_name}.`;
+    }
+    // Anything else (including a bare "yes"/"ok") does NOT grant. Re-queue for the agent.
+    db.storeInboundMessage({ from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'sms', text: body });
+    return `I didn't share anything — reply SHARE to that request only if you did want to share it. 🦋`;
+  }
+
   // Unknown action type — fall through to generic
   db.deletePendingAction(pending.id);
   db.storeInboundMessage({
@@ -1609,6 +1630,10 @@ app.get('/api/user/private-data/access-log', webAuth.requireAuth, (req, res) => 
 // GET /api/user/preferences — return everything the agent has stored about this user
 app.get('/api/user/preferences', webAuth.requireAuth, (req, res) => {
   const prefs = db.getPreferences(req.user.id) || {};
+  // health_safety_notes lives encrypted (not in plaintext prefs). Surface it to the OWNER's
+  // own settings view by decrypting on read (logged); the plaintext column stays NULL.
+  const note = sensitive.readPrivateData(req.user.id, sensitive.HEALTH_NOTES_KEY, 'owner settings view');
+  if (note) prefs.health_safety_notes = note;
   res.json({ preferences: prefs });
 });
 
@@ -1619,11 +1644,87 @@ app.delete('/api/user/preferences/:field', webAuth.requireAuth, (req, res) => {
     'availability_notes','comm_style','extra_notes','health_safety_notes','health_sharing_approved'];
   const { field } = req.params;
   if (!SAFE_FIELDS.includes(field)) return res.status(400).json({ error: 'Unknown field' });
-  db.upsertPreferences(req.user.id, { [field]: null });
+  if (field === 'health_safety_notes') {
+    // Lives in the encrypted store — hard-delete there (also logs the deletion).
+    sensitive.deletePrivateData(req.user.id, sensitive.HEALTH_NOTES_KEY);
+  } else {
+    db.upsertPreferences(req.user.id, { [field]: null });
+  }
   res.json({ ok: true, cleared: field });
 });
 
-// PATCH /api/user/preferences/health-sharing — toggle consent to share health notes with other agents
+// ── Per-contact private-data sharing (replaces the deprecated global health toggle) ──
+// These are code-gated by requireAuth: they act on req.user.id (the authenticated owner),
+// so a grant here is a direct, deterministic user action — no LLM in the path.
+
+function _sharingLabel(dataKey) {
+  const labels = { 'health.safety_notes': 'Health & safety note' };
+  if (labels[dataKey]) return labels[dataKey];
+  const tail = String(dataKey || '').split('.').pop().replace(/_/g, ' ').trim();
+  return tail ? tail[0].toUpperCase() + tail.slice(1) : 'Private note';
+}
+
+// Map the owner's approved recipient user_ids back to their contacts (id + name).
+function _ownerContactByUserId(ownerId) {
+  const map = {};
+  for (const c of db.getContactsByUser(ownerId)) {
+    if (!c.phone) continue;
+    const u = db.getUserByPhone(c.phone);
+    if (u) map[u.id] = { contact_id: c.id, name: c.name };
+  }
+  return map;
+}
+
+// GET — the owner's private items and, per item, which contacts each is shared with.
+app.get('/api/user/private-sharing', webAuth.requireAuth, (req, res) => {
+  const contactMap = _ownerContactByUserId(req.user.id);
+  const items = sensitive.listPrivateData(req.user.id).map(it => {
+    const shared_with = sensitive.listSharingApprovals(req.user.id, it.data_key)
+      .map(uid => contactMap[uid] || { contact_id: null, name: 'Unknown (not in your contacts)' });
+    return { data_key: it.data_key, category: it.category, label: _sharingLabel(it.data_key), updated_at: it.updated_at, shared_with };
+  });
+  // Contacts who are ButterflAI users (candidates to share with).
+  const shareable_contacts = db.getContactsByUser(req.user.id)
+    .filter(c => c.phone && db.getUserByPhone(c.phone))
+    .map(c => ({ contact_id: c.id, name: c.name }));
+  res.json({ items, shareable_contacts });
+});
+
+function _resolveOwnedContactUser(ownerId, contactId) {
+  const contact = db.getContact(contactId);
+  if (!contact || contact.invited_by_user_id !== ownerId) return { error: 'Contact not found', code: 404 };
+  if (!contact.phone) return { error: 'Contact has no phone', code: 400 };
+  const contactUser = db.getUserByPhone(contact.phone);
+  if (!contactUser) return { error: 'Contact is not a ButterflAI user', code: 400 };
+  return { contactUser };
+}
+
+// POST approve — the owner directly grants sharing of one item with one contact.
+app.post('/api/user/private-sharing/approve', webAuth.requireAuth, express.json(), (req, res) => {
+  const { data_key, contact_id } = req.body || {};
+  if (!data_key || !contact_id) return res.status(400).json({ error: 'data_key and contact_id required' });
+  const r = _resolveOwnedContactUser(req.user.id, contact_id);
+  if (r.error) return res.status(r.code).json({ error: r.error });
+  const ok = sensitive.approveSharing(req.user.id, data_key, r.contactUser.id);
+  if (!ok) return res.status(404).json({ error: 'No such private item on file' });
+  res.json({ ok: true });
+});
+
+// POST revoke — the owner withdraws sharing of one item with one contact.
+app.post('/api/user/private-sharing/revoke', webAuth.requireAuth, express.json(), (req, res) => {
+  const { data_key, contact_id } = req.body || {};
+  if (!data_key || !contact_id) return res.status(400).json({ error: 'data_key and contact_id required' });
+  const r = _resolveOwnedContactUser(req.user.id, contact_id);
+  if (r.error) return res.status(r.code).json({ error: r.error });
+  const ok = sensitive.revokeSharing(req.user.id, data_key, r.contactUser.id);
+  res.json({ ok });
+});
+
+// PATCH /api/user/preferences/health-sharing — DEPRECATED.
+// Consent is now per-edge (per contact), enforced via sensitive.sharing_approved_to — a
+// single global "share health with anyone" toggle is no longer the gate and no longer
+// affects sharing. Retained so the current settings page does not 404; the per-contact
+// management UI is the replacement (see docs). This writes the (now-inert) flag only.
 app.patch('/api/user/preferences/health-sharing', webAuth.requireAuth, express.json(), (req, res) => {
   const { approved } = req.body;
   if (typeof approved !== 'boolean') return res.status(400).json({ error: 'approved must be boolean' });
@@ -2200,6 +2301,14 @@ process.on('unhandledRejection', (reason) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
+  // One-time, idempotent: move any plaintext health notes into the encrypted store before
+  // serving traffic (PRIVACY.md Invariant 1). No-op once migrated.
+  try {
+    const { migrated } = sensitive.migratePlaintextHealthNotes();
+    if (migrated) console.log(`[startup] migrated ${migrated} plaintext health note(s) to encrypted store`);
+  } catch (e) {
+    console.error('[startup] health-notes migration failed:', e.message);
+  }
   app.listen(PORT, () => {
     console.log(`ButterflAI web running on :${PORT}`);
     startAgentLoop();
@@ -2208,4 +2317,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app };
+module.exports = { app, handlePendingAction };

@@ -428,3 +428,20 @@ describe('Coordination invite handling and event-first rule', () => {
     assertContains('If you only call message_agent without creating the event', 'event-first consequence');
   });
 });
+
+// ── Per-edge private-data consent (PRIVACY.md Invariant 2) ────────────────────
+describe('Per-edge private-data sharing consent', () => {
+  test('prompt states sharing is per-person, never global', () => {
+    assertContains('PRIVATE DATA IS SHARED PER-PERSON, NEVER GLOBALLY', 'per-edge consent rule');
+    assertContains('THAT specific item with THAT specific contact', 'per-item per-contact');
+  });
+
+  test('prompt tells the agent to request confirmation, not self-grant', () => {
+    assertContains('request_private_sharing', 'request tool named in prompt');
+    assertContains('shared ONLY if the user replies yes', 'code-gated confirmation phrasing');
+  });
+
+  test('prompt says treat newly-shared private info as private by default', () => {
+    assertContains('treat it as private by default', 'default-private rule');
+  });
+});

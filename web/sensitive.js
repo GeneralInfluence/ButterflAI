@@ -13,6 +13,12 @@
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
+// Canonical key for the user's shareable health/safety note in the encrypted store.
+// It has a fixed key (unlike free-form store_private_data entries) so the agent-to-agent
+// hard-constraints path can find it. The value is HEALTH-category sensitive data and must
+// live ONLY here (encrypted), never in plaintext user_preferences (PRIVACY.md Invariant 1).
+const HEALTH_NOTES_KEY = 'health.safety_notes';
+
 // ── Encryption helpers ────────────────────────────────────────────────────────
 
 function getEncryptionKey() {
@@ -207,6 +213,7 @@ function readPrivateDataForSharing(ownerUserId, dataKey, requestingUserId) {
 
   let approved = [];
   try { approved = JSON.parse(row.sharing_approved_to || '[]'); } catch { approved = []; }
+  if (!Array.isArray(approved)) approved = []; // fail closed on any non-array (never substring-match a scalar)
 
   if (!approved.includes(requestingUserId)) {
     logAccess(ownerUserId, requestingUserId, dataKey, 'share', 'denied — not in approved list');
@@ -234,6 +241,7 @@ function approveSharing(ownerUserId, dataKey, approvedUserId) {
 
   let approved = [];
   try { approved = JSON.parse(row.sharing_approved_to || '[]'); } catch { approved = []; }
+  if (!Array.isArray(approved)) approved = []; // fail closed on any non-array (never substring-match a scalar)
   if (!approved.includes(approvedUserId)) approved.push(approvedUserId);
 
   raw.prepare(
@@ -242,6 +250,92 @@ function approveSharing(ownerUserId, dataKey, approvedUserId) {
 
   logAccess(ownerUserId, null, dataKey, 'share', `approved sharing with user ${approvedUserId}`);
   return true;
+}
+
+/**
+ * Revoke a previously-granted per-edge sharing approval (owner → recipient, for one datum).
+ * Consent is per user-pair, so it must be individually revocable.
+ */
+function revokeSharing(ownerUserId, dataKey, revokedUserId) {
+  const db = getDb();
+  const raw = db._raw();
+  const row = raw.prepare(
+    'SELECT sharing_approved_to FROM user_private_data WHERE user_id = ? AND data_key = ?'
+  ).get(ownerUserId, dataKey);
+  if (!row) return false;
+
+  let approved = [];
+  try { approved = JSON.parse(row.sharing_approved_to || '[]'); } catch { approved = []; }
+  if (!Array.isArray(approved)) approved = []; // fail closed on any non-array (never substring-match a scalar)
+  const next = approved.filter(id => id !== revokedUserId);
+  if (next.length === approved.length) return false; // nothing to revoke
+
+  raw.prepare(
+    'UPDATE user_private_data SET sharing_approved_to = ?, updated_at = strftime(\'%s\',\'now\') WHERE user_id = ? AND data_key = ?'
+  ).run(JSON.stringify(next), ownerUserId, dataKey);
+
+  logAccess(ownerUserId, null, dataKey, 'share', `revoked sharing with user ${revokedUserId}`);
+  return true;
+}
+
+/**
+ * Who is this datum currently shared with? Returns an array of approved user_ids.
+ */
+function listSharingApprovals(ownerUserId, dataKey) {
+  const db = getDb();
+  const row = db._raw().prepare(
+    'SELECT sharing_approved_to FROM user_private_data WHERE user_id = ? AND data_key = ?'
+  ).get(ownerUserId, dataKey);
+  if (!row) return [];
+  try { const a = JSON.parse(row.sharing_approved_to || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+}
+
+/**
+ * Does a private datum exist for this user+key? Metadata only — no decrypt, no value.
+ * Used to tell "has health info but not shared" from "has none" without exposing it.
+ */
+function hasPrivateData(userId, dataKey) {
+  const db = getDb();
+  return !!db._raw()
+    .prepare('SELECT 1 FROM user_private_data WHERE user_id = ? AND data_key = ?')
+    .get(userId, dataKey);
+}
+
+/**
+ * One-time, idempotent migration: move any plaintext health_safety_notes still sitting in
+ * user_preferences into the encrypted store, then NULL the plaintext column. Safe to run on
+ * every startup — after the first pass there is nothing left to move. See PRIVACY.md
+ * Invariant 1 and migration 025 (the column is retained but must stay NULL).
+ */
+function migratePlaintextHealthNotes() {
+  const db = getDb();
+  const raw = db._raw();
+  let rows;
+  try {
+    rows = raw.prepare(
+      "SELECT user_id, health_safety_notes FROM user_preferences WHERE health_safety_notes IS NOT NULL AND health_safety_notes != ''"
+    ).all();
+  } catch {
+    return { migrated: 0 }; // column absent (e.g. a minimal test schema) — nothing to do
+  }
+  if (!rows.length) return { migrated: 0 };
+  const run = raw.transaction(() => {
+    let n = 0;
+    for (const r of rows) {
+      // Never clobber an existing encrypted note — that value is newer and authoritative.
+      // Only adopt the legacy plaintext when there is nothing encrypted yet. Either way,
+      // clear the plaintext column so no health data lingers in user_preferences.
+      if (!hasPrivateData(r.user_id, HEALTH_NOTES_KEY)) {
+        storePrivateData(r.user_id, HEALTH_NOTES_KEY, r.health_safety_notes, 'HEALTH');
+      }
+      raw.prepare('UPDATE user_preferences SET health_safety_notes = NULL WHERE user_id = ?').run(r.user_id);
+      n++;
+    }
+    return n;
+  });
+  const migrated = run();
+  if (migrated) console.log(`[sensitive] migrated ${migrated} plaintext health note(s) to the encrypted store`);
+  return { migrated };
 }
 
 /**
@@ -329,8 +423,13 @@ module.exports = {
   readPrivateData,
   listPrivateData,
   readPrivateDataForSharing,
+  hasPrivateData,
+  migratePlaintextHealthNotes,
   approveSharing,
+  revokeSharing,
+  listSharingApprovals,
   deletePrivateData,
+  HEALTH_NOTES_KEY,
   getAccessLog,
   setSensitiveMode,
   isSensitiveMode,

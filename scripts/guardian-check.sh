@@ -57,8 +57,10 @@ if [ -f PRIVACY.md ]; then pass "PRIVACY.md present"; else fail "PRIVACY.md miss
 
 # Invariant 1 drift: a migration must not add a sensitive-sounding column to user_preferences
 # (sensitive data belongs in user_private_data). Heuristic — flag for human review, don't hard-fail.
+# (a migration that documents remediation with a REMEDIATED marker is excluded)
 SUSPECT=$(grep -rilE 'ALTER TABLE user_preferences' db/migrations web/db/migrations 2>/dev/null \
-          | xargs grep -ilE 'health|sti|sexual|medic|therap|financ|legal|arrest|mental' 2>/dev/null || true)
+          | xargs grep -ilE 'health|sti|sexual|medic|therap|financ|legal|arrest|mental' 2>/dev/null \
+          | xargs grep -Li 'REMEDIATED' 2>/dev/null || true)
 if [ -n "$SUSPECT" ]; then
   printf '  WARN  possible sensitive column added to user_preferences (review Invariant 1): %s\n' "$SUSPECT"
 else
@@ -82,6 +84,15 @@ if [ -n "${GUARDIAN_DB:-}" ] && [ -f "$GUARDIAN_DB" ] && [ -d web/node_modules ]
       const n = db.prepare("SELECT count(*) c FROM coordination_sessions WHERE datetime(purge_after) < datetime('now')").get().c;
       if (n > 0) { console.log(`  FAIL  ${n} coordination_sessions past purge_after (purge not running?)`); bad = 1; }
       else console.log('  PASS  no coordination_sessions past purge_after');
+    }
+    // Invariant 1: health notes must NEVER sit in plaintext user_preferences.
+    if (has('user_preferences')) {
+      const cols = db.prepare("PRAGMA table_info(user_preferences)").all().map(c => c.name);
+      if (cols.includes('health_safety_notes')) {
+        const n = db.prepare("SELECT count(*) c FROM user_preferences WHERE health_safety_notes IS NOT NULL AND health_safety_notes != ''").get().c;
+        if (n > 0) { console.log(`  FAIL  ${n} plaintext health_safety_notes in user_preferences (Invariant 1 — must be encrypted)`); bad = 1; }
+        else console.log('  PASS  no plaintext health_safety_notes in user_preferences');
+      }
     }
     // Audit anomaly: any break-glass / cross-user access in the last 24h is worth a human look.
     if (has('private_data_access_log')) {

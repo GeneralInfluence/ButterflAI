@@ -270,7 +270,7 @@ const TOOL_DEFINITIONS = [
         availability_notes:    { type: 'string', description: 'Free-form, e.g. "weeknight evenings after 7, weekend afternoons"' },
         comm_style:            { type: 'string', enum: ['brief', 'detailed', 'just handle it'] },
         extra_notes:           { type: 'string', description: 'Anything else worth remembering' },
-        health_safety_notes:   { type: 'string', description: 'Health/safety information the user has consented to share with trusted contacts\' agents when asked — e.g. "STI tests current as of 2026-06", "non-smoker", "sober". Only store if the user explicitly says they\'re comfortable sharing this with other agents.' },
+        health_safety_notes:   { type: 'string', description: 'Health/safety information the user has consented to share with trusted contacts\' agents when asked — e.g. "STI tests current as of 2026-06", "non-smoker", "sober". Stored ENCRYPTED at rest (never in plaintext prefs). Only store if the user explicitly says they\'re comfortable sharing this with other agents.' },
       },
     },
   },
@@ -283,6 +283,30 @@ const TOOL_DEFINITIONS = [
         contact_id: { type: 'string', description: 'Contact ID from lookup_contact' },
       },
       required: ['contact_id'],
+    },
+  },
+  {
+    name: 'request_private_sharing',
+    description: 'Ask the user to CONFIRM sharing ONE private datum with ONE specific contact. This does NOT share anything by itself — it sends the user a confirmation prompt, and the item is shared ONLY if they reply yes (confirmed in code, not by you). Use when a private item (e.g. a health/dietary note) would genuinely help coordinate. Do NOT assume it is shared until the user confirms. data_key is the private item\'s key (e.g. "health.safety_notes").',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_id: { type: 'string', description: 'The contact who would receive the item' },
+        data_key:   { type: 'string', description: 'Key of the private datum, e.g. "health.safety_notes"' },
+      },
+      required: ['contact_id', 'data_key'],
+    },
+  },
+  {
+    name: 'revoke_private_sharing',
+    description: 'Withdraw the user\'s consent to share ONE private datum with ONE specific contact. Call when the user says to stop sharing something with someone.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_id: { type: 'string', description: 'The contact to stop sharing with' },
+        data_key:   { type: 'string', description: 'Key of the private datum, e.g. "health.safety_notes"' },
+      },
+      required: ['contact_id', 'data_key'],
     },
   },
   {
@@ -609,6 +633,8 @@ function toolStatusLine(toolName, input) {
     case 'message_agent':          return `Checking in with ${input.contact_name || "your friend"}'s agent…`;
     case 'reply_agent':            return `Replying to agent…`;
     case 'get_contact_hard_constraints': return `Checking hard constraints…`;
+    case 'request_private_sharing': return `Asking you to confirm sharing…`;
+    case 'revoke_private_sharing':  return `Updating what's shared…`;
     case 'check_invitee_locations':return `Checking everyone's locations…`;
     case 'confirm_coordination_invite': return `Confirming coordination…`;
     case 'record_rsvp':            return `Recording RSVP…`;
@@ -887,23 +913,53 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'store_private_data': {
       const { data_key, value, category } = toolInput;
+      // Validate the key shape: it becomes a label in confirmation SMSes, so no injection
+      // characters and a bounded length. Dotted lowercase segments, e.g. "health.sti_status".
+      if (typeof data_key !== 'string' || !/^[a-z0-9]+(\.[a-z0-9_]+)*$/i.test(data_key) || data_key.length > 64) {
+        return { error: 'INVALID_DATA_KEY', message: 'data_key must be short and of the form "category.name" (letters, digits, underscores, dots).' };
+      }
       return sensitive.storePrivateData(userId, data_key, value, category);
     }
 
     case 'update_preferences': {
-      // Safety net: if any value looks sensitive, redirect to store_private_data
-      const allValues = Object.values(toolInput).filter(v => typeof v === 'string').join(' ');
+      const input = { ...toolInput };
+
+      // health_safety_notes is HEALTH-category sensitive data — it must NEVER be written to
+      // plaintext user_preferences (PRIVACY.md Invariant 1). Decide the health action, then
+      // remove the field so it can never reach db.upsertPreferences.
+      const hasHealthField = Object.prototype.hasOwnProperty.call(input, 'health_safety_notes');
+      const healthValue = typeof input.health_safety_notes === 'string' ? input.health_safety_notes.trim() : '';
+      delete input.health_safety_notes;
+
+      // Safety net on the remaining fields FIRST. If they're sensitive, reject the WHOLE call
+      // BEFORE committing the health note — no partial commit.
+      const allValues = Object.values(input).filter(v => typeof v === 'string').join(' ');
       const check = sensitive.classifyText(allValues);
       if (check.sensitive) {
-        // Don't store in plaintext — return an instruction to use the right tool
         return {
           error: 'SENSITIVE_DATA_DETECTED',
           message: 'This data appears sensitive. Use store_private_data with the appropriate category instead of update_preferences.',
           detected_category: check.category,
         };
       }
-      db.upsertPreferences(userId, toolInput);
-      return { saved: true, fields: Object.keys(toolInput) };
+
+      // Apply the health action: a non-empty value stores (encrypted); an explicit empty /
+      // whitespace value CLEARS it, so "delete my health note" actually deletes.
+      let healthAction = null;
+      if (hasHealthField) {
+        if (healthValue) {
+          sensitive.storePrivateData(userId, sensitive.HEALTH_NOTES_KEY, healthValue, 'HEALTH');
+          healthAction = 'health_safety_notes (encrypted)';
+        } else {
+          sensitive.deletePrivateData(userId, sensitive.HEALTH_NOTES_KEY);
+          healthAction = 'health_safety_notes (cleared)';
+        }
+      }
+
+      // Only touch prefs if there are non-health fields (upsertPreferences can't build an
+      // empty UPDATE — and a health-only call has nothing left to write here).
+      if (Object.keys(input).length > 0) db.upsertPreferences(userId, input);
+      return { saved: true, fields: [...Object.keys(input), ...(healthAction ? [healthAction] : [])] };
     }
 
     case 'get_contact_hard_constraints': {
@@ -912,10 +968,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       // Health/safety notes ONLY if the contact has explicitly approved sharing them (health_sharing_approved=1)
       const contact = db.getContact(toolInput.contact_id);
       if (!contact?.phone) return { error: 'Contact not found or no phone' };
+      // Scope to the requester's OWN address book — never resolve another user's contact_id.
+      if (contact.invited_by_user_id !== userId) return { error: 'Contact not in your address book' };
       const contactUser = db.getUserByPhone(contact.phone);
       if (!contactUser) return { is_butterflai_user: false, note: 'Contact is not a ButterflAI user — ask them directly' };
-      const contactPrefs = db.getPreferences(contactUser.id);
-      if (!contactPrefs) return { is_butterflai_user: true, constraints_known: false };
+      // Don't gate the private-data sharing check behind having a prefs row — a contact may
+      // have an (encrypted) health note but no user_preferences row.
+      const contactPrefs = db.getPreferences(contactUser.id) || {};
       const result = {
         is_butterflai_user: true,
         constraints_known: true,
@@ -923,15 +982,66 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         dietary_restrictions: contactPrefs.dietary_restrictions || [],
         // Deliberately omit: vibe, budget, soft preferences — those are private
       };
-      // Health/safety notes: only shared if the user has explicitly approved (consent gate)
-      if (contactPrefs.health_safety_notes && contactPrefs.health_sharing_approved === 1) {
-        result.health_safety_notes = contactPrefs.health_safety_notes;
-        result.health_sharing_note = 'User has approved sharing this with other agents';
-      } else if (contactPrefs.health_safety_notes) {
+      // Health/safety notes are PRIVATE. Consent is PER-EDGE (PRIVACY.md Invariant 2): the
+      // contact must have approved sharing this datum with THIS requesting user specifically —
+      // not a global toggle. readPrivateDataForSharing enforces the per-record approved list
+      // and logs the attempt. (health_sharing_approved is deprecated as a gate.)
+      const shared = sensitive.readPrivateDataForSharing(contactUser.id, sensitive.HEALTH_NOTES_KEY, userId);
+      if (shared.allowed) {
+        result.health_safety_notes = shared.value;
+        result.health_sharing_note = 'Contact approved sharing this with you';
+      } else if (shared.reason === 'not_approved') {
+        // The note exists but is not shared with you — surface only that it exists, never the
+        // value, so your agent knows to ask the user to request it.
         result.health_safety_notes = null;
-        result.health_sharing_note = 'User has health info on file but has not approved automatic sharing — their agent must ask them first';
+        result.health_sharing_note = 'Contact has health info on file but has not approved sharing it with you — their agent must ask them first';
       }
+      // reason 'not_found' → contact has no health note on file; say nothing about it.
       return result;
+    }
+
+    case 'request_private_sharing': {
+      // Code-gated consent: the agent can only REQUEST a share. The grant happens in
+      // handlePendingAction when the user replies YES (matched in code, not by the LLM), so a
+      // prompt-injected or over-eager agent can never silently share sensitive data.
+      const contact = db.getContact(toolInput.contact_id);
+      if (!contact?.phone) return { error: 'Contact not found or no phone' };
+      if (contact.invited_by_user_id !== userId) return { error: 'Contact not in your address book' };
+      const contactUser = db.getUserByPhone(contact.phone);
+      if (!contactUser) return { error: 'Contact is not a ButterflAI user — nothing to share agent-to-agent' };
+      if (!sensitive.hasPrivateData(userId, toolInput.data_key)) {
+        return { error: 'No such private item on file', data_key: toolInput.data_key };
+      }
+      if (sensitive.listSharingApprovals(userId, toolInput.data_key).includes(contactUser.id)) {
+        return { already_shared: true, data_key: toolInput.data_key, contact: contact.name };
+      }
+      const { v4: uuidv4 } = require('uuid');
+      const safeName = _safeForSms(contact.name, 32);
+      const label    = _safeForSms(humanizePrivateKey(toolInput.data_key), 40);
+      db.createPendingAction({
+        id: uuidv4(),
+        user_id: userId,
+        action_type: 'approve_share',
+        payload: { data_key: toolInput.data_key, contact_id: contact.id, contact_user_id: contactUser.id, contact_name: safeName },
+        ttl_secs: 3600, // short window — a share confirmation must not linger
+      });
+      // System-composed prompt, sanitized so an attacker-chosen name/key can't reframe it.
+      // Confirm word is SHARE (not a bare "yes") so a casual affirmative meant for another
+      // prompt cannot grant a share.
+      await sms.notifyUser(userPhone,
+        `🔒 Share your "${label}" with ${safeName}? This lets their ButterflAI factor it in. Reply SHARE to confirm, or NO to keep it private.`
+      ).catch(() => {});
+      return { confirmation_requested: true, contact: safeName, note: 'Asked the user to reply SHARE to confirm — nothing shared yet.' };
+    }
+
+    case 'revoke_private_sharing': {
+      const contact = db.getContact(toolInput.contact_id);
+      if (!contact?.phone) return { error: 'Contact not found or no phone' };
+      if (contact.invited_by_user_id !== userId) return { error: 'Contact not in your address book' };
+      const contactUser = db.getUserByPhone(contact.phone);
+      if (!contactUser) return { revoked: false, note: 'Contact is not a ButterflAI user' };
+      const ok = sensitive.revokeSharing(userId, toolInput.data_key, contactUser.id);
+      return { revoked: ok, data_key: toolInput.data_key, contact: contact.name };
     }
 
     case 'check_invitee_locations': {
@@ -1532,6 +1642,31 @@ async function processMessage(msg) {
 }
 
 /**
+ * Sanitize a string for inclusion in a user-facing confirmation SMS. Strips control chars
+ * and any punctuation that could reframe the prompt (parens/brackets/quotes/colons), and
+ * caps length — so an attacker-chosen contact name or data_key can't rewrite the meaning.
+ */
+function _safeForSms(s, maxLen = 40) {
+  return String(s || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[^\p{L}\p{N} .,'&-]/gu, '')  // conservative charset: no ()[]{}<>"":; etc.
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen) || 'your contact';
+}
+
+/**
+ * Human-readable label for a private data_key, for user-facing confirmation prompts.
+ * Sanitized (data_key is agent-chosen and must not be able to inject into the SMS).
+ */
+function humanizePrivateKey(dataKey) {
+  const labels = { 'health.safety_notes': 'health & safety note' };
+  if (labels[dataKey]) return labels[dataKey];
+  const tail = String(dataKey || '').split('.').pop().replace(/_/g, ' ').trim();
+  return _safeForSms(tail, 40) === 'your contact' ? 'private note' : _safeForSms(tail, 40);
+}
+
+/**
  * buildPrefsSection — renders a user's preferences for the state snapshot.
  *
  * coordinationOnly=true is used when the agent is answering ANOTHER user's agent
@@ -1624,7 +1759,9 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   1. FACTUAL QUERIES (health info, allergies, availability from stored prefs): handle SILENTLY. Check stored preferences, call reply_agent with the answer. Do NOT mention to your user. The coordination is invisible.
   2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join"): SURFACE THIS TO YOUR USER immediately and naturally. Say "Hey, [Name] is heading to [place] tonight around [time] — want to go?" Then relay their answer back via reply_agent. Do not reveal agent-to-agent mechanics; just present the social opportunity like a friend texting.
 - Only escalate a FACTUAL query to your user if: (a) the answer genuinely requires their personal decision (not just stored data), AND (b) you have already tried to answer from stored preferences and cannot. Ask your user privately without naming the other agent: "someone asked if you have X on file, do you want to share that?"
-- HEALTH DATA CONSENT GATE: health_safety_notes is only shared with another agent if the user has set health_sharing_approved=true in their preferences. get_contact_hard_constraints returns this automatically. If the field is null or health_sharing_approved=false, you MUST ask your user before sharing any health info — even if you know the answer from stored data. This is a hard gate, not a soft suggestion.
+- PRIVATE DATA IS SHARED PER-PERSON, NEVER GLOBALLY. Private information (anything the user put in private mode, or that reads as sensitive — health, sexual, financial, legal, mental-health, relationship) is shared with a contact ONLY if the user has approved sharing THAT specific item with THAT specific contact. Consent is per user-pair. There is no "share with everyone" setting.
+- When coordinating and a private item would genuinely help (e.g. a dietary or health constraint for a dinner), call request_private_sharing(contact_id, data_key). This sends the user a confirmation prompt — it does NOT share anything by itself, and the item is shared ONLY if the user replies yes (confirmed in code, not by you). Do not claim it is shared until they confirm. If they have not confirmed, do NOT reveal it — even if you know the answer from stored data. get_contact_hard_constraints enforces this in code and will withhold anything not approved for that specific contact; never try to route around it.
+- When the user tells you something that reads as private, treat it as private by default and tell them you are keeping it private (they can downgrade it if they want). Do not share it with anyone until they approve that specific share.
 - "LET EVERYONE KNOW" ABOUT SENSITIVE DATA: If the user says "let everyone know [health/personal info]" or "tell everybody [sensitive thing]", do NOT broadcast to all contacts. Instead: (1) store it via update_preferences, (2) confirm it's saved, (3) ask "Who specifically would you like me to share this with?" — health info requires per-person consent, not a bulk broadcast. Never message_agent all contacts at once for personal health data.
 - Agents talking to agents: share hard constraints freely (allergies, dietary restrictions, availability). Never share soft preferences, exclusion reasons, or private notes. Never reveal what the other agent said verbatim to your user.
 - AGENT MESSAGE TONE: When sending messages via message_agent, write as a professional coordinator — factual, brief, no meta-commentary. Do NOT say "discreetly", "just between us", "no awkward conversation needed", or anything that signals you're hiding something from humans. The coordination is normal background logistics.
@@ -1903,4 +2040,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, executeTool, _safeForSms };
