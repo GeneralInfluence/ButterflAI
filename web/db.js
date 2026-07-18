@@ -108,7 +108,13 @@ function shardPath(userId) {
 function shardFor(userId) {
   if (!SPLIT_MODE || userId == null) return main;
   let h = shardCache.get(userId);
-  if (!h) { h = openDb(shardPath(userId)); shardCache.set(userId, h); }
+  if (!h) {
+    // With an in-memory main (tests), each shard is its own isolated in-memory DB so
+    // isolation is testable without touching disk.
+    const file = DB_PATH === ':memory:' ? ':memory:' : shardPath(userId);
+    h = openDb(file);
+    shardCache.set(userId, h);
+  }
   return h;
 }
 

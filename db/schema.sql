@@ -223,3 +223,31 @@ CREATE TABLE IF NOT EXISTS pending_actions (
     created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_pending_actions_user ON pending_actions(user_id, expires_at);
+
+-- Per-user tables historically created lazily in JS (calendar.js, venues.js). Folded here so
+-- initDatabase() builds a COMPLETE schema on every handle — including a fresh per-user shard
+-- (Phase 1). IF NOT EXISTS makes this a no-op on the main DB where they already exist.
+CREATE TABLE IF NOT EXISTS calendar_tokens (
+    user_id    TEXT PRIMARY KEY REFERENCES users(id),
+    provider   TEXT NOT NULL DEFAULT 'google',
+    ciphertext TEXT NOT NULL,
+    iv         TEXT NOT NULL,
+    tag        TEXT NOT NULL,
+    wrapped_key TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+CREATE TABLE IF NOT EXISTS venue_favorites (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id),
+    name        TEXT NOT NULL,
+    address     TEXT,
+    cuisine     TEXT,
+    price_level INTEGER,
+    rating      REAL,
+    website     TEXT,
+    google_place_id TEXT,
+    notes       TEXT,
+    created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_venue_fav_user ON venue_favorites(user_id);
