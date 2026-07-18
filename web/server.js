@@ -658,7 +658,7 @@ async function handlePendingAction(user, body, pending) {
   const isNo  = /^n(o|ope)?[.!]?$/i.test(lower) || lower === 'nah' || lower === 'not now' || lower === 'skip';
 
   if (pending.action_type === 'nudge_confirm') {
-    db.deletePendingAction(pending.id);
+    db.deletePendingAction(pending.id, user.id);
 
     if (isYes) {
       // Queue a rich message for the agent loop — it has full tool access
@@ -684,7 +684,7 @@ async function handlePendingAction(user, body, pending) {
   }
 
   if (pending.action_type === 'approve_message') {
-    db.deletePendingAction(pending.id);
+    db.deletePendingAction(pending.id, user.id);
 
     if (isYes) {
       // Send the approved draft — three outcomes handled explicitly.
@@ -740,7 +740,7 @@ async function handlePendingAction(user, body, pending) {
   }
 
   if (pending.action_type === 'confirm_booking') {
-    db.deletePendingAction(pending.id);
+    db.deletePendingAction(pending.id, user.id);
 
     if (isYes) {
       db.storeInboundMessage({
@@ -763,7 +763,7 @@ async function handlePendingAction(user, body, pending) {
   if (pending.action_type === 'attendance_confirm') {
     // Parse attendance reply: "Y", "N", "skip", "1Y 2N", "1Y 2N 3skip", etc.
     // Do NOT re-prompt — ask once only (spec rule).
-    db.deletePendingAction(pending.id);
+    db.deletePendingAction(pending.id, user.id);
 
     const confirmations = payload.confirmations || [];
     const nowSecs = Math.floor(Date.now() / 1000);
@@ -832,7 +832,7 @@ async function handlePendingAction(user, body, pending) {
     // Code-gated per-edge consent. The grant requires the explicit keyword SHARE — NOT a
     // bare "yes"/"ok", which could be a reply the user meant for a different pending prompt
     // (confused-deputy). So a casual affirmative can never leak private data; it fails closed.
-    db.deletePendingAction(pending.id);
+    db.deletePendingAction(pending.id, user.id);
     const wantsShare = /\bshare\b/i.test(lower);
     const declines   = isNo || /\b(keep\s+(it\s+)?private|cancel|don'?t)\b/i.test(lower);
     if (wantsShare) {
@@ -850,7 +850,7 @@ async function handlePendingAction(user, body, pending) {
   }
 
   // Unknown action type — fall through to generic
-  db.deletePendingAction(pending.id);
+  db.deletePendingAction(pending.id, user.id);
   db.storeInboundMessage({
     from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'sms', text: body,
   });

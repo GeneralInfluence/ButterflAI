@@ -52,4 +52,14 @@ describe('db.js per-user helpers isolate by owner shard (SPLIT_MODE=1)', () => {
     assert.equal(db.getPrivateData(A).ciphertext, 'ctA');
     assert.equal(db.getPrivateData(B), undefined, "B's shard has no private_data row");
   });
+
+  test('pending actions are per-shard (create/get/delete route by owner)', () => {
+    db.createPendingAction({ id: 'pa-A', user_id: A, action_type: 'approve_share', payload: {} });
+    db.createPendingAction({ id: 'pa-B', user_id: B, action_type: 'approve_share', payload: {} });
+    assert.equal(db.getPendingAction(A).id, 'pa-A');
+    assert.equal(db.getPendingAction(B).id, 'pa-B');
+    db.deletePendingAction('pa-A', A);                 // routes to A's shard
+    assert.equal(db.getPendingAction(A), undefined, "A's action deleted");
+    assert.equal(db.getPendingAction(B).id, 'pa-B', "B's action untouched");
+  });
 });

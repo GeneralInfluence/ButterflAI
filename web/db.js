@@ -554,7 +554,7 @@ module.exports = {
 
   createPendingAction({ id, user_id, action_type, payload, ttl_secs }) {
     const expires_at = Math.floor(Date.now() / 1000) + (ttl_secs || 86400);
-    return db.prepare(`
+    return shardFor(user_id).prepare(`
       INSERT INTO pending_actions (id, user_id, action_type, payload, expires_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(id, user_id, action_type, JSON.stringify(payload || {}), expires_at);
@@ -562,18 +562,22 @@ module.exports = {
 
   getPendingAction(userId) {
     // Get the most recent non-expired pending action for a user
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       SELECT * FROM pending_actions
       WHERE user_id = ? AND expires_at > strftime('%s','now')
       ORDER BY created_at DESC LIMIT 1
     `).get(userId);
   },
 
-  deletePendingAction(id) {
-    db.prepare('DELETE FROM pending_actions WHERE id = ?').run(id);
+  // userId is required to route to the owner's shard (a pending action always belongs to
+  // the user resolving it, so callers pass it in).
+  deletePendingAction(id, userId) {
+    shardFor(userId).prepare('DELETE FROM pending_actions WHERE id = ?').run(id);
   },
 
   clearExpiredPendingActions() {
+    // Cross-user sweep — runs on `main`. Under SPLIT_MODE this becomes a directory-driven
+    // per-shard sweep (Stage 4); harmless meanwhile since reads already filter on expiry.
     db.prepare(`DELETE FROM pending_actions WHERE expires_at <= strftime('%s','now')`).run();
   },
 
