@@ -169,117 +169,112 @@ function validateName(raw) {
 // TwiML outbound-reply suppression on long codes.
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
+/**
+ * Resolve identity once, then dispatch an inbound SMS to exactly one handler.
+ * Returns the reply text to send back to `from`, or `null` when the reply is
+ * delivered asynchronously (by the agent loop) or there is nothing to say.
+ *
+ * Identity model: a phone number can be a registered user, a contact of one or
+ * more OTHER users, or both at once. `users.phone` is globally unique, but
+ * `contacts.phone` is not (the same person can be invited by many users). We
+ * resolve both up front — one lookup each — and dispatch in a fixed priority
+ * order rather than re-querying at each branch.
+ *
+ * Exported for direct unit testing of the routing logic.
+ */
+async function routeInboundSms(from, body) {
+  // 1. STOP — highest priority; must work even for already-opted-out numbers.
+  //    `/^stop\b/i` matches "stop", "STOP.", "stop please" but not "stopping by".
+  if (/^stop\b/i.test(body)) {
+    db.recordOptOut(from, 'stop_reply');
+    return `You've been opted out and won't receive any more messages from ButterflAI. ` +
+           `Text START to re-subscribe at any time.`;
+  }
+
+  // Single user lookup for the whole request (users.phone is unique).
+  const user = db.getUserByPhone(from);
+
+  if (/^start$/i.test(body)) {
+    // 2. START — re-subscribe. Established users get a welcome-back; new or
+    //    mid-onboarding numbers fall through to the onboarding flow below
+    //    (opt-out already cleared, so the gate won't drop them).
+    db.removeOptOut(from);
+    if (user && user.onboarding_state === 'complete') {
+      db.writeConsent(from, 'SELF_START');
+      return `Welcome back! You're re-subscribed to ButterflAI. Text me anytime. 🦋`;
+    }
+    // fall through to onboarding
+  } else if (db.isOptedOut(from)) {
+    // 3. Opt-out gate — silently drop everything except STOP/START.
+    return null;
+  }
+
+  // 4. Contact paths. `contacts.phone` is per-inviter, so this only matters when
+  //    the number belongs to someone's address book. A phone that is ALSO a
+  //    registered user is handled by their own agent (step 5), which receives
+  //    coordination context via the state snapshot — so we special-case only
+  //    *pure* contacts here.
+  const contact = db.getContactByPhone(from);
+  if (contact) {
+    // 4a. RSVP / coordination reply to an open invitation.
+    const rsvpReply = await multiparty.handleRsvpReply(from, body).catch((e) => {
+      console.error('[SMS] handleRsvpReply error:', e.message || e);
+      return null;
+    });
+    if (rsvpReply) return rsvpReply;
+
+    // 4b. Pure contact (not a registered user): queue the message so the agent
+    //     loop relays it to the host/inviter's agent and it actually gets acted
+    //     on. (Previously these rows dead-ended in processMessage — the ACK was
+    //     a lie.) Keeping the relay-target resolution in the agent loop keeps
+    //     this routing layer thin.
+    if (!user) {
+      db.storeInboundMessage({
+        from_phone: from, from_type: 'contact', from_id: contact.id, channel: 'sms', text: body,
+      });
+      return `Got it! I'll pass that along. 👍`;
+    }
+    // else: dual identity (user + contact) — fall through to the user path.
+  }
+
+  // 5. Route by account state: onboarding vs. established user.
+  const isOnboarding = !user || user.onboarding_state !== 'complete';
+  if (isOnboarding) {
+    return handleOnboarding(from, body, db);
+  }
+
+  const pending = db.getPendingAction(user.id);
+  if (pending) {
+    return handlePendingAction(user, body, pending);
+  }
+
+  // Established user, no pending action → hand to the agent loop, which replies
+  // directly. No synchronous ACK (a "Got it! 🦋" before every agent turn is noise).
+  db.storeInboundMessage({
+    from_phone: from, from_type: 'user', from_id: user.id, channel: 'sms', text: body,
+  });
+  return null;
+}
+
 // Twilio Messaging Service webhook — using /inbound path (Twilio marks /sms as
-// unhealthy after a 500 and stops calling it; fresh path has no failure history)
+// unhealthy after a 500 and stops calling it; fresh path has no failure history).
+// We ack immediately with empty TwiML, then route and reply via the REST API
+// (outbound-api) which reliably delivers on A2P 10DLC long codes.
 app.post(['/sms', '/inbound'], sms.validateTwilioRequest, async (req, res) => {
-  const body   = (req.body.Body  || '').trim();
-  const from   = (req.body.From  || '').trim();   // E.164 caller phone
+  const body = (req.body.Body || '').trim();
+  const from = (req.body.From || '').trim();   // E.164 caller phone
 
   console.log(`[SMS] inbound from=${from} body="${body.slice(0, 40)}"`);
 
-  // Always ack Twilio immediately with empty TwiML.
-  // Replies are sent via sms.send() / sms.sendUnchecked() (outbound-api)
-  // which reliably delivers on A2P 10DLC long codes.
+  // Ack Twilio immediately; reply handling runs async after the HTTP response.
   res.type('text/xml').send(EMPTY_TWIML);
 
-  // ─── Async reply handling (after HTTP response sent) ─────────────────────
-
   try {
-    // 1. STOP — highest priority
-    if (/^stop$/i.test(body) || /^stop\b/i.test(body)) {
-      db.recordOptOut(from, 'stop_reply');
-      await sms.sendUnchecked(from,
-        `You've been opted out and won't receive any more messages from ButterflAI. ` +
-        `Text START to re-subscribe at any time.`);
-      return;
-    }
-
-    // 2. START — re-subscribe
-    if (/^start$/i.test(body)) {
-      const existingUser = db.getUserByPhone(from);
-      db.removeOptOut(from);
-      if (existingUser && existingUser.onboarding_state === 'complete') {
-        db.writeConsent(from, 'SELF_START');
-        await sms.sendUnchecked(from, `Welcome back! You're re-subscribed to ButterflAI. Text me anytime. 🦋`);
-        return;
-      }
-      // New user or mid-onboarding: fall through to onboarding
-    }
-
-    // 3. Opt-out gate
-    if (db.isOptedOut(from)) {
-      return; // silently drop
-    }
-
-    // 4a. RSVP reply check — runs for ANYONE with a pending event invitation.
-    // Also handles logistics replies: if this phone was recently coordinated with
-    // as a contact (invited to an event within 48h), route their reply to the HOST's
-    // agent rather than their own — even if they're a registered ButterflAI user.
-    const existingContact = db.getContactByPhone(from);
-    if (existingContact) {
-      // Try pending RSVP first
-      const rsvpReply = await multiparty.handleRsvpReply(from, body).catch(() => null);
-      if (rsvpReply) {
-        await sms.sendUnchecked(from, rsvpReply);
-        return;
-      }
-
-      // Check for recent coordination context (invited within 48h, any status)
-      const recentInvitation = db._raw().prepare(`
-        SELECT ei.*, se.host_user_id, se.title, se.activity_type, se.scheduled_at
-        FROM event_invitations ei
-        JOIN social_events se ON se.id = ei.event_id
-        WHERE ei.contact_id = ? AND ei.notified_at > strftime('%s','now') - 172800
-        ORDER BY ei.notified_at DESC LIMIT 1
-      `).get(existingContact.id);
-
-      // If they have recent coordination context but are also a user,
-      // fall through to their own agent — it now has the coordination context injected
-      // via the pending_coordination state snapshot. Their agent will call
-      // confirm_coordination_invite and notify the host agent directly.
-
-      // Pure contact with no coordination context — store and ACK
-      if (!db.getUserByPhone(from)) {
-        db.storeInboundMessage({
-          from_phone: from, from_type: 'contact', from_id: existingContact.id, channel: 'sms', text: body,
-        });
-        await sms.sendUnchecked(from, `Got it! I'll pass that along. 👍`);
-        return;
-      }
-    }
-
-    // 4. Route: onboarding vs. established user
-    const user = db.getUserByPhone(from);
-    const isOnboarding = !user || user.onboarding_state !== 'complete';
-    let reply;
-
-    if (isOnboarding) {
-      reply = await handleOnboarding(from, body, db);
-    } else {
-      const pending = db.getPendingAction(user.id);
-      if (pending) {
-        reply = await handlePendingAction(user, body, pending);
-      } else {
-        db.storeInboundMessage({
-          from_phone: from,
-          from_type: 'user',
-          from_id: user.id,
-          channel: 'sms',
-          text: body,
-        });
-        // No ACK reply — agent will respond directly. Sending "Got it! 🦋"
-        // before every agent response is noisy and confusing.
-        reply = null;
-      }
-    }
-
-    if (reply) {
-      // Use sendUnchecked for all inbound-triggered replies — the act of texting
-      // us is itself consent for a response. sms.send() consent gate is for
-      // proactive outbound only.
-      await sms.sendUnchecked(from, reply);
-    }
-
+    // Use sendUnchecked for all inbound-triggered replies — the act of texting
+    // us is itself consent for a response. sms.send()'s consent gate is for
+    // proactive outbound only.
+    const reply = await routeInboundSms(from, body);
+    if (reply) await sms.sendUnchecked(from, reply);
   } catch (err) {
     console.error('[SMS] handler error:', err.message || err);
     try {
@@ -289,11 +284,6 @@ app.post(['/sms', '/inbound'], sms.validateTwilioRequest, async (req, res) => {
     }
   }
 });
-
-// Also handle inbound SMS from contacts (could arrive on same number)
-// The routing above covers contacts if they text in — they'll fall through to
-// the established-user path or onboarding. For now, contacts who text in
-// are queued as inbound_messages with from_type='contact'.
 
 // ── Telegram webhook (legacy / optional) ─────────────────────────────────────
 
@@ -2317,4 +2307,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, handlePendingAction };
+module.exports = { app, handlePendingAction, routeInboundSms };

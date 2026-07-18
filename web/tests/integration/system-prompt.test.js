@@ -409,6 +409,12 @@ describe('Agent message invisibility and tone', () => {
   test('Agent must not reveal other agent messages verbatim to user', () => {
     assertContains('Never reveal what the other agent said verbatim', 'no verbatim relay rule');
   });
+
+  test('Relayed contact message rule is present (non-user contact texted in)', () => {
+    assertContains('RELAYED CONTACT MESSAGE', 'relayed contact message rule label');
+    assertContains('send_logistics_sms', 'relayed contact reply tool named');
+    assertContains('Do not leave a relayed contact hanging', 'no-drop guarantee for relayed contacts');
+  });
 });
 
 // ── Coordination invite surfacing + event-first rule ─────────────────────────

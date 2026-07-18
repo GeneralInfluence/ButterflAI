@@ -157,7 +157,12 @@ module.exports = {
   },
 
   getContactByPhone(phone) {
-    return db.prepare('SELECT * FROM contacts WHERE phone = ?').get(phone);
+    // contacts.phone is not unique — the same number can be invited by many
+    // users. Resolve deterministically to the most recently touched row so
+    // routing (RSVP, relay, coordination context) is stable across calls.
+    return db.prepare(
+      'SELECT * FROM contacts WHERE phone = ? ORDER BY updated_at DESC, id DESC LIMIT 1'
+    ).get(phone);
   },
 
   getContactByTelegramId(telegramId) {
