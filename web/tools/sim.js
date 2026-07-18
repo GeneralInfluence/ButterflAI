@@ -36,7 +36,7 @@ require('dotenv').config();
 // .AGENT_MODEL at require time, so this MUST be set before the requires below.
 // web/.env's AGENT_MODEL wins if present; otherwise we pin the current model so
 // the sim never falls back to the stale (account-invalid) code default.
-const CURRENT_MODEL = 'claude-sonnet-4-6';   // prod AGENT_MODEL — keep in sync with the Fly secret
+const CURRENT_MODEL = 'claude-haiku-4-5-20251001';   // Haiku 4.5 — keep in sync with the prod AGENT_MODEL Fly secret
 if (!process.env.AGENT_MODEL) process.env.AGENT_MODEL = CURRENT_MODEL;
 
 // Real agent turns require a real key — the sim never stubs Claude (that would
