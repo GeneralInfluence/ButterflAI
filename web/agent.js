@@ -39,7 +39,17 @@ const coord      = require('./coordination');
 const sse        = require('./sse');
 const flai       = require('./flai');
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Test/sim injection: swap the Anthropic client (mirrors sms._setClient). No-op
+// in prod. Lets the multi-agent simulator (tools/sim.js) drive scripted or real
+// agent turns without the module-scope client being fixed at require time.
+function _setAnthropic(client) { anthropic = client; }
+
+// Optional tool-call observer for instrumentation (the sim's transcript). A
+// complete no-op unless a function is registered. Never affects behavior.
+let _toolObserver = null;
+function _setToolObserver(fn) { _toolObserver = fn; }
 
 const POLL_INTERVAL_MS = parseInt(process.env.AGENT_POLL_MS || '5000', 10);
 const MODEL = process.env.AGENT_MODEL || 'claude-3-5-haiku-20241022';  // fast + cheap for agent loop
@@ -652,6 +662,9 @@ function toolStatusLine(toolName, input) {
 }
 
 async function executeTool(toolName, toolInput, userId, userPhone) {
+  if (_toolObserver) {
+    try { _toolObserver(toolName, toolInput, userId); } catch (_) { /* observer must never break the agent */ }
+  }
   switch (toolName) {
 
     case 'add_contact': {
@@ -2105,4 +2118,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, executeTool, _safeForSms, resolveContactRelay };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver };
