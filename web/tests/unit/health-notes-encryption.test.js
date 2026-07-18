@@ -123,7 +123,8 @@ describe('get_contact_hard_constraints enforces PER-EDGE consent (Invariant 2)',
   });
 });
 
-describe('approve_private_sharing / revoke_private_sharing tools', () => {
+describe('request_private_sharing is code-gated (agent cannot self-grant)', () => {
+  const { handlePendingAction } = require('../../server');
   const owner = makeUser('+15551110050', 'Tool Owner');
   const friend = makeUser('+15551110051', 'Tool Friend');
   let cid;
@@ -134,20 +135,40 @@ describe('approve_private_sharing / revoke_private_sharing tools', () => {
     db.createContact({ id: cid, invited_by_user_id: owner.id, name: 'Tool Friend', phone: friend.phone, tier: 2 });
   });
 
-  test('approve_private_sharing grants per-edge access; revoke removes it', async () => {
-    const a = await executeTool('approve_private_sharing', { contact_id: cid, data_key: KEY }, owner.id, owner.phone);
-    assert.equal(a.approved, true);
-    assert.deepEqual(sensitive.listSharingApprovals(owner.id, KEY), [friend.id]);
-    assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, true);
+  test('request_private_sharing does NOT grant — it only queues a confirmation', async () => {
+    const r = await executeTool('request_private_sharing', { contact_id: cid, data_key: KEY }, owner.id, owner.phone);
+    assert.equal(r.confirmation_requested, true);
+    // Nothing shared yet — the agent cannot grant on its own.
+    assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, false);
+    const pending = db.getPendingAction(owner.id);
+    assert.equal(pending.action_type, 'approve_share');
+  });
 
+  test('a deterministic YES in handlePendingAction grants it', async () => {
+    const pending = db.getPendingAction(owner.id);
+    await handlePendingAction(owner, 'yes', pending);
+    assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, true);
+  });
+
+  test('a NO would keep it private (no grant)', async () => {
+    // revoke, re-request, then decline
+    sensitive.revokeSharing(owner.id, KEY, friend.id);
+    await executeTool('request_private_sharing', { contact_id: cid, data_key: KEY }, owner.id, owner.phone);
+    const pending = db.getPendingAction(owner.id);
+    await handlePendingAction(owner, 'no', pending);
+    assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, false);
+  });
+
+  test('revoke_private_sharing withdraws access immediately (no confirmation needed)', async () => {
+    sensitive.approveSharing(owner.id, KEY, friend.id);
     const r = await executeTool('revoke_private_sharing', { contact_id: cid, data_key: KEY }, owner.id, owner.phone);
     assert.equal(r.revoked, true);
     assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, false);
   });
 
-  test('approving a non-existent datum is an error, not a silent grant', async () => {
-    const a = await executeTool('approve_private_sharing', { contact_id: cid, data_key: 'health.nonexistent' }, owner.id, owner.phone);
-    assert.ok(a.error);
+  test('requesting a share of a non-existent datum errors, never queues', async () => {
+    const r = await executeTool('request_private_sharing', { contact_id: cid, data_key: 'health.nonexistent' }, owner.id, owner.phone);
+    assert.ok(r.error);
   });
 });
 

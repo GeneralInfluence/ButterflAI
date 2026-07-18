@@ -828,6 +828,24 @@ async function handlePendingAction(user, body, pending) {
     return `Got it — thanks for confirming! 🦋`;
   }
 
+  if (pending.action_type === 'approve_share') {
+    // Code-gated per-edge consent: only an explicit YES grants the share. The agent could
+    // only REQUEST this — the grant happens here, deterministically, never on LLM judgment.
+    db.deletePendingAction(pending.id);
+    if (isYes) {
+      const ok = sensitive.approveSharing(user.id, payload.data_key, payload.contact_user_id);
+      return ok
+        ? `Done — ${payload.contact_name}'s ButterflAI can now factor that in. You can revoke anytime in Settings. 🔒`
+        : `Hmm, I couldn't find that item to share — nothing was shared.`;
+    }
+    if (isNo) {
+      return `Kept private — I won't share it with ${payload.contact_name}.`;
+    }
+    // Ambiguous → fail closed: share NOTHING, and let the agent handle the message.
+    db.storeInboundMessage({ from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'sms', text: body });
+    return `I didn't share anything — that didn't read as a clear yes. 🦋`;
+  }
+
   // Unknown action type — fall through to generic
   db.deletePendingAction(pending.id);
   db.storeInboundMessage({
@@ -1632,6 +1650,73 @@ app.delete('/api/user/preferences/:field', webAuth.requireAuth, (req, res) => {
   res.json({ ok: true, cleared: field });
 });
 
+// ── Per-contact private-data sharing (replaces the deprecated global health toggle) ──
+// These are code-gated by requireAuth: they act on req.user.id (the authenticated owner),
+// so a grant here is a direct, deterministic user action — no LLM in the path.
+
+function _sharingLabel(dataKey) {
+  const labels = { 'health.safety_notes': 'Health & safety note' };
+  if (labels[dataKey]) return labels[dataKey];
+  const tail = String(dataKey || '').split('.').pop().replace(/_/g, ' ').trim();
+  return tail ? tail[0].toUpperCase() + tail.slice(1) : 'Private note';
+}
+
+// Map the owner's approved recipient user_ids back to their contacts (id + name).
+function _ownerContactByUserId(ownerId) {
+  const map = {};
+  for (const c of db.getContactsByUser(ownerId)) {
+    if (!c.phone) continue;
+    const u = db.getUserByPhone(c.phone);
+    if (u) map[u.id] = { contact_id: c.id, name: c.name };
+  }
+  return map;
+}
+
+// GET — the owner's private items and, per item, which contacts each is shared with.
+app.get('/api/user/private-sharing', webAuth.requireAuth, (req, res) => {
+  const contactMap = _ownerContactByUserId(req.user.id);
+  const items = sensitive.listPrivateData(req.user.id).map(it => {
+    const shared_with = sensitive.listSharingApprovals(req.user.id, it.data_key)
+      .map(uid => contactMap[uid] || { contact_id: null, name: 'Unknown (not in your contacts)' });
+    return { data_key: it.data_key, category: it.category, label: _sharingLabel(it.data_key), updated_at: it.updated_at, shared_with };
+  });
+  // Contacts who are ButterflAI users (candidates to share with).
+  const shareable_contacts = db.getContactsByUser(req.user.id)
+    .filter(c => c.phone && db.getUserByPhone(c.phone))
+    .map(c => ({ contact_id: c.id, name: c.name }));
+  res.json({ items, shareable_contacts });
+});
+
+function _resolveOwnedContactUser(ownerId, contactId) {
+  const contact = db.getContact(contactId);
+  if (!contact || contact.invited_by_user_id !== ownerId) return { error: 'Contact not found', code: 404 };
+  if (!contact.phone) return { error: 'Contact has no phone', code: 400 };
+  const contactUser = db.getUserByPhone(contact.phone);
+  if (!contactUser) return { error: 'Contact is not a ButterflAI user', code: 400 };
+  return { contactUser };
+}
+
+// POST approve — the owner directly grants sharing of one item with one contact.
+app.post('/api/user/private-sharing/approve', webAuth.requireAuth, express.json(), (req, res) => {
+  const { data_key, contact_id } = req.body || {};
+  if (!data_key || !contact_id) return res.status(400).json({ error: 'data_key and contact_id required' });
+  const r = _resolveOwnedContactUser(req.user.id, contact_id);
+  if (r.error) return res.status(r.code).json({ error: r.error });
+  const ok = sensitive.approveSharing(req.user.id, data_key, r.contactUser.id);
+  if (!ok) return res.status(404).json({ error: 'No such private item on file' });
+  res.json({ ok: true });
+});
+
+// POST revoke — the owner withdraws sharing of one item with one contact.
+app.post('/api/user/private-sharing/revoke', webAuth.requireAuth, express.json(), (req, res) => {
+  const { data_key, contact_id } = req.body || {};
+  if (!data_key || !contact_id) return res.status(400).json({ error: 'data_key and contact_id required' });
+  const r = _resolveOwnedContactUser(req.user.id, contact_id);
+  if (r.error) return res.status(r.code).json({ error: r.error });
+  const ok = sensitive.revokeSharing(req.user.id, data_key, r.contactUser.id);
+  res.json({ ok });
+});
+
 // PATCH /api/user/preferences/health-sharing — DEPRECATED.
 // Consent is now per-edge (per contact), enforced via sensitive.sharing_approved_to — a
 // single global "share health with anyone" toggle is no longer the gate and no longer
@@ -2229,4 +2314,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app };
+module.exports = { app, handlePendingAction };

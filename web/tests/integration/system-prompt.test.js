@@ -436,9 +436,9 @@ describe('Per-edge private-data sharing consent', () => {
     assertContains('THAT specific item with THAT specific contact', 'per-item per-contact');
   });
 
-  test('prompt tells the agent to ask + call approve_private_sharing before sharing', () => {
-    assertContains('approve_private_sharing', 'approval tool named in prompt');
-    assertContains('Want me to share', 'consent solicitation phrasing');
+  test('prompt tells the agent to request confirmation, not self-grant', () => {
+    assertContains('request_private_sharing', 'request tool named in prompt');
+    assertContains('shared ONLY if the user replies yes', 'code-gated confirmation phrasing');
   });
 
   test('prompt says treat newly-shared private info as private by default', () => {
