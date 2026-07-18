@@ -34,6 +34,7 @@ The OpenClaw agent that owns this repo has its own identity, operating rules, an
 
 ## Session history (newest first)
 
+@docs/sessions/session-2026-07-18.md
 @docs/sessions/session-2026-07-17.md
 @docs/sessions/session-2026-07-16.md
 @docs/sessions/session-2026-07-15.md
