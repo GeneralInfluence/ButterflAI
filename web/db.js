@@ -82,17 +82,21 @@ function applyMigrations(handle) {
 
 // Initialize a database handle: pragmas + schema + migrations. Idempotent, so it is safe
 // to call on the main DB and on every freshly-created per-user shard.
-function initDatabase(handle) {
+function initDatabase(handle, { foreignKeys = true } = {}) {
   handle.pragma('journal_mode = WAL');
-  handle.pragma('foreign_keys = ON');
+  // Per-user shards run with FK enforcement OFF: they hold per-user tables whose FKs point at
+  // users(id), which lives in `main` — a cross-file reference SQLite cannot enforce. Integrity
+  // is guaranteed at the app layer (the main directory owns users; per-user data is only ever
+  // created for an existing user). main keeps FK ON. See docs/PHASE1_DB_SPLIT.md (risk #4).
+  handle.pragma(`foreign_keys = ${foreignKeys ? 'ON' : 'OFF'}`);
   handle.exec(schemaSql); // schema is idempotent — all statements use IF NOT EXISTS
   applyMigrations(handle);
   return handle;
 }
 
-function openDb(file) {
+function openDb(file, opts) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-  return initDatabase(new Database(file));
+  return initDatabase(new Database(file), opts);
 }
 
 // The directory / main database. Until SPLIT_MODE, it is also the one and only database.
@@ -112,7 +116,7 @@ function shardFor(userId) {
     // With an in-memory main (tests), each shard is its own isolated in-memory DB so
     // isolation is testable without touching disk.
     const file = DB_PATH === ':memory:' ? ':memory:' : shardPath(userId);
-    h = openDb(file);
+    h = openDb(file, { foreignKeys: false }); // cross-file FKs to main.users can't be enforced
     shardCache.set(userId, h);
   }
   return h;
@@ -320,11 +324,11 @@ module.exports = {
   // ── Private data (encrypted at rest) ──────────────────────────────────────
 
   getPrivateData(userId) {
-    return db.prepare('SELECT * FROM private_data WHERE user_id = ?').get(userId);
+    return shardFor(userId).prepare('SELECT * FROM private_data WHERE user_id = ?').get(userId);
   },
 
   upsertPrivateData(userId, { ciphertext, iv, tag, wrapped_key }) {
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       INSERT INTO private_data (user_id, ciphertext, iv, tag, wrapped_key)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
@@ -338,20 +342,20 @@ module.exports = {
   },
 
   deletePrivateData(userId) {
-    return db.prepare('DELETE FROM private_data WHERE user_id = ?').run(userId);
+    return shardFor(userId).prepare('DELETE FROM private_data WHERE user_id = ?').run(userId);
   },
 
   // ── Access audit log ───────────────────────────────────────────────────────
 
   writeAccessAudit({ userId, accessor, purpose, recordClass, outsideNormalPath }) {
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       INSERT INTO access_audit (user_id, accessor, purpose, record_class, outside_normal_path)
       VALUES (?, ?, ?, ?, ?)
     `).run(userId, accessor, purpose, recordClass, outsideNormalPath ? 1 : 0);
   },
 
   getAccessAuditForUser(userId, limit = 100) {
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       SELECT * FROM access_audit WHERE user_id = ? ORDER BY accessed_at DESC LIMIT ?
     `).all(userId, limit);
   },
@@ -406,22 +410,22 @@ module.exports = {
   // ── Onboarding intents ─────────────────────────────────────────────────────
 
   createOnboardingIntent({ id, user_id, contact_name, frequency, activity_type, group_size }) {
-    return db.prepare(`
+    return shardFor(user_id).prepare(`
       INSERT INTO onboarding_intents (id, user_id, contact_name, frequency, activity_type, group_size)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(id, user_id, contact_name, frequency, activity_type || null, group_size || 'one_on_one');
   },
 
   getOnboardingIntents(userId) {
-    return db.prepare('SELECT * FROM onboarding_intents WHERE user_id = ? ORDER BY created_at').all(userId);
+    return shardFor(userId).prepare('SELECT * FROM onboarding_intents WHERE user_id = ? ORDER BY created_at').all(userId);
   },
 
   confirmOnboardingIntents(userId) {
-    db.prepare('UPDATE onboarding_intents SET confirmed = 1 WHERE user_id = ?').run(userId);
+    shardFor(userId).prepare('UPDATE onboarding_intents SET confirmed = 1 WHERE user_id = ?').run(userId);
   },
 
   deleteOnboardingIntents(userId) {
-    db.prepare('DELETE FROM onboarding_intents WHERE user_id = ?').run(userId);
+    shardFor(userId).prepare('DELETE FROM onboarding_intents WHERE user_id = ?').run(userId);
   },
 
   // ── Relationships ──────────────────────────────────────────────────────────
@@ -526,7 +530,7 @@ module.exports = {
 
   appendConversation(userId, role, text) {
     const { v4: uuidv4 } = require('uuid');
-    db.prepare(`
+    shardFor(userId).prepare(`
       INSERT INTO conversation_history (id, user_id, role, text)
       VALUES (?, ?, ?, ?)
     `).run(uuidv4(), userId, role, text.slice(0, 4000));
@@ -534,7 +538,7 @@ module.exports = {
 
   getRecentConversation(userId, limit = 20) {
     // Returns oldest-first so it reads naturally as a chat log
-    const rows = db.prepare(`
+    const rows = shardFor(userId).prepare(`
       SELECT role, text, created_at FROM conversation_history
       WHERE user_id = ?
       ORDER BY created_at DESC LIMIT ?
@@ -610,7 +614,7 @@ module.exports = {
   // ── User preferences ──────────────────────────────────────────────────────
 
   getPreferences(userId) {
-    const row = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
+    const row = shardFor(userId).prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
     if (!row) return null;
     // Parse JSON columns
     const jsonCols = ['dietary_restrictions','food_allergies','cuisine_loves','cuisine_avoids',
@@ -622,6 +626,7 @@ module.exports = {
   },
 
   upsertPreferences(userId, fields) {
+    const h = shardFor(userId);
     // Stringify any array/object fields before writing
     const jsonCols = ['dietary_restrictions','food_allergies','cuisine_loves','cuisine_avoids',
                       'activity_loves','activity_avoids','vibe'];
@@ -631,23 +636,23 @@ module.exports = {
         toWrite[col] = JSON.stringify(toWrite[col]);
       }
     }
-    const existing = db.prepare('SELECT user_id FROM user_preferences WHERE user_id = ?').get(userId);
+    const existing = h.prepare('SELECT user_id FROM user_preferences WHERE user_id = ?').get(userId);
     if (!existing) {
       // On INSERT, skip null fields — let the DB use column defaults
       const nonNull = Object.fromEntries(Object.entries(toWrite).filter(([,v]) => v !== null && v !== undefined));
       if (Object.keys(nonNull).length === 0) {
         // Nothing to insert — just ensure row exists
-        db.prepare('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(userId);
+        h.prepare('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(userId);
       } else {
         const cols = ['user_id', ...Object.keys(nonNull)].join(', ');
         const placeholders = ['?', ...Object.keys(nonNull).map(() => '?')].join(', ');
-        db.prepare(`INSERT INTO user_preferences (${cols}) VALUES (${placeholders})`)
+        h.prepare(`INSERT INTO user_preferences (${cols}) VALUES (${placeholders})`)
           .run(userId, ...Object.values(nonNull));
       }
     } else {
       // On UPDATE, null clears the field — SQLite handles NULL fine
       const sets = Object.keys(toWrite).map(k => `${k} = ?`).join(', ');
-      db.prepare(`UPDATE user_preferences SET ${sets}, updated_at = strftime('%s','now') WHERE user_id = ?`)
+      h.prepare(`UPDATE user_preferences SET ${sets}, updated_at = strftime('%s','now') WHERE user_id = ?`)
         .run(...Object.values(toWrite), userId);
     }
     return this.getPreferences(userId);
@@ -855,11 +860,11 @@ module.exports = {
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
 
   getWallet(userId) {
-    return db.prepare('SELECT * FROM user_wallets WHERE user_id = ?').get(userId);
+    return shardFor(userId).prepare('SELECT * FROM user_wallets WHERE user_id = ?').get(userId);
   },
 
   upsertWallet(userId, { wallet_address, clawbank_account_id }) {
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       INSERT INTO user_wallets (user_id, wallet_address, clawbank_account_id)
       VALUES (?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
