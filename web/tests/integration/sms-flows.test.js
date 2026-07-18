@@ -388,9 +388,9 @@ describe('Inbound routing — pure contact relay', () => {
   });
 });
 
-describe('Inbound routing — dual identity (user + contact) falls through to own agent', () => {
+describe('Inbound routing — dual identity (user + contact) is handled by their own agent', () => {
   const DUAL_PHONE = '+12025550444';
-  let dualUserId;
+  let dualUserId, dualContactId, dualInviteId;
 
   before(() => {
     smsCalls = [];
@@ -399,11 +399,21 @@ describe('Inbound routing — dual identity (user + contact) falls through to ow
     db._raw().prepare(
       `INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'Dual', ?, 'complete')`
     ).run(dualUserId, DUAL_PHONE);
-    // Same phone also exists as a contact in another user's address book.
-    db.upsertContact({ invited_by_user_id: testUserId, name: 'Dual', phone: DUAL_PHONE, tier: 1 });
+    // Same phone also exists as a contact invited to the test user's event.
+    dualContactId = db.upsertContact({ invited_by_user_id: testUserId, name: 'Dual', phone: DUAL_PHONE, tier: 1 });
+    const eventId = 'dual-evt-' + uuidv4();
+    db._raw().prepare(
+      `INSERT INTO social_events (id, host_user_id, title, activity_type, scheduled_at, status)
+       VALUES (?, ?, 'Dinner', 'dinner', strftime('%s','now') + 3600, 'open')`
+    ).run(eventId, testUserId);
+    dualInviteId = 'dual-inv-' + uuidv4();
+    db._raw().prepare(
+      `INSERT INTO event_invitations (id, event_id, contact_id, status, notified_at)
+       VALUES (?, ?, ?, 'invited', strftime('%s','now'))`
+    ).run(dualInviteId, eventId, dualContactId);
   });
 
-  test('routes to the user path (from_type=user), not the contact relay', async () => {
+  test('non-RSVP message routes to the user path (from_type=user), not the contact relay', async () => {
     const reply = await routeInboundSms(DUAL_PHONE, 'hey whats up');
     assert.equal(reply, null, 'established user → agent replies async, no sync ACK');
 
@@ -412,6 +422,24 @@ describe('Inbound routing — dual identity (user + contact) falls through to ow
     ).get(dualUserId);
     assert.ok(row, 'inbound row queued under the user id');
     assert.equal(row.from_type, 'user', 'dual identity is handled as the user, not a contact relay');
+  });
+
+  test('even an RSVP-like reply goes to their own agent; the router does NOT record it contact-side', async () => {
+    // Rule B: a registered user acts only through their own agent. The router must
+    // NOT short-circuit via handleRsvpReply — it leaves the invitation untouched
+    // and queues the message for the user's own agent (which RSVPs via
+    // confirm_coordination_invite). This also proves handleRsvpReply (and its
+    // Claude call) is bypassed for dual-identity phones.
+    const reply = await routeInboundSms(DUAL_PHONE, 'yes im in!');
+    assert.equal(reply, null, 'no contact-side RSVP confirmation string');
+
+    const inv = db._raw().prepare(`SELECT status FROM event_invitations WHERE id = ?`).get(dualInviteId);
+    assert.equal(inv.status, 'invited', 'router left the invitation for the own-agent path to RSVP');
+
+    const row = db._raw().prepare(
+      `SELECT * FROM inbound_messages WHERE from_id = ? ORDER BY created_at DESC LIMIT 1`
+    ).get(dualUserId);
+    assert.equal(row.from_type, 'user', 'RSVP-like message still routed to the user, not relayed');
   });
 });
 

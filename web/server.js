@@ -209,12 +209,15 @@ async function routeInboundSms(from, body) {
     return null;
   }
 
-  // 4. Contact paths. `contacts.phone` is per-inviter, so this only matters when
-  //    the number belongs to someone's address book. A phone that is ALSO a
-  //    registered user is handled by their own agent (step 5), which receives
-  //    coordination context via the state snapshot — so we special-case only
-  //    *pure* contacts here.
-  const contact = db.getContactByPhone(from);
+  // 4. Pure-contact paths. Dual-identity rule (explicit): a phone that is a
+  //    registered user is ALWAYS handled by their own agent (step 5) — even
+  //    when it is also a contact in someone's address book, and even for an
+  //    RSVP. A registered user acts only through their own agent, which sees the
+  //    invite via the pending_coordination snapshot and RSVPs with
+  //    confirm_coordination_invite; their words are never routed to another
+  //    user's agent. So the contact lookup and the RSVP + relay paths below fire
+  //    for *pure* contacts (not a registered user) only.
+  const contact = user ? null : db.getContactByPhone(from);
   if (contact) {
     // 4a. RSVP / coordination reply to an open invitation.
     const rsvpReply = await multiparty.handleRsvpReply(from, body).catch((e) => {
@@ -223,18 +226,14 @@ async function routeInboundSms(from, body) {
     });
     if (rsvpReply) return rsvpReply;
 
-    // 4b. Pure contact (not a registered user): queue the message so the agent
-    //     loop relays it to the host/inviter's agent and it actually gets acted
-    //     on. (Previously these rows dead-ended in processMessage — the ACK was
-    //     a lie.) Keeping the relay-target resolution in the agent loop keeps
-    //     this routing layer thin.
-    if (!user) {
-      db.storeInboundMessage({
-        from_phone: from, from_type: 'contact', from_id: contact.id, channel: 'sms', text: body,
-      });
-      return `Got it! I'll pass that along. 👍`;
-    }
-    // else: dual identity (user + contact) — fall through to the user path.
+    // 4b. Non-RSVP: queue the message so the agent loop relays it to the
+    //     host/inviter's agent and it actually gets acted on. (Previously these
+    //     rows dead-ended in processMessage — the ACK was a lie.) Keeping the
+    //     relay-target resolution in the agent loop keeps this routing thin.
+    db.storeInboundMessage({
+      from_phone: from, from_type: 'contact', from_id: contact.id, channel: 'sms', text: body,
+    });
+    return `Got it! I'll pass that along. 👍`;
   }
 
   // 5. Route by account state: onboarding vs. established user.
