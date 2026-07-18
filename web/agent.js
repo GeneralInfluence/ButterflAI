@@ -913,6 +913,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'store_private_data': {
       const { data_key, value, category } = toolInput;
+      // Validate the key shape: it becomes a label in confirmation SMSes, so no injection
+      // characters and a bounded length. Dotted lowercase segments, e.g. "health.sti_status".
+      if (typeof data_key !== 'string' || !/^[a-z0-9]+(\.[a-z0-9_]+)*$/i.test(data_key) || data_key.length > 64) {
+        return { error: 'INVALID_DATA_KEY', message: 'data_key must be short and of the form "category.name" (letters, digits, underscores, dots).' };
+      }
       return sensitive.storePrivateData(userId, data_key, value, category);
     }
 
@@ -1011,19 +1016,22 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         return { already_shared: true, data_key: toolInput.data_key, contact: contact.name };
       }
       const { v4: uuidv4 } = require('uuid');
+      const safeName = _safeForSms(contact.name, 32);
+      const label    = _safeForSms(humanizePrivateKey(toolInput.data_key), 40);
       db.createPendingAction({
         id: uuidv4(),
         user_id: userId,
         action_type: 'approve_share',
-        payload: { data_key: toolInput.data_key, contact_id: contact.id, contact_user_id: contactUser.id, contact_name: contact.name },
-        ttl_secs: 24 * 3600,
+        payload: { data_key: toolInput.data_key, contact_id: contact.id, contact_user_id: contactUser.id, contact_name: safeName },
+        ttl_secs: 3600, // short window — a share confirmation must not linger
       });
-      // System-composed prompt (not agent free-text) so the user sees exactly what/who.
-      const label = humanizePrivateKey(toolInput.data_key);
+      // System-composed prompt, sanitized so an attacker-chosen name/key can't reframe it.
+      // Confirm word is SHARE (not a bare "yes") so a casual affirmative meant for another
+      // prompt cannot grant a share.
       await sms.notifyUser(userPhone,
-        `🔒 Share your ${label} with ${contact.name} so their ButterflAI can factor it in? Reply YES to share, NO to keep it private.`
+        `🔒 Share your "${label}" with ${safeName}? This lets their ButterflAI factor it in. Reply SHARE to confirm, or NO to keep it private.`
       ).catch(() => {});
-      return { confirmation_requested: true, contact: contact.name, note: 'Asked the user to confirm via SMS — not shared yet.' };
+      return { confirmation_requested: true, contact: safeName, note: 'Asked the user to reply SHARE to confirm — nothing shared yet.' };
     }
 
     case 'revoke_private_sharing': {
@@ -1634,13 +1642,28 @@ async function processMessage(msg) {
 }
 
 /**
+ * Sanitize a string for inclusion in a user-facing confirmation SMS. Strips control chars
+ * and any punctuation that could reframe the prompt (parens/brackets/quotes/colons), and
+ * caps length — so an attacker-chosen contact name or data_key can't rewrite the meaning.
+ */
+function _safeForSms(s, maxLen = 40) {
+  return String(s || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[^\p{L}\p{N} .,'&-]/gu, '')  // conservative charset: no ()[]{}<>"":; etc.
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen) || 'your contact';
+}
+
+/**
  * Human-readable label for a private data_key, for user-facing confirmation prompts.
+ * Sanitized (data_key is agent-chosen and must not be able to inject into the SMS).
  */
 function humanizePrivateKey(dataKey) {
   const labels = { 'health.safety_notes': 'health & safety note' };
   if (labels[dataKey]) return labels[dataKey];
   const tail = String(dataKey || '').split('.').pop().replace(/_/g, ' ').trim();
-  return tail || 'private note';
+  return _safeForSms(tail, 40) === 'your contact' ? 'private note' : _safeForSms(tail, 40);
 }
 
 /**
@@ -2017,4 +2040,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, executeTool };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, executeTool, _safeForSms };

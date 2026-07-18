@@ -829,21 +829,24 @@ async function handlePendingAction(user, body, pending) {
   }
 
   if (pending.action_type === 'approve_share') {
-    // Code-gated per-edge consent: only an explicit YES grants the share. The agent could
-    // only REQUEST this — the grant happens here, deterministically, never on LLM judgment.
+    // Code-gated per-edge consent. The grant requires the explicit keyword SHARE — NOT a
+    // bare "yes"/"ok", which could be a reply the user meant for a different pending prompt
+    // (confused-deputy). So a casual affirmative can never leak private data; it fails closed.
     db.deletePendingAction(pending.id);
-    if (isYes) {
+    const wantsShare = /\bshare\b/i.test(lower);
+    const declines   = isNo || /\b(keep\s+(it\s+)?private|cancel|don'?t)\b/i.test(lower);
+    if (wantsShare) {
       const ok = sensitive.approveSharing(user.id, payload.data_key, payload.contact_user_id);
       return ok
         ? `Done — ${payload.contact_name}'s ButterflAI can now factor that in. You can revoke anytime in Settings. 🔒`
         : `Hmm, I couldn't find that item to share — nothing was shared.`;
     }
-    if (isNo) {
+    if (declines) {
       return `Kept private — I won't share it with ${payload.contact_name}.`;
     }
-    // Ambiguous → fail closed: share NOTHING, and let the agent handle the message.
+    // Anything else (including a bare "yes"/"ok") does NOT grant. Re-queue for the agent.
     db.storeInboundMessage({ from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'sms', text: body });
-    return `I didn't share anything — that didn't read as a clear yes. 🦋`;
+    return `I didn't share anything — reply SHARE to that request only if you did want to share it. 🦋`;
   }
 
   // Unknown action type — fall through to generic

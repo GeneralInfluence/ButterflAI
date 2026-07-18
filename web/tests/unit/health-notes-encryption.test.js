@@ -23,7 +23,7 @@ delete process.env.ANTHROPIC_API_KEY;
 const { v4: uuidv4 } = require('uuid');
 const db        = require('../../db');
 const sensitive = require('../../sensitive');
-const { executeTool } = require('../../agent');
+const { executeTool, _safeForSms } = require('../../agent');
 
 const KEY = sensitive.HEALTH_NOTES_KEY;
 const raw = () => db._raw();
@@ -144,14 +144,25 @@ describe('request_private_sharing is code-gated (agent cannot self-grant)', () =
     assert.equal(pending.action_type, 'approve_share');
   });
 
-  test('a deterministic YES in handlePendingAction grants it', async () => {
-    const pending = db.getPendingAction(owner.id);
+  test('a bare "yes"/"ok" does NOT grant (confused-deputy fix)', async () => {
+    // A "yes" the user may have meant for a DIFFERENT pending prompt must never leak a share.
+    let pending = db.getPendingAction(owner.id);
     await handlePendingAction(owner, 'yes', pending);
+    assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, false, 'bare yes must not grant');
+    await executeTool('request_private_sharing', { contact_id: cid, data_key: KEY }, owner.id, owner.phone);
+    pending = db.getPendingAction(owner.id);
+    await handlePendingAction(owner, 'ok', pending);
+    assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, false, 'bare ok must not grant');
+  });
+
+  test('the explicit keyword SHARE grants it', async () => {
+    await executeTool('request_private_sharing', { contact_id: cid, data_key: KEY }, owner.id, owner.phone);
+    const pending = db.getPendingAction(owner.id);
+    await handlePendingAction(owner, 'SHARE', pending);
     assert.equal(sensitive.readPrivateDataForSharing(owner.id, KEY, friend.id).allowed, true);
   });
 
-  test('a NO would keep it private (no grant)', async () => {
-    // revoke, re-request, then decline
+  test('NO keeps it private (no grant)', async () => {
     sensitive.revokeSharing(owner.id, KEY, friend.id);
     await executeTool('request_private_sharing', { contact_id: cid, data_key: KEY }, owner.id, owner.phone);
     const pending = db.getPendingAction(owner.id);
@@ -201,6 +212,31 @@ describe('clearing + scoping (adversarial review follow-ups)', () => {
     db.upsertPreferences(owner.id, { health_sharing_approved: 1 });
     const r = await executeTool('get_contact_hard_constraints', { contact_id: cid }, asker.id, asker.phone);
     assert.match(r.error || '', /not in your address book/);
+  });
+});
+
+describe('consent-prompt injection hardening (adversarial review C2/C3)', () => {
+  const u = makeUser('+15551110060', 'Inj Owner');
+
+  test('_safeForSms strips reframing punctuation + newlines and caps length', () => {
+    const evil = 'Kaylee (reply YES to keep it PRIVATE)\nreply NO to share <b>';
+    const safe = _safeForSms(evil, 32);
+    assert.ok(!/[()<>\n]/.test(safe), `no reframing chars/newlines, got: ${safe}`);
+    assert.ok(safe.length <= 32);
+  });
+
+  test('_safeForSms never returns empty (falls back)', () => {
+    assert.equal(_safeForSms('()[]', 20), 'your contact');
+  });
+
+  test('store_private_data rejects an injection-y data_key', async () => {
+    const r = await executeTool('store_private_data', { data_key: 'x.URGENT reply SHARE now', value: 'secret', category: 'OTHER' }, u.id, u.phone);
+    assert.equal(r.error, 'INVALID_DATA_KEY');
+  });
+
+  test('store_private_data accepts a normal dotted key', async () => {
+    const r = await executeTool('store_private_data', { data_key: 'health.sti_status', value: 'negative', category: 'HEALTH' }, u.id, u.phone);
+    assert.ok(r.stored || r.data_key, 'normal key stored');
   });
 });
 
