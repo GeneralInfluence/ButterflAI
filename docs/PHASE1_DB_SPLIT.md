@@ -2,6 +2,24 @@
 
 > Source: workflow map+design of the ButterflAI data layer (2026-07-18). Persisted from the analysis so it survives across sessions. Implementation proceeds in the staged increments in §5.
 
+## Implementation status (2026-07-18) — draft PR #8, branch `phase1/per-user-isolation`
+
+**Done and proven (isolation validated under `SPLIT_MODE=1`; flag-off suite 461/461):**
+- The routing **seam**: `initDatabase(handle)`, `openDb`, `shardFor(userId)`, `_raw(userId)` — flag-gated (`SPLIT_MODE`), returns `main` for everyone while off. Cross-file FK handling (shards run FK-off; `main` FK-on).
+- Shard schema completeness (folded `calendar_tokens`, `venue_favorites` into `db/schema.sql`).
+- **Threaded to the owner's shard:** `sensitive.js` (all private/health data + sharing + audit); `db.js` core state — `user_preferences`, `conversation_history`, `private_data`, `access_audit`, `onboarding_intents`, `user_wallets`, `pending_actions` (deletePendingAction now takes userId).
+- **contact_directory foundation** (main): `syncContactDirectory` on every contact write + `getContactOwner(contactId)`. Additive — no read path uses it yet.
+
+**Next (each its own increment), in order:**
+1. **Contacts read-path rewrite (HIGH RISK — inbound SMS routing):** wire `getContactByPhone` and the `/sms` webhook routing onto `contact_directory`, then move `contacts` (+ `contact_preferences`, `contact_groups`) per-user, routing id-keyed methods via `getContactOwner`.
+2. **relationships/cadences/activities cluster** (move together — they JOIN) + **desires**.
+3. Direct `db._raw()` sites on per-user tables in `agent.js` / `multiparty.js` / `server.js`; **background loops** (`coord-loop`, `cadence`) → directory-driven fan-out (replace `SELECT * FROM users` scans).
+4. Flag-on **full-suite CI lane**, then **prod cutover** (§4: backup → migrate → verify → flip `SPLIT_MODE=1` → drop; reversible).
+
+Tables intentionally kept in `main` (cross-user / transport): `agent_messages`, `inbound_messages`, `coordination_sessions`, `coord_session_peers`, `ambient_signals`, `social_events`, `event_invitations`, `referrals`, `consent_records`, `otp_codes`, `sms_optouts`, `contact_directory`.
+
+---
+
 All maps verified against the actual code. Here is the design doc.
 
 ---
