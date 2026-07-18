@@ -32,6 +32,17 @@ process.env.DB_PATH = process.env.SIM_DB_PATH || ':memory:';
 process.chdir(require('path').join(__dirname, '..'));   // web/ root: resolve .env + migrations
 require('dotenv').config();
 
+// The model the sim (and prod) run the agent on. agent.js reads process.env
+// .AGENT_MODEL at require time, so this MUST be set before the requires below.
+// web/.env's AGENT_MODEL wins if present; otherwise we pin the current model so
+// the sim never falls back to the stale (account-invalid) code default.
+const CURRENT_MODEL = 'claude-sonnet-4-6';   // prod AGENT_MODEL — keep in sync with the Fly secret
+if (!process.env.AGENT_MODEL) process.env.AGENT_MODEL = CURRENT_MODEL;
+
+// Real agent turns require a real key — the sim never stubs Claude (that would
+// be "fake training"). Enforced in injectHuman(); surfaced in the banner.
+const LIVE = !!process.env.ANTHROPIC_API_KEY;
+
 const readline = require('readline');
 const db         = require('../db');
 const sms        = require('../sms');
@@ -147,6 +158,11 @@ async function drain() {
 }
 
 async function injectHuman(key, text) {
+  if (!LIVE) {
+    warn('No ANTHROPIC_API_KEY — refusing to run an agent turn (the sim never fakes Claude).');
+    warn('Add ANTHROPIC_API_KEY to web/.env (and AGENT_MODEL if prod is not on ' + CURRENT_MODEL + '), then rerun.');
+    return;
+  }
   const u = USERS[key];
   line(`${C.human}${u.name} → ButterflAI:${C.reset} ${text}`);
   let reply = null;
@@ -224,12 +240,10 @@ const HELP = `
 
 function banner() {
   line(`\n${C.human}🦋 ButterflAI multi-agent simulator${C.reset}`);
-  line(`${C.dim}DB=${process.env.DB_PATH}  MODEL=${process.env.AGENT_MODEL || 'claude-3-5-haiku-20241022 (default)'}${C.reset}`);
-  if (!process.env.ANTHROPIC_API_KEY) {
-    warn('ANTHROPIC_API_KEY not set — real agent turns will fail. Set it in web/.env to iterate on behavior.');
-  }
-  if (!process.env.AGENT_MODEL) {
-    warn("AGENT_MODEL not set — set it to a model your account has (the default model id is not on the ButterflAI account).");
+  const status = LIVE ? `${C.sms}LIVE${C.reset}` : `${C.err}NO KEY — agent turns disabled${C.reset}`;
+  line(`${C.dim}DB=${process.env.DB_PATH}  model=${process.env.AGENT_MODEL}  key=${status}`);
+  if (!LIVE) {
+    warn('Set ANTHROPIC_API_KEY in web/.env for live training. Inspectors (/state, /prompt) still work without it.');
   }
   line(`${C.dim}Users: Aphilos (${USERS.aphilos.phone}, ET) · BamBam (${USERS.bambam.phone}, PT). Type /help.${C.reset}\n`);
 }

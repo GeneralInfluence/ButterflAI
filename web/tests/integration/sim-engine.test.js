@@ -11,7 +11,9 @@
 process.env.DB_PATH  = ':memory:';
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-secret';
-delete process.env.ANTHROPIC_API_KEY;   // prove the engine runs on the injected client alone
+// Presence-only: the sim requires a key to run a turn, but _setAnthropic below
+// swaps in a stub client, so no real Anthropic call is ever made in CI.
+process.env.ANTHROPIC_API_KEY = 'sk-ant-test-dummy';
 
 const { test, describe, before, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
