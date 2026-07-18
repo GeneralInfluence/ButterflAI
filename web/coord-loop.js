@@ -54,13 +54,18 @@ async function notifyUser(userId, text, meta = {}) {
   }
 
   // Store as an inbound message so the agent loop processes it with full context
-  // (the agent then sends the SMS and can handle the reply in the same turn)
+  // (the agent then sends the SMS and can handle the reply in the same turn).
+  // channel:'agent' is the "proactively inform the user" path — processMessage
+  // frames it accordingly. from_type/channel must stay within the
+  // inbound_messages CHECK sets (from_type IN contact|user, channel IN sms|
+  // telegram|webchat|eval|agent|agent_query|agent_reply); the old
+  // 'system'/'coord_notify' values violated it and threw on a fresh DB.
   db.storeInboundMessage({
     from_phone:  user.phone,
-    from_type:   'system',
+    from_type:   'user',
     from_id:     userId,
-    channel:     'coord_notify',
-    text:        `[Coordination update — inform the user] ${text}` +
+    channel:     'agent',
+    text:        `[Coordination update] ${text}` +
                  (meta.sessionId ? ` [session:${meta.sessionId}]` : '')
   });
 

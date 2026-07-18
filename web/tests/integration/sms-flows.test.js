@@ -353,3 +353,143 @@ describe('attendance_confirm — batched "1Y 2N"', () => {
     assert.equal(row2?.attended, 0, 'Second event should have attended=0');
   });
 });
+
+// ── Contact routing: relay, dual-identity, dead-end fix ──────────────────────
+
+const { routeInboundSms } = require('../../server');
+const agent = require('../../agent');
+
+describe('Inbound routing — pure contact relay', () => {
+  const CONTACT_PHONE = '+12025550333';
+  let contactId;
+
+  before(() => {
+    smsCalls = [];
+    db.removeOptOut(CONTACT_PHONE);
+    // A contact of the test user, NOT itself a registered user.
+    contactId = db.upsertContact({
+      invited_by_user_id: testUserId, name: 'Relay Contact', phone: CONTACT_PHONE, tier: 1,
+    });
+  });
+
+  test('non-user contact with no open invite → honest ACK + queued contact row', async () => {
+    assert.equal(db.getUserByPhone(CONTACT_PHONE), undefined, 'precondition: not a user');
+
+    const reply = await routeInboundSms(CONTACT_PHONE, 'what time is the dinner?');
+    assert.match(reply, /pass that along/i, 'contact gets the honest ACK');
+
+    const row = db._raw().prepare(
+      `SELECT * FROM inbound_messages WHERE from_id = ? AND from_type = 'contact'
+       ORDER BY created_at DESC LIMIT 1`
+    ).get(contactId);
+    assert.ok(row, 'a contact-typed inbound row is queued for the agent loop');
+    assert.equal(row.channel, 'sms');
+    assert.equal(row.processed, 0, 'row is left for the agent loop to relay');
+  });
+});
+
+describe('Inbound routing — dual identity (user + contact) is handled by their own agent', () => {
+  const DUAL_PHONE = '+12025550444';
+  let dualUserId, dualContactId, dualInviteId;
+
+  before(() => {
+    smsCalls = [];
+    db.removeOptOut(DUAL_PHONE);
+    dualUserId = 'dual-user-' + uuidv4();
+    db._raw().prepare(
+      `INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'Dual', ?, 'complete')`
+    ).run(dualUserId, DUAL_PHONE);
+    // Same phone also exists as a contact invited to the test user's event.
+    dualContactId = db.upsertContact({ invited_by_user_id: testUserId, name: 'Dual', phone: DUAL_PHONE, tier: 1 });
+    const eventId = 'dual-evt-' + uuidv4();
+    db._raw().prepare(
+      `INSERT INTO social_events (id, host_user_id, title, activity_type, scheduled_at, status)
+       VALUES (?, ?, 'Dinner', 'dinner', strftime('%s','now') + 3600, 'open')`
+    ).run(eventId, testUserId);
+    dualInviteId = 'dual-inv-' + uuidv4();
+    db._raw().prepare(
+      `INSERT INTO event_invitations (id, event_id, contact_id, status, notified_at)
+       VALUES (?, ?, ?, 'invited', strftime('%s','now'))`
+    ).run(dualInviteId, eventId, dualContactId);
+  });
+
+  test('non-RSVP message routes to the user path (from_type=user), not the contact relay', async () => {
+    const reply = await routeInboundSms(DUAL_PHONE, 'hey whats up');
+    assert.equal(reply, null, 'established user → agent replies async, no sync ACK');
+
+    const row = db._raw().prepare(
+      `SELECT * FROM inbound_messages WHERE from_id = ? ORDER BY created_at DESC LIMIT 1`
+    ).get(dualUserId);
+    assert.ok(row, 'inbound row queued under the user id');
+    assert.equal(row.from_type, 'user', 'dual identity is handled as the user, not a contact relay');
+  });
+
+  test('even an RSVP-like reply goes to their own agent; the router does NOT record it contact-side', async () => {
+    // Rule B: a registered user acts only through their own agent. The router must
+    // NOT short-circuit via handleRsvpReply — it leaves the invitation untouched
+    // and queues the message for the user's own agent (which RSVPs via
+    // confirm_coordination_invite). This also proves handleRsvpReply (and its
+    // Claude call) is bypassed for dual-identity phones.
+    const reply = await routeInboundSms(DUAL_PHONE, 'yes im in!');
+    assert.equal(reply, null, 'no contact-side RSVP confirmation string');
+
+    const inv = db._raw().prepare(`SELECT status FROM event_invitations WHERE id = ?`).get(dualInviteId);
+    assert.equal(inv.status, 'invited', 'router left the invitation for the own-agent path to RSVP');
+
+    const row = db._raw().prepare(
+      `SELECT * FROM inbound_messages WHERE from_id = ? ORDER BY created_at DESC LIMIT 1`
+    ).get(dualUserId);
+    assert.equal(row.from_type, 'user', 'RSVP-like message still routed to the user, not relayed');
+  });
+});
+
+describe('resolveContactRelay — the dead-end fix', () => {
+  test('contact with a recent event invite relays to that event host', () => {
+    const hostId = 'relay-host-' + uuidv4();
+    db._raw().prepare(
+      `INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'Host', '+12025550555', 'complete')`
+    ).run(hostId);
+    const cId = db.upsertContact({ invited_by_user_id: hostId, name: 'Guest', phone: '+12025550666', tier: 1 });
+
+    const eventId = 'relay-evt-' + uuidv4();
+    db._raw().prepare(
+      `INSERT INTO social_events (id, host_user_id, title, activity_type, scheduled_at, status)
+       VALUES (?, ?, 'Taco Tuesday', 'dinner', strftime('%s','now') + 3600, 'open')`
+    ).run(eventId, hostId);
+    db._raw().prepare(
+      `INSERT INTO event_invitations (id, event_id, contact_id, status, notified_at)
+       VALUES (?, ?, ?, 'invited', strftime('%s','now'))`
+    ).run('relay-inv-' + uuidv4(), eventId, cId);
+
+    const relayed = agent.resolveContactRelay({
+      id: 'm1', from_type: 'contact', from_id: cId, channel: 'sms', text: 'what time?',
+    });
+    assert.ok(relayed, 'relay resolves');
+    assert.equal(relayed.from_id, hostId, 'routed to the event host');
+    assert.equal(relayed.from_type, 'user', 're-typed so processMessage resolves a user');
+    assert.match(relayed.text, /\[Relayed SMS from your contact/, 'framed as a relay');
+    assert.match(relayed.text, /Taco Tuesday/, 'includes the event context');
+    assert.match(relayed.text, /what time\?/, 'carries the contact message');
+  });
+
+  test('contact with no event falls back to the inviter', () => {
+    const inviterId = 'relay-inviter-' + uuidv4();
+    db._raw().prepare(
+      `INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'Inviter', '+12025550777', 'complete')`
+    ).run(inviterId);
+    const cId = db.upsertContact({ invited_by_user_id: inviterId, name: 'Orphan', phone: '+12025550888', tier: 1 });
+
+    const relayed = agent.resolveContactRelay({
+      id: 'm2', from_type: 'contact', from_id: cId, channel: 'sms', text: 'hi',
+    });
+    assert.ok(relayed, 'relay resolves via inviter fallback');
+    assert.equal(relayed.from_id, inviterId, 'falls back to invited_by_user_id');
+  });
+
+  test('unknown contact id resolves to null (message is dropped, not dead-ended)', () => {
+    const relayed = agent.resolveContactRelay({
+      id: 'm3', from_type: 'contact', from_id: 'does-not-exist', channel: 'sms', text: 'hi',
+    });
+    assert.equal(relayed, null, 'no target → null (processMessage marks processed)');
+  });
+});
