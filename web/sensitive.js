@@ -142,7 +142,7 @@ function getDb() {
  */
 function storePrivateData(userId, dataKey, plaintext, category = 'OTHER') {
   const db = getDb();
-  const raw = db._raw();
+  const raw = db._raw(userId);
   const { encrypted_v, iv, auth_tag } = encrypt(String(plaintext));
   const id = uuidv4();
 
@@ -168,7 +168,7 @@ function storePrivateData(userId, dataKey, plaintext, category = 'OTHER') {
  */
 function readPrivateData(userId, dataKey, context = 'user read own data') {
   const db = getDb();
-  const raw = db._raw();
+  const raw = db._raw(userId);
   const row = raw.prepare(
     'SELECT encrypted_v, iv, auth_tag FROM user_private_data WHERE user_id = ? AND data_key = ?'
   ).get(userId, dataKey);
@@ -188,7 +188,7 @@ function readPrivateData(userId, dataKey, context = 'user read own data') {
  */
 function listPrivateData(userId) {
   const db = getDb();
-  const raw = db._raw();
+  const raw = db._raw(userId);
   return raw.prepare(
     'SELECT data_key, category, updated_at FROM user_private_data WHERE user_id = ? ORDER BY updated_at DESC'
   ).all(userId);
@@ -200,8 +200,11 @@ function listPrivateData(userId) {
  * Logs every share attempt (approved or denied).
  */
 function readPrivateDataForSharing(ownerUserId, dataKey, requestingUserId) {
+  // Runs AS THE OWNER: opens the owner's shard, decrypts with the owner's key, checks the
+  // approved list, and logs the attempt in the owner's shard. The requester never touches
+  // the owner's file — the boundary is physical under SPLIT_MODE.
   const db = getDb();
-  const raw = db._raw();
+  const raw = db._raw(ownerUserId);
   const row = raw.prepare(
     'SELECT encrypted_v, iv, auth_tag, sharing_approved_to FROM user_private_data WHERE user_id = ? AND data_key = ?'
   ).get(ownerUserId, dataKey);
@@ -233,7 +236,7 @@ function readPrivateDataForSharing(ownerUserId, dataKey, requestingUserId) {
  */
 function approveSharing(ownerUserId, dataKey, approvedUserId) {
   const db = getDb();
-  const raw = db._raw();
+  const raw = db._raw(ownerUserId);
   const row = raw.prepare(
     'SELECT sharing_approved_to FROM user_private_data WHERE user_id = ? AND data_key = ?'
   ).get(ownerUserId, dataKey);
@@ -258,7 +261,7 @@ function approveSharing(ownerUserId, dataKey, approvedUserId) {
  */
 function revokeSharing(ownerUserId, dataKey, revokedUserId) {
   const db = getDb();
-  const raw = db._raw();
+  const raw = db._raw(ownerUserId);
   const row = raw.prepare(
     'SELECT sharing_approved_to FROM user_private_data WHERE user_id = ? AND data_key = ?'
   ).get(ownerUserId, dataKey);
@@ -283,7 +286,7 @@ function revokeSharing(ownerUserId, dataKey, revokedUserId) {
  */
 function listSharingApprovals(ownerUserId, dataKey) {
   const db = getDb();
-  const row = db._raw().prepare(
+  const row = db._raw(ownerUserId).prepare(
     'SELECT sharing_approved_to FROM user_private_data WHERE user_id = ? AND data_key = ?'
   ).get(ownerUserId, dataKey);
   if (!row) return [];
@@ -296,7 +299,7 @@ function listSharingApprovals(ownerUserId, dataKey) {
  */
 function hasPrivateData(userId, dataKey) {
   const db = getDb();
-  return !!db._raw()
+  return !!db._raw(userId)
     .prepare('SELECT 1 FROM user_private_data WHERE user_id = ? AND data_key = ?')
     .get(userId, dataKey);
 }
@@ -308,6 +311,10 @@ function hasPrivateData(userId, dataKey) {
  * Invariant 1 and migration 025 (the column is retained but must stay NULL).
  */
 function migratePlaintextHealthNotes() {
+  // Legacy one-time migration. It scans user_preferences ACROSS all users, so it runs on
+  // `main` (db._raw() → main). Under SPLIT_MODE this becomes a no-op there (the data is
+  // per-shard by then, and this migration already ran pre-split); a per-shard sweep, if ever
+  // needed, is a directory-driven loop (Stage 4). Left on main deliberately.
   const db = getDb();
   const raw = db._raw();
   let rows;
@@ -343,7 +350,7 @@ function migratePlaintextHealthNotes() {
  */
 function deletePrivateData(userId, dataKey) {
   const db = getDb();
-  const raw = db._raw();
+  const raw = db._raw(userId);
   logAccess(userId, null, dataKey, 'delete', 'user deleted private datum');
   raw.prepare('DELETE FROM user_private_data WHERE user_id = ? AND data_key = ?').run(userId, dataKey);
   return { deleted: true };
@@ -354,7 +361,7 @@ function deletePrivateData(userId, dataKey) {
 function logAccess(userId, accessorId, dataKey, action, context) {
   try {
     const db = getDb();
-    const raw = db._raw();
+    const raw = db._raw(userId); // audit lives in the owner's shard, with the data it audits
     raw.prepare(`
       INSERT INTO private_data_access_log (id, user_id, accessor_id, data_key, action, context)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -364,7 +371,7 @@ function logAccess(userId, accessorId, dataKey, action, context) {
 
 function getAccessLog(userId, limit = 20) {
   const db = getDb();
-  const raw = db._raw();
+  const raw = db._raw(userId);
   return raw.prepare(
     'SELECT action, data_key, accessor_id, context, created_at FROM private_data_access_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?'
   ).all(userId, limit);
@@ -376,7 +383,7 @@ function getAccessLog(userId, limit = 20) {
 function setSensitiveMode(userId, on) {
   try {
     const db = getDb();
-    const raw = db._raw();
+    const raw = db._raw(userId);
     const existing = raw.prepare('SELECT user_id FROM user_preferences WHERE user_id = ?').get(userId);
     if (!existing) {
       raw.prepare('INSERT INTO user_preferences (user_id, sensitive_mode) VALUES (?, ?)').run(userId, on ? 1 : 0);
@@ -389,7 +396,7 @@ function setSensitiveMode(userId, on) {
 function isSensitiveMode(userId) {
   try {
     const db = getDb();
-    const row = db._raw().prepare('SELECT sensitive_mode FROM user_preferences WHERE user_id = ?').get(userId);
+    const row = db._raw(userId).prepare('SELECT sensitive_mode FROM user_preferences WHERE user_id = ?').get(userId);
     return !!(row?.sensitive_mode);
   } catch { return false; }
 }
