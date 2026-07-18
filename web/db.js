@@ -16,30 +16,30 @@ const fs = require('fs');
 const { toE164 } = require('./phoneUtils');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'butterflai.sqlite');
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+// Phase 1 per-user isolation seam. While SPLIT_MODE !== '1', every user's shardFor()
+// resolves to `main`, so the physical layout is byte-for-byte today's single database and
+// all queries behave identically. Flipping SPLIT_MODE routes per-user data to per-user
+// files. See docs/PHASE1_DB_SPLIT.md.
+const SPLIT_MODE = process.env.SPLIT_MODE === '1';
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+if (DB_PATH !== ':memory:') fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-// Apply schema (idempotent — all statements use IF NOT EXISTS)
-const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
-db.exec(schema);
+const schemaSql = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
 
-// Migration tracking table — ensures each migration file runs exactly once
-db.exec(`CREATE TABLE IF NOT EXISTS _migrations (
-  name TEXT PRIMARY KEY,
-  applied_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
-)`);
-
-// Apply any pending migrations (skips already-applied ones).
+// Apply pending migrations to `handle` (skips already-applied ones).
 // Collects from two directories and applies in sorted order:
 //   ../db/migrations/  — shared base migrations (001_sms_and_audit, 002_consent_records, …)
 //   ./db/migrations/   — web-layer migrations (003_coordination, 009_attendance_confirmations, …)
 // Both are merged and sorted by filename so numbering stays consistent.
 // Docker does the same merge at build time (COPY db/ ./db/ after COPY web/ ./),
 // so production and test see identical migration sets.
-function applyMigrations() {
+function applyMigrations(handle) {
+  // Migration tracking table — ensures each migration file runs exactly once per database.
+  handle.exec(`CREATE TABLE IF NOT EXISTS _migrations (
+    name TEXT PRIMARY KEY,
+    applied_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+  )`);
+
   const dirs = [
     path.join(__dirname, '..', 'db', 'migrations'), // root db/migrations/
     path.join(__dirname, 'db', 'migrations'),        // web/db/migrations/
@@ -56,13 +56,13 @@ function applyMigrations() {
 
   const files = [...fileMap.keys()].sort();
   for (const file of files) {
-    const alreadyApplied = db.prepare('SELECT 1 FROM _migrations WHERE name = ?').get(file);
+    const alreadyApplied = handle.prepare('SELECT 1 FROM _migrations WHERE name = ?').get(file);
     if (alreadyApplied) continue;
     const sql = fs.readFileSync(fileMap.get(file), 'utf8');
     const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
     let allOk = true;
     for (const stmt of statements) {
-      try { db.exec(stmt + ';'); } catch (err) {
+      try { handle.exec(stmt + ';'); } catch (err) {
         const safe = ['already exists', 'duplicate column', 'no such table'];
         if (safe.some(s => err.message.includes(s))) {
           // Schema handled elsewhere (e.g. CREATE TABLE IF NOT EXISTS in app code); mark applied.
@@ -74,19 +74,60 @@ function applyMigrations() {
       }
     }
     if (allOk) {
-      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
+      handle.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
       console.log(`[migration] applied ${file}`);
     }
   }
 }
 
-applyMigrations();
+// Initialize a database handle: pragmas + schema + migrations. Idempotent, so it is safe
+// to call on the main DB and on every freshly-created per-user shard.
+function initDatabase(handle) {
+  handle.pragma('journal_mode = WAL');
+  handle.pragma('foreign_keys = ON');
+  handle.exec(schemaSql); // schema is idempotent — all statements use IF NOT EXISTS
+  applyMigrations(handle);
+  return handle;
+}
+
+function openDb(file) {
+  if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
+  return initDatabase(new Database(file));
+}
+
+// The directory / main database. Until SPLIT_MODE, it is also the one and only database.
+const main = openDb(DB_PATH);
+
+// ── Per-user shard registry ──────────────────────────────────────────────────
+// shardFor(userId) returns the database holding that user's private data. Until
+// SPLIT_MODE=1 it returns `main` for everyone (single physical file, identical behavior).
+const shardCache = new Map(); // userId → handle
+function shardPath(userId) {
+  return path.join(path.dirname(DB_PATH), 'users', `${userId}.sqlite`);
+}
+function shardFor(userId) {
+  if (!SPLIT_MODE || userId == null) return main;
+  let h = shardCache.get(userId);
+  if (!h) { h = openDb(shardPath(userId)); shardCache.set(userId, h); }
+  return h;
+}
+
+// `db` stays bound to the main handle so existing helper methods (db.prepare / db.exec /
+// db.transaction) keep operating on the directory DB. User-scoped helpers migrate to
+// shardFor(userId) in later stages; the routing seam is in place now.
+const db = main;
 
 module.exports = {
 
-  // Escape hatch for one-off queries (cadence engine, migrations, etc.)
-  // Use sparingly — prefer named methods above.
-  _raw() { return db; },
+  // Escape hatch for one-off queries. Pass the owning userId so the query routes to that
+  // user's shard; omit it (or pass null) for directory/global/cross-user tables → `main`.
+  // Backward-compatible: _raw() with no argument still returns the main handle.
+  _raw(userId) { return shardFor(userId); },
+
+  // Test/introspection helpers for the isolation seam.
+  _shardFor(userId) { return shardFor(userId); },
+  _splitMode() { return SPLIT_MODE; },
+  _initDatabase: initDatabase,
 
   // ── Users ──────────────────────────────────────────────────────────────────
 
