@@ -251,3 +251,15 @@ CREATE TABLE IF NOT EXISTS venue_favorites (
     created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_venue_fav_user ON venue_favorites(user_id);
+
+-- contact_directory (Phase 1): a `main` routing table mapping each contact to its owner and
+-- phone. Lets an inbound phone / a contact_id resolve to the owning user WITHOUT scanning
+-- every user's shard once `contacts` moves per-user. Maintained on every contact write.
+-- Lives only in main (harmless if present-but-empty on a shard).
+CREATE TABLE IF NOT EXISTS contact_directory (
+    contact_id    TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL,
+    phone         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_contact_directory_phone ON contact_directory(phone);
+CREATE INDEX IF NOT EXISTS idx_contact_directory_owner ON contact_directory(owner_user_id);

@@ -127,6 +127,17 @@ function shardFor(userId) {
 // shardFor(userId) in later stages; the routing seam is in place now.
 const db = main;
 
+// Keep the contact_directory (in main) in sync on every contact write. It maps
+// contact_id/phone → owning user so an inbound phone or a contact_id can route to the right
+// user's shard once `contacts` moves per-user. Maintained now (additive, no read-path change).
+function syncContactDirectory(contactId, ownerUserId, phone) {
+  main.prepare(`
+    INSERT INTO contact_directory (contact_id, owner_user_id, phone)
+    VALUES (?, ?, ?)
+    ON CONFLICT(contact_id) DO UPDATE SET owner_user_id = excluded.owner_user_id, phone = excluded.phone
+  `).run(contactId, ownerUserId, phone || null);
+}
+
 module.exports = {
 
   // Escape hatch for one-off queries. Pass the owning userId so the query routes to that
@@ -251,6 +262,7 @@ module.exports = {
         db.prepare(`
           UPDATE contacts SET name = ?, updated_at = strftime('%s','now') WHERE id = ?
         `).run(name, existing.id);
+        syncContactDirectory(existing.id, invited_by_user_id, normalizedPhone);
         return existing.id;
       }
     }
@@ -259,11 +271,12 @@ module.exports = {
       INSERT INTO contacts (id, invited_by_user_id, name, phone, tier)
       VALUES (?, ?, ?, ?, ?)
     `).run(id, invited_by_user_id, name, normalizedPhone, tier);
+    syncContactDirectory(id, invited_by_user_id, normalizedPhone);
     return id;
   },
 
   createContact({ id, invited_by_user_id, name, phone, telegram_id, telegram_username, tier, opted_out_at }) {
-    return db.prepare(`
+    const res = db.prepare(`
       INSERT INTO contacts (id, invited_by_user_id, name, phone, telegram_id, telegram_username, tier, opted_out_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -271,6 +284,15 @@ module.exports = {
       phone || null, telegram_id || null, telegram_username || null,
       tier ?? 0, opted_out_at || null,
     );
+    syncContactDirectory(id, invited_by_user_id, phone || null);
+    return res;
+  },
+
+  // contact_id → owning user (from the main directory). The routing primitive for id-keyed
+  // contact ops once contacts move per-user.
+  getContactOwner(contactId) {
+    const row = main.prepare('SELECT owner_user_id FROM contact_directory WHERE contact_id = ?').get(contactId);
+    return row ? row.owner_user_id : null;
   },
 
   updateContact(id, fields) {
@@ -280,6 +302,7 @@ module.exports = {
     const values = sets.map(s => fields[s.split(' ')[0]]);
     db.prepare(`UPDATE contacts SET ${sets.join(', ')}, updated_at = strftime('%s','now') WHERE id = ?`)
       .run(...values, id);
+    if ('phone' in fields) main.prepare('UPDATE contact_directory SET phone = ? WHERE contact_id = ?').run(fields.phone || null, id);
   },
 
   setContactTelegramId(contactId, telegramId, chatId) {
