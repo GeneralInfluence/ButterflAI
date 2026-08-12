@@ -16,30 +16,30 @@ const fs = require('fs');
 const { toE164 } = require('./phoneUtils');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'butterflai.sqlite');
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+// Phase 1 per-user isolation seam. While SPLIT_MODE !== '1', every user's shardFor()
+// resolves to `main`, so the physical layout is byte-for-byte today's single database and
+// all queries behave identically. Flipping SPLIT_MODE routes per-user data to per-user
+// files. See docs/PHASE1_DB_SPLIT.md.
+const SPLIT_MODE = process.env.SPLIT_MODE === '1';
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+if (DB_PATH !== ':memory:') fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-// Apply schema (idempotent — all statements use IF NOT EXISTS)
-const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
-db.exec(schema);
+const schemaSql = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
 
-// Migration tracking table — ensures each migration file runs exactly once
-db.exec(`CREATE TABLE IF NOT EXISTS _migrations (
-  name TEXT PRIMARY KEY,
-  applied_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
-)`);
-
-// Apply any pending migrations (skips already-applied ones).
+// Apply pending migrations to `handle` (skips already-applied ones).
 // Collects from two directories and applies in sorted order:
 //   ../db/migrations/  — shared base migrations (001_sms_and_audit, 002_consent_records, …)
 //   ./db/migrations/   — web-layer migrations (003_coordination, 009_attendance_confirmations, …)
 // Both are merged and sorted by filename so numbering stays consistent.
 // Docker does the same merge at build time (COPY db/ ./db/ after COPY web/ ./),
 // so production and test see identical migration sets.
-function applyMigrations() {
+function applyMigrations(handle) {
+  // Migration tracking table — ensures each migration file runs exactly once per database.
+  handle.exec(`CREATE TABLE IF NOT EXISTS _migrations (
+    name TEXT PRIMARY KEY,
+    applied_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+  )`);
+
   const dirs = [
     path.join(__dirname, '..', 'db', 'migrations'), // root db/migrations/
     path.join(__dirname, 'db', 'migrations'),        // web/db/migrations/
@@ -56,13 +56,13 @@ function applyMigrations() {
 
   const files = [...fileMap.keys()].sort();
   for (const file of files) {
-    const alreadyApplied = db.prepare('SELECT 1 FROM _migrations WHERE name = ?').get(file);
+    const alreadyApplied = handle.prepare('SELECT 1 FROM _migrations WHERE name = ?').get(file);
     if (alreadyApplied) continue;
     const sql = fs.readFileSync(fileMap.get(file), 'utf8');
     const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
     let allOk = true;
     for (const stmt of statements) {
-      try { db.exec(stmt + ';'); } catch (err) {
+      try { handle.exec(stmt + ';'); } catch (err) {
         const safe = ['already exists', 'duplicate column', 'no such table'];
         if (safe.some(s => err.message.includes(s))) {
           // Schema handled elsewhere (e.g. CREATE TABLE IF NOT EXISTS in app code); mark applied.
@@ -74,19 +74,81 @@ function applyMigrations() {
       }
     }
     if (allOk) {
-      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
+      handle.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
       console.log(`[migration] applied ${file}`);
     }
   }
 }
 
-applyMigrations();
+// Initialize a database handle: pragmas + schema + migrations. Idempotent, so it is safe
+// to call on the main DB and on every freshly-created per-user shard.
+function initDatabase(handle, { foreignKeys = true } = {}) {
+  handle.pragma('journal_mode = WAL');
+  // Per-user shards run with FK enforcement OFF: they hold per-user tables whose FKs point at
+  // users(id), which lives in `main` — a cross-file reference SQLite cannot enforce. Integrity
+  // is guaranteed at the app layer (the main directory owns users; per-user data is only ever
+  // created for an existing user). main keeps FK ON. See docs/PHASE1_DB_SPLIT.md (risk #4).
+  handle.pragma(`foreign_keys = ${foreignKeys ? 'ON' : 'OFF'}`);
+  handle.exec(schemaSql); // schema is idempotent — all statements use IF NOT EXISTS
+  applyMigrations(handle);
+  return handle;
+}
+
+function openDb(file, opts) {
+  if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
+  return initDatabase(new Database(file), opts);
+}
+
+// The directory / main database. Until SPLIT_MODE, it is also the one and only database.
+const main = openDb(DB_PATH);
+
+// ── Per-user shard registry ──────────────────────────────────────────────────
+// shardFor(userId) returns the database holding that user's private data. Until
+// SPLIT_MODE=1 it returns `main` for everyone (single physical file, identical behavior).
+const shardCache = new Map(); // userId → handle
+function shardPath(userId) {
+  return path.join(path.dirname(DB_PATH), 'users', `${userId}.sqlite`);
+}
+function shardFor(userId) {
+  if (!SPLIT_MODE || userId == null) return main;
+  let h = shardCache.get(userId);
+  if (!h) {
+    // With an in-memory main (tests), each shard is its own isolated in-memory DB so
+    // isolation is testable without touching disk.
+    const file = DB_PATH === ':memory:' ? ':memory:' : shardPath(userId);
+    h = openDb(file, { foreignKeys: false }); // cross-file FKs to main.users can't be enforced
+    shardCache.set(userId, h);
+  }
+  return h;
+}
+
+// `db` stays bound to the main handle so existing helper methods (db.prepare / db.exec /
+// db.transaction) keep operating on the directory DB. User-scoped helpers migrate to
+// shardFor(userId) in later stages; the routing seam is in place now.
+const db = main;
+
+// Keep the contact_directory (in main) in sync on every contact write. It maps
+// contact_id/phone → owning user so an inbound phone or a contact_id can route to the right
+// user's shard once `contacts` moves per-user. Maintained now (additive, no read-path change).
+function syncContactDirectory(contactId, ownerUserId, phone) {
+  main.prepare(`
+    INSERT INTO contact_directory (contact_id, owner_user_id, phone)
+    VALUES (?, ?, ?)
+    ON CONFLICT(contact_id) DO UPDATE SET owner_user_id = excluded.owner_user_id, phone = excluded.phone
+  `).run(contactId, ownerUserId, phone || null);
+}
 
 module.exports = {
 
-  // Escape hatch for one-off queries (cadence engine, migrations, etc.)
-  // Use sparingly — prefer named methods above.
-  _raw() { return db; },
+  // Escape hatch for one-off queries. Pass the owning userId so the query routes to that
+  // user's shard; omit it (or pass null) for directory/global/cross-user tables → `main`.
+  // Backward-compatible: _raw() with no argument still returns the main handle.
+  _raw(userId) { return shardFor(userId); },
+
+  // Test/introspection helpers for the isolation seam.
+  _shardFor(userId) { return shardFor(userId); },
+  _splitMode() { return SPLIT_MODE; },
+  _initDatabase: initDatabase,
 
   // ── Users ──────────────────────────────────────────────────────────────────
 
@@ -205,6 +267,7 @@ module.exports = {
         db.prepare(`
           UPDATE contacts SET name = ?, updated_at = strftime('%s','now') WHERE id = ?
         `).run(name, existing.id);
+        syncContactDirectory(existing.id, invited_by_user_id, normalizedPhone);
         return existing.id;
       }
     }
@@ -213,11 +276,12 @@ module.exports = {
       INSERT INTO contacts (id, invited_by_user_id, name, phone, tier)
       VALUES (?, ?, ?, ?, ?)
     `).run(id, invited_by_user_id, name, normalizedPhone, tier);
+    syncContactDirectory(id, invited_by_user_id, normalizedPhone);
     return id;
   },
 
   createContact({ id, invited_by_user_id, name, phone, telegram_id, telegram_username, tier, opted_out_at }) {
-    return db.prepare(`
+    const res = db.prepare(`
       INSERT INTO contacts (id, invited_by_user_id, name, phone, telegram_id, telegram_username, tier, opted_out_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -225,6 +289,15 @@ module.exports = {
       phone || null, telegram_id || null, telegram_username || null,
       tier ?? 0, opted_out_at || null,
     );
+    syncContactDirectory(id, invited_by_user_id, phone || null);
+    return res;
+  },
+
+  // contact_id → owning user (from the main directory). The routing primitive for id-keyed
+  // contact ops once contacts move per-user.
+  getContactOwner(contactId) {
+    const row = main.prepare('SELECT owner_user_id FROM contact_directory WHERE contact_id = ?').get(contactId);
+    return row ? row.owner_user_id : null;
   },
 
   updateContact(id, fields) {
@@ -234,6 +307,7 @@ module.exports = {
     const values = sets.map(s => fields[s.split(' ')[0]]);
     db.prepare(`UPDATE contacts SET ${sets.join(', ')}, updated_at = strftime('%s','now') WHERE id = ?`)
       .run(...values, id);
+    if ('phone' in fields) main.prepare('UPDATE contact_directory SET phone = ? WHERE contact_id = ?').run(fields.phone || null, id);
   },
 
   setContactTelegramId(contactId, telegramId, chatId) {
@@ -278,11 +352,11 @@ module.exports = {
   // ── Private data (encrypted at rest) ──────────────────────────────────────
 
   getPrivateData(userId) {
-    return db.prepare('SELECT * FROM private_data WHERE user_id = ?').get(userId);
+    return shardFor(userId).prepare('SELECT * FROM private_data WHERE user_id = ?').get(userId);
   },
 
   upsertPrivateData(userId, { ciphertext, iv, tag, wrapped_key }) {
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       INSERT INTO private_data (user_id, ciphertext, iv, tag, wrapped_key)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
@@ -296,20 +370,20 @@ module.exports = {
   },
 
   deletePrivateData(userId) {
-    return db.prepare('DELETE FROM private_data WHERE user_id = ?').run(userId);
+    return shardFor(userId).prepare('DELETE FROM private_data WHERE user_id = ?').run(userId);
   },
 
   // ── Access audit log ───────────────────────────────────────────────────────
 
   writeAccessAudit({ userId, accessor, purpose, recordClass, outsideNormalPath }) {
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       INSERT INTO access_audit (user_id, accessor, purpose, record_class, outside_normal_path)
       VALUES (?, ?, ?, ?, ?)
     `).run(userId, accessor, purpose, recordClass, outsideNormalPath ? 1 : 0);
   },
 
   getAccessAuditForUser(userId, limit = 100) {
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       SELECT * FROM access_audit WHERE user_id = ? ORDER BY accessed_at DESC LIMIT ?
     `).all(userId, limit);
   },
@@ -364,22 +438,22 @@ module.exports = {
   // ── Onboarding intents ─────────────────────────────────────────────────────
 
   createOnboardingIntent({ id, user_id, contact_name, frequency, activity_type, group_size }) {
-    return db.prepare(`
+    return shardFor(user_id).prepare(`
       INSERT INTO onboarding_intents (id, user_id, contact_name, frequency, activity_type, group_size)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(id, user_id, contact_name, frequency, activity_type || null, group_size || 'one_on_one');
   },
 
   getOnboardingIntents(userId) {
-    return db.prepare('SELECT * FROM onboarding_intents WHERE user_id = ? ORDER BY created_at').all(userId);
+    return shardFor(userId).prepare('SELECT * FROM onboarding_intents WHERE user_id = ? ORDER BY created_at').all(userId);
   },
 
   confirmOnboardingIntents(userId) {
-    db.prepare('UPDATE onboarding_intents SET confirmed = 1 WHERE user_id = ?').run(userId);
+    shardFor(userId).prepare('UPDATE onboarding_intents SET confirmed = 1 WHERE user_id = ?').run(userId);
   },
 
   deleteOnboardingIntents(userId) {
-    db.prepare('DELETE FROM onboarding_intents WHERE user_id = ?').run(userId);
+    shardFor(userId).prepare('DELETE FROM onboarding_intents WHERE user_id = ?').run(userId);
   },
 
   // ── Relationships ──────────────────────────────────────────────────────────
@@ -484,7 +558,7 @@ module.exports = {
 
   appendConversation(userId, role, text) {
     const { v4: uuidv4 } = require('uuid');
-    db.prepare(`
+    shardFor(userId).prepare(`
       INSERT INTO conversation_history (id, user_id, role, text)
       VALUES (?, ?, ?, ?)
     `).run(uuidv4(), userId, role, text.slice(0, 4000));
@@ -492,7 +566,7 @@ module.exports = {
 
   getRecentConversation(userId, limit = 20) {
     // Returns oldest-first so it reads naturally as a chat log
-    const rows = db.prepare(`
+    const rows = shardFor(userId).prepare(`
       SELECT role, text, created_at FROM conversation_history
       WHERE user_id = ?
       ORDER BY created_at DESC LIMIT ?
@@ -508,7 +582,7 @@ module.exports = {
 
   createPendingAction({ id, user_id, action_type, payload, ttl_secs }) {
     const expires_at = Math.floor(Date.now() / 1000) + (ttl_secs || 86400);
-    return db.prepare(`
+    return shardFor(user_id).prepare(`
       INSERT INTO pending_actions (id, user_id, action_type, payload, expires_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(id, user_id, action_type, JSON.stringify(payload || {}), expires_at);
@@ -516,18 +590,22 @@ module.exports = {
 
   getPendingAction(userId) {
     // Get the most recent non-expired pending action for a user
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       SELECT * FROM pending_actions
       WHERE user_id = ? AND expires_at > strftime('%s','now')
       ORDER BY created_at DESC LIMIT 1
     `).get(userId);
   },
 
-  deletePendingAction(id) {
-    db.prepare('DELETE FROM pending_actions WHERE id = ?').run(id);
+  // userId is required to route to the owner's shard (a pending action always belongs to
+  // the user resolving it, so callers pass it in).
+  deletePendingAction(id, userId) {
+    shardFor(userId).prepare('DELETE FROM pending_actions WHERE id = ?').run(id);
   },
 
   clearExpiredPendingActions() {
+    // Cross-user sweep — runs on `main`. Under SPLIT_MODE this becomes a directory-driven
+    // per-shard sweep (Stage 4); harmless meanwhile since reads already filter on expiry.
     db.prepare(`DELETE FROM pending_actions WHERE expires_at <= strftime('%s','now')`).run();
   },
 
@@ -568,7 +646,7 @@ module.exports = {
   // ── User preferences ──────────────────────────────────────────────────────
 
   getPreferences(userId) {
-    const row = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
+    const row = shardFor(userId).prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(userId);
     if (!row) return null;
     // Parse JSON columns
     const jsonCols = ['dietary_restrictions','food_allergies','cuisine_loves','cuisine_avoids',
@@ -580,6 +658,7 @@ module.exports = {
   },
 
   upsertPreferences(userId, fields) {
+    const h = shardFor(userId);
     // Stringify any array/object fields before writing
     const jsonCols = ['dietary_restrictions','food_allergies','cuisine_loves','cuisine_avoids',
                       'activity_loves','activity_avoids','vibe'];
@@ -589,23 +668,23 @@ module.exports = {
         toWrite[col] = JSON.stringify(toWrite[col]);
       }
     }
-    const existing = db.prepare('SELECT user_id FROM user_preferences WHERE user_id = ?').get(userId);
+    const existing = h.prepare('SELECT user_id FROM user_preferences WHERE user_id = ?').get(userId);
     if (!existing) {
       // On INSERT, skip null fields — let the DB use column defaults
       const nonNull = Object.fromEntries(Object.entries(toWrite).filter(([,v]) => v !== null && v !== undefined));
       if (Object.keys(nonNull).length === 0) {
         // Nothing to insert — just ensure row exists
-        db.prepare('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(userId);
+        h.prepare('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(userId);
       } else {
         const cols = ['user_id', ...Object.keys(nonNull)].join(', ');
         const placeholders = ['?', ...Object.keys(nonNull).map(() => '?')].join(', ');
-        db.prepare(`INSERT INTO user_preferences (${cols}) VALUES (${placeholders})`)
+        h.prepare(`INSERT INTO user_preferences (${cols}) VALUES (${placeholders})`)
           .run(userId, ...Object.values(nonNull));
       }
     } else {
       // On UPDATE, null clears the field — SQLite handles NULL fine
       const sets = Object.keys(toWrite).map(k => `${k} = ?`).join(', ');
-      db.prepare(`UPDATE user_preferences SET ${sets}, updated_at = strftime('%s','now') WHERE user_id = ?`)
+      h.prepare(`UPDATE user_preferences SET ${sets}, updated_at = strftime('%s','now') WHERE user_id = ?`)
         .run(...Object.values(toWrite), userId);
     }
     return this.getPreferences(userId);
@@ -813,11 +892,11 @@ module.exports = {
   // ── Wallets (stubbed) ──────────────────────────────────────────────────────
 
   getWallet(userId) {
-    return db.prepare('SELECT * FROM user_wallets WHERE user_id = ?').get(userId);
+    return shardFor(userId).prepare('SELECT * FROM user_wallets WHERE user_id = ?').get(userId);
   },
 
   upsertWallet(userId, { wallet_address, clawbank_account_id }) {
-    return db.prepare(`
+    return shardFor(userId).prepare(`
       INSERT INTO user_wallets (user_id, wallet_address, clawbank_account_id)
       VALUES (?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
