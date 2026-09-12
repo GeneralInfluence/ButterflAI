@@ -245,6 +245,33 @@ describe('Minimize back-and-forth', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
+// RECIPE LAYER (concrete step-by-step playbooks — Haiku follows these better than
+// diffuse principles; see 2026-07-21 simulator training)
+// ══════════════════════════════════════════════════════════════════════════════
+describe('Recipe layer for Haiku', () => {
+
+  test('A labeled RECIPES section exists', () => {
+    assertContains('## RECIPES', 'top-level recipes block present');
+  });
+
+  test('Invite recipe threads the resolved contact_id (never the raw name)', () => {
+    assertContains('RECIPE: "invite [name] to [activity]"', 'invite recipe present');
+    assertContains('Never pass the raw name string where a contact_id is expected', 'contact_id threading rule');
+  });
+
+  test('Vague-time recipe goes agent-to-agent first, without double-asking the user', () => {
+    assertContains('RECIPE: vague time', 'vague-time recipe present');
+    assertContains('do NOT also ask your own user for the time in the same turn', 'no redundant ask-user + message_agent');
+  });
+
+  test('RSVP-arrives recipe acts on the single pending invite without re-asking', () => {
+    assertContains('RECIPE: a reply that looks like an RSVP', 'rsvp-arrives recipe present');
+    assertContains('do NOT ask "which event?"', 'act on the single pending invite');
+  });
+
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 // AGENT-TO-AGENT COORDINATION
 // ══════════════════════════════════════════════════════════════════════════════
 describe('Agent-to-agent coordination', () => {
