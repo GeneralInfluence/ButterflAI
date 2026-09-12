@@ -230,6 +230,14 @@ describe('Minimize back-and-forth', () => {
     assertContains('sounds good', 'affirmative = approved, execute');
   });
 
+  // Pattern: "set up a group hang this weekend, invite bambam" (a KNOWN contact)
+  // Bug postmortem (2026-07-21, simulator): agent asked "Who is Bambam?" instead of
+  // calling lookup_contact, and piled on 3 questions when only the time was unknown.
+  test('Inviting someone by name must lookup_contact first, never ask who they are', () => {
+    assertContains('INVITING SOMEONE BY NAME', 'invite-by-name recipe present');
+    assertContains('NEVER ask "who is [name]?"', 'must not ask the user to identify a known contact');
+  });
+
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
