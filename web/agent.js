@@ -1120,6 +1120,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'confirm_coordination_invite': {
       const { invitation_id, status, add_to_calendar } = toolInput;
+      // executeTool only receives userId — resolve the acting user (and their tz)
+      // locally, same idiom as the message_agent case. Referencing a bare `user`
+      // here previously threw ReferenceError, aborting before the host was notified.
+      const user = db.getUser(userId);
+      const userTimezone = user?.timezone || 'America/Los_Angeles';
       const inv = db._raw().prepare(`
         SELECT ei.*, se.title, se.activity_type, se.scheduled_at, se.venue_name,
                se.host_user_id, se.id as event_id
@@ -1155,14 +1160,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       // Queue as an inbound_message so the host's agent proactively processes it and
       // texts the host — without waiting for the host to ask.
       const host = db.getUser(inv.host_user_id);
-      const contact = db.getContactByPhone(user.phone);
+      const contact = db.getContactByPhone(user?.phone);
       if (host) {
         const emoji = status === 'accepted' ? '✅' : '❌';
         const ts = new Date(inv.scheduled_at * 1000).toLocaleString('en-US', {
           timeZone: host.timezone || 'America/Los_Angeles',
           weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
         });
-        const contactName = contact?.name || user.name;
+        const contactName = contact?.name || user?.name;
         // Queue for host agent to process proactively
         const agentMsg = `[Agent-to-Agent RSVP] ${emoji} ${contactName} has ${status} the invite for "${inv.title}" on ${ts}. Update the host and notify them now.`;
         db.storeInboundMessage({
