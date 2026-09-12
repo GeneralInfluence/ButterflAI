@@ -1667,6 +1667,7 @@ async function processMessage(msg) {
   })();
 
   const userLocalTime = new Date().toLocaleString('en-US', { timeZone: userTimezone, weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const dateContext = buildDateContext(userTimezone);
   // Pending coordination: events this user was invited to by OTHER users' agents
   // Injected so this agent can act on them (update own calendar, notify host agent)
   const pendingCoordination = (() => {
@@ -1699,6 +1700,7 @@ async function processMessage(msg) {
   const stateSnapshot = [
     `## Current state`,
     `- User timezone: ${userTimezone} (current local time: ${userLocalTime})`,
+    dateContext,
     `- Location: ${user.city ? `${user.city}${user.lat ? ` (${Number(user.lat).toFixed(4)}, ${Number(user.lng).toFixed(4)})` : ''}` : 'unknown — ask user or request browser location'}`,
     `- Calendar: ${calendarConnected ? `✅ connected (${calendarProvider}) — can check availability & create events` : '❌ not connected — offer Google or Apple Calendar setup'}`,
     `- Contacts: ${contactCount} in address book`,
@@ -1762,6 +1764,41 @@ function humanizePrivateKey(dataKey) {
  *
  * Exported for the test suite.
  */
+/**
+ * buildDateContext — a deterministic weekday→date table injected into the state
+ * snapshot so the agent NEVER has to compute calendar dates itself. Haiku is
+ * unreliable at date arithmetic (it repeatedly mislabeled weekdays — e.g. calling
+ * Sep 13 "Saturday" — and gave inconsistent dates across messages). Handing it the
+ * exact dates removes the arithmetic entirely. `now` is injectable for tests.
+ * Exported for the test suite.
+ */
+function buildDateContext(timezone, now = new Date()) {
+  const tz  = timezone || 'America/Los_Angeles';
+  const wd  = (d) => d.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long' });
+  const iso = (d) => d.toLocaleDateString('en-CA', { timeZone: tz });   // YYYY-MM-DD in tz
+  const timeStr = now.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+
+  const rows = [];
+  const firstByWeekday = {};   // weekday name -> soonest matching ISO date
+  for (let i = 0; i < 11; i++) {
+    const d = new Date(now.getTime() + i * 86400000);
+    const w = wd(d), date = iso(d);
+    const tag = i === 0 ? '  <- TODAY' : i === 1 ? '  <- tomorrow' : '';
+    rows.push(`  - ${w} ${date}${tag}`);
+    if (firstByWeekday[w] === undefined) firstByWeekday[w] = date;
+  }
+  const todayW = wd(now), todayISO = iso(now);
+
+  return [
+    `\n## Date context — use these EXACT dates; NEVER compute a date yourself`,
+    `- Right now it is ${todayW}, ${todayISO}, ${timeStr} (${tz}).`,
+    `- "This weekend" = Saturday ${firstByWeekday['Saturday']} and Sunday ${firstByWeekday['Sunday']}.`,
+    `- Calendar for the next 10 days (weekday -> date):`,
+    ...rows,
+    `- When the user names a day ("Friday", "this weekend", "tomorrow", "the 20th"), FIND it in this list and use that exact YYYY-MM-DD in scheduled_at. If they name today's weekday, they mean TODAY unless they say "next". Every message you send about the event MUST use the weekday shown here for the date you picked.`,
+  ].join('\n');
+}
+
 function buildPrefsSection(prefs, { coordinationOnly = false } = {}) {
   if (!prefs) {
     return coordinationOnly
@@ -1895,7 +1932,7 @@ HARD RULES — never violate:
 
 COORDINATING PLANS:
 - All times and dates from the user are in THEIR local timezone (shown in state snapshot). When passing scheduled_at to create_social_event, output a full ISO 8601 string WITH the explicit UTC offset for their timezone (e.g. "2026-07-17T19:00:00-07:00" for 7pm Pacific, "2026-07-17T19:00:00-04:00" for 7pm Eastern). NEVER pass a bare time without an offset — this causes the wrong UTC conversion. Display times back to them in their local timezone.
-- WEEKDAY & DATE RESOLUTION: the state snapshot gives you the user's current local date AND weekday — use it, never guess today. When the user names a weekday ("Friday", "next Tuesday"), resolve it to the date of the NEXT occurrence of that weekday on or after the current local date, then VERIFY the chosen date's weekday actually matches before you schedule. Count carefully: if today is Saturday the 18th, "Friday" is the 24th (6 days away), NOT the 25th. After scheduling, always state the ACTUAL weekday + date you set (e.g. "Friday, Jul 24 at 7pm"), and make every message about this event — the invite to the contact AND the confirmation to the host — use that exact same weekday and date. NEVER echo the user's word for the day if it does not match the date you scheduled; a message that says "Friday" while the event is on Saturday is a bug.
+- WEEKDAY & DATE RESOLUTION: NEVER compute a date yourself — use the "Date context" block in the state snapshot as the single source of truth (it lists today plus the weekday->date for the next 10 days). When the user names a day, FIND its row there and use that exact YYYY-MM-DD in scheduled_at — that is the NEXT occurrence of the weekday (if today IS that weekday they mean today, unless they say "next"). After scheduling, state the ACTUAL weekday + date from that block (e.g. "Friday, Sep 18 at 7pm"), and make every message about the event — the invite to the contact AND the confirmation to the host — use it. NEVER echo the user's word for the day if it does not match the date's weekday in the block; a message that says "Friday" while the event is on Saturday is a bug.
 - When the user wants to invite someone to an activity (beer, dinner, lunch, hanging out, trying something, testing an app, etc.), ALWAYS use create_social_event with contact_ids — never send_logistics_sms or send_contact_invite for an invitation. This creates the tracking record that allows RSVP replies to be recognized automatically.
 - INVITING SOMEONE BY NAME — do the legwork, ask at most one thing: when the user says "invite [name] to [activity]", your FIRST action is lookup_contact([name]) (try the nickname AND full-name variants). NEVER ask "who is [name]?" or "which contact do you mean?" — resolving the name from the user's contacts is YOUR job, not theirs. After resolving the contact, the ONLY thing you may ask about is a genuinely-unknown scheduling detail — the time, and only when it is vague ("this weekend", "sometime") AND not a flexible open-invite. Do NOT also ask what the activity is: "a group hang", "dinner", "drinks", "hang out" is already enough to proceed. One question maximum, and only when you truly cannot proceed without it; if the only unknown is the time, ask ONLY the time.
 - When the user says "invite my [group/friends/crew] to [anything]": (1) call manage_contact_group(list_groups) or manage_contact_group(action=create_or_get) to get the group members, (2) call create_social_event with ALL of those contact_ids. Never use send_contact_invite for this — that is only for inviting people to JOIN ButterflAI, not to join an activity.
@@ -2125,4 +2162,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver };

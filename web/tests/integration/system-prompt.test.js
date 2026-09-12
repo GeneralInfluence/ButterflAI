@@ -166,6 +166,10 @@ describe('Tool routing — interaction patterns', () => {
     assertContains('NEXT occurrence', 'resolve a named weekday to its next occurrence');
   });
 
+  test('Agent must NOT compute dates itself — use the injected Date context block', () => {
+    assertContains('NEVER compute a date yourself', 'dates come from the Date context block, not model arithmetic');
+  });
+
   test('Every message about an event must use the actual scheduled weekday, not the user\'s word', () => {
     assertContains('a message that says "Friday" while the event is on Saturday is a bug', 'no weekday/date mismatch across messages');
   });
