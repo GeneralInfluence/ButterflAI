@@ -73,10 +73,13 @@
     }
   }
 
-  // controllerchange is the authoritative signal — always reload here
+  // controllerchange is the authoritative signal — reload when the new SW takes over.
+  // Guard against the first-ever install (no prior controller) so we don't reload the
+  // very first visit.
+  const hadController = !!navigator.serviceWorker.controller;
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloading) return;
+    if (reloading || !hadController) return;
     reloading = true;
     location.reload();
   });
@@ -85,9 +88,13 @@
   // When the user brings the app back from background, if a new version is
   // waiting just reload silently — all state is server-side so it's lossless.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && waitingWorker) {
-      applyUpdate();
-    }
+    if (document.visibilityState !== 'visible') return;
+    if (waitingWorker) { applyUpdate(); return; }
+    // An installed PWA resumes from the background WITHOUT reloading, so the
+    // load-time update() never re-runs and new deploys are never noticed. Re-check
+    // every time the app returns to the foreground — this is what stops users from
+    // having to uninstall/reinstall to get updates.
+    navigator.serviceWorker.ready.then(reg => reg.update().catch(() => {}));
   });
 
   // ── Registration + update detection ──────────────────────────────────────
@@ -95,7 +102,9 @@
     // 1. Check for a SW waiting right now (e.g. user revisited after update deployed)
     if (registration.waiting) {
       waitingWorker = registration.waiting;
-      showUpdateBanner(); // show banner in case they're actively using it
+      // A new version was deployed while we were away — apply it now. This is a fresh
+      // open, so reloading to the latest is expected, not disruptive.
+      applyUpdate();
     }
 
     // 2. Detect new SW found while page is open

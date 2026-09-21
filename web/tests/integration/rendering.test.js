@@ -305,6 +305,12 @@ describe('sw.js — service worker compliance', () => {
     );
   });
 
+  test('served no-cache so a new deploy is always detected', async () => {
+    const res = await request.get('/sw.js');
+    assert.match(res.headers['cache-control'] || '', /no-cache|no-store/,
+      'sw.js must not be cached, or the browser never notices a new service worker');
+  });
+
   test('does NOT call skipWaiting() unconditionally on install', () => {
     // Extract just the install handler body (between the install listener and the next listener)
     // and check there's no actual skipWaiting() call (comments don't count)
@@ -444,6 +450,13 @@ describe('update-check.js — SW update detection logic', () => {
     assert.ok(
       src.includes('bfly-update-banner') && src.includes('#6c47ff'),
       'must show branded update banner when SW update arrives while app is in foreground'
+    );
+  });
+
+  test('re-checks for updates when the app returns to the foreground', () => {
+    assert.ok(
+      src.includes('visibilitychange') && src.includes('reg.update()'),
+      'must call update() on visibilitychange so an installed PWA detects deploys on resume (no reinstall)'
     );
   });
 });
