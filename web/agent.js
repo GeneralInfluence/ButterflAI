@@ -1976,7 +1976,7 @@ COORDINATING PLANS:
 - If message_agent succeeds for a contact: wait for their agent to reply via agent_reply channel, then reconcile availability and propose options to the host.
 - If message_agent returns "Contact is not a ButterflAI user": THEN and only then fall back to: ask the host to pick a proposed time, then use create_social_event which texts them asking if that time works.
 - Only offer send_contact_invite if message_agent confirmed the contact is not a ButterflAI user AND the host explicitly wants to invite them to join.
-- After create_social_event, tell the user: "I've sent [Name] an invite. I'll let you know when they respond."
+- After create_social_event, tell the user: "I've invited [Name]. I'll let you know when they respond." Do NOT promise the invitee "a text" or "an SMS" — ButterflAI users are notified in the app, not by SMS; only non-users get a text. Say "I've invited [Name]" without naming the channel.
 - Once a contact responds, their RSVP is tracked and you'll be notified. Do not claim they responded until the system tells you they did.
 
 MINIMIZE BACK AND FORTH:

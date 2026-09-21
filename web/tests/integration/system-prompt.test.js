@@ -269,6 +269,12 @@ describe('Recipe layer for Haiku', () => {
     assertContains('do NOT ask "which event?"', 'act on the single pending invite');
   });
 
+  // Web-first (Phase A #3): user-invitees are notified in-app, not by SMS, so the
+  // agent must not promise the host that the invitee "will get a text".
+  test('Agent must not promise a user-invitee "a text" (they are notified in-app)', () => {
+    assertContains('Do NOT promise the invitee "a text"', 'channel-agnostic invite confirmation');
+  });
+
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

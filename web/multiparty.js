@@ -24,6 +24,7 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 const sms = require('./sms');
+const push = require('./push');
 const { ConsentRequired } = require('./sms');
 const Anthropic = require('@anthropic-ai/sdk');
 
@@ -197,11 +198,31 @@ async function inviteContacts(eventId, contactIds) {
       VALUES (?, ?, ?, 'invited', strftime('%s','now'))
     `).run(invId, eventId, contactId);
 
-    // Send invite SMS.
-    // Use sendUnchecked because the invite message includes a mandatory STOP
-    // opt-out instruction — this IS the first-touch consent mechanism.
-    // sms.send() would block on ConsentRequired for new contacts, preventing
-    // the invite from ever going out.
+    // Web-first: if the invitee is a ButterflAI user, notify them IN-APP, not by SMS.
+    // The invitation row above already surfaces in their invited-events view; we add a
+    // best-effort push nudge. SMS is reserved for non-users (the only channel to them).
+    const inviteeUser = db.getUserByPhone(contact.phone);
+    if (inviteeUser) {
+      const whenStr = event.flexible_time
+        ? 'open invite — come whenever'
+        : formatEventDate(event.scheduled_at, inviteeUser.timezone || hostTimezone);
+      try {
+        await push.notifyUser(db, inviteeUser.id, {
+          title: `${host.name} invited you`,
+          body: `${event.activity_type} · ${whenStr}`,
+          url: `/app/events?invite=${eventId}`,
+        });
+      } catch (err) {
+        console.error(`[multiparty] push notify failed user=${inviteeUser.id}:`, err.message);
+      }
+      sent++;
+      console.log(`[multiparty] invite in-app event=${eventId} user=${inviteeUser.id} (no SMS — ButterflAI user)`);
+      continue;
+    }
+
+    // Non-user contact → SMS. Use sendUnchecked because the invite message includes a
+    // mandatory STOP opt-out — this IS the first-touch consent mechanism. sms.send()
+    // would block on ConsentRequired for new contacts, preventing the invite going out.
     const dateStr = event.flexible_time ? 'whenever you\'re free' : formatEventDate(event.scheduled_at, hostTimezone);
     const venueStr = event.venue_name ? ` at ${event.venue_name}` : '';
     const message = buildInviteMessage(host.name, contact.name, event.activity_type, dateStr, venueStr, invId, !!event.flexible_time);
