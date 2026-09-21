@@ -1590,6 +1590,25 @@ app.post('/api/push/subscribe', webAuth.requireAuth, express.json(), (req, res) 
   res.json({ ok: true });
 });
 
+// POST /api/push/test — send a test push to the logged-in user's own devices, so a
+// tester can confirm notifications work end-to-end without needing a second person.
+app.post('/api/push/test', webAuth.requireAuth, async (req, res) => {
+  if (!push.VAPID_PUBLIC) return res.json({ ok: false, reason: 'not_configured', devices: 0 });
+  const subs = db.getPushSubscriptions(req.user.id) || [];
+  if (!subs.length) return res.json({ ok: false, reason: 'no_subscription', devices: 0 });
+  try {
+    await push.notifyUser(db, req.user.id, {
+      title: '🦋 ButterflAI',
+      body: "Push notifications are working — you're all set.",
+      url: '/app/chat',
+    });
+    res.json({ ok: true, devices: subs.length });
+  } catch (err) {
+    console.error('[push] test send failed:', err.message);
+    res.status(500).json({ ok: false, reason: 'send_failed', devices: subs.length });
+  }
+});
+
 // POST /api/chat/sensitive-mode — toggle sensitive mode for this user's session
 app.post('/api/chat/sensitive-mode', webAuth.requireAuth, express.json(), (req, res) => {
   const { on } = req.body;
