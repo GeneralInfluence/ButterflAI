@@ -52,7 +52,14 @@ let _toolObserver = null;
 function _setToolObserver(fn) { _toolObserver = fn; }
 
 const POLL_INTERVAL_MS = parseInt(process.env.AGENT_POLL_MS || '5000', 10);
-const MODEL = process.env.AGENT_MODEL || 'claude-3-5-haiku-20241022';  // fast + cheap for agent loop
+// Haiku 4.5 is the committed dev-user model (fast + cheap; reliability comes from the
+// recipe layer + deterministic scaffolding + the feedback loop, not a bigger model).
+// The old 'claude-3-5-haiku-20241022' default 404s on this account — never fall back to it.
+// The prod AGENT_MODEL Fly secret overrides this; keep that secret on a Haiku-4.5 id.
+const MODEL = process.env.AGENT_MODEL || 'claude-haiku-4-5-20251001';
+if (!/claude/.test(MODEL)) {
+  throw new Error(`AGENT_MODEL is set to an invalid value: "${MODEL}"`);
+}
 
 // ── Proposal provenance helpers (FLAI §2.2) ───────────────────────────────────
 
