@@ -180,7 +180,7 @@
         const r = await fetch('/auth/otp/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: phoneValue, code })
+          body: JSON.stringify({ phone: phoneValue, code, timezone: (Intl.DateTimeFormat().resolvedOptions().timeZone || null) })
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || 'Invalid code.');

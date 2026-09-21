@@ -211,3 +211,39 @@ describe('GET /auth/logout', () => {
     assert.ok(res.headers['location'], 'Should redirect');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Timezone backfill on OTP verify (Phase A #5) — capture the browser tz at the
+// login choke point so the date-context/location routing have a real tz. Backfill
+// only when empty; never override an explicit tz; ignore invalid strings.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('OTP verify — timezone backfill', () => {
+  async function verifyWithTz(phone, timezone) {
+    await request.post('/auth/otp/send').send({ phone });
+    const otpRow = db._raw().prepare(
+      "SELECT code FROM otp_codes WHERE phone=? AND used=0 ORDER BY created_at DESC LIMIT 1"
+    ).get(phone);
+    return request.post('/auth/otp/verify').send({ phone, code: otpRow.code, timezone });
+  }
+
+  test('adopts the browser tz over the Eastern default', async () => {
+    const phone = '+12025557001';
+    const res = await verifyWithTz(phone, 'America/Los_Angeles');
+    assert.equal(res.status, 200);
+    assert.equal(db.getUserByPhone(phone).timezone, 'America/Los_Angeles', 'browser tz should replace the default');
+  });
+
+  test('does not override an explicitly-set (non-default) timezone', async () => {
+    const phone = '+12025557002';
+    await verifyWithTz(phone, 'Europe/London');        // first login: default -> London (now explicit)
+    await verifyWithTz(phone, 'America/Chicago');       // later login from a different device
+    assert.equal(db.getUserByPhone(phone).timezone, 'Europe/London', 'explicit tz must not be clobbered');
+  });
+
+  test('ignores an invalid timezone string (keeps the default)', async () => {
+    const phone = '+12025557003';
+    const res = await verifyWithTz(phone, 'Not/AReal_Zone');
+    assert.equal(res.status, 200);
+    assert.equal(db.getUserByPhone(phone).timezone, 'America/New_York', 'invalid tz ignored; default retained');
+  });
+});
