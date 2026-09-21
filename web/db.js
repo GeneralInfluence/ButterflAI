@@ -133,7 +133,7 @@ module.exports = {
   updateUser(id, fields) {
     const allowed = ['name', 'nickname', 'also_known_as', 'phone', 'onboarding_state', 'onboarding_data',
                      'telegram_id', 'telegram_chat_id', 'agent_endpoint',
-                     'city', 'lat', 'lng', 'location_updated_at', 'share_location', 'timezone'];
+                     'city', 'lat', 'lng', 'location_updated_at', 'share_location', 'timezone', 'test_user'];
     const sets = Object.keys(fields)
       .filter(k => allowed.includes(k))
       .map(k => `${k} = ?`);

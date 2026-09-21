@@ -78,3 +78,27 @@ describe('feedback triage (admin)', () => {
     delete process.env.ADMIN_PHONE;
   });
 });
+
+describe('test-user toggle', () => {
+  test('PATCH /api/user/test-mode flips the flag; /api/user/me reflects it', async () => {
+    const cookie = await authCookie('+12025556703');
+    let me = await request.get('/api/user/me').set('Cookie', cookie);
+    assert.equal(me.body.test_user, false, 'defaults off');
+
+    const on = await request.patch('/api/user/test-mode').set('Cookie', cookie).send({ enabled: true });
+    assert.equal(on.status, 200);
+    assert.equal(on.body.test_user, true);
+
+    me = await request.get('/api/user/me').set('Cookie', cookie);
+    assert.equal(me.body.test_user, true, 'me reflects the toggle');
+
+    const off = await request.patch('/api/user/test-mode').set('Cookie', cookie).send({ enabled: false });
+    assert.equal(off.body.test_user, false);
+  });
+
+  test('rejects a non-boolean value', async () => {
+    const cookie = await authCookie('+12025556704');
+    const r = await request.patch('/api/user/test-mode').set('Cookie', cookie).send({ enabled: 'yes' });
+    assert.equal(r.status, 400);
+  });
+});

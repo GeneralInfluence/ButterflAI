@@ -1579,9 +1579,18 @@ app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, 
 
 // GET /api/user/me — current user profile
 app.get('/api/user/me', webAuth.requireAuth, (req, res) => {
-  const { id, name, nickname, also_known_as, phone, city, lat, lng, share_location } = req.user;
+  const { id, name, nickname, also_known_as, phone, city, lat, lng, share_location, test_user } = req.user;
   res.json({ id, name, nickname, also_known_as, phone, city, lat, lng,
-    share_location: share_location === 0 ? false : true }); // default true if null/1
+    share_location: share_location === 0 ? false : true, // default true if null/1
+    test_user: !!test_user });
+});
+
+// PATCH /api/user/test-mode — opt in/out of the dev-user (test) cohort.
+app.patch('/api/user/test-mode', webAuth.requireAuth, express.json(), (req, res) => {
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be boolean' });
+  db.updateUser(req.user.id, { test_user: enabled ? 1 : 0 });
+  res.json({ ok: true, test_user: enabled });
 });
 
 // PATCH /api/user/location-sharing — toggle whether location is visible to other agents
