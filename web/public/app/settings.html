@@ -204,6 +204,7 @@
       <p style="font-size:14px;color:#555;margin:0 0 12px;line-height:1.5">Get a push when someone invites you or an RSVP comes in — so you don't have to keep the app open.</p>
       <div class="btn-row">
         <button class="btn btn-secondary" id="notif-btn" onclick="enableNotifications()">Enable notifications</button>
+        <button class="btn btn-secondary" id="notif-test-btn" onclick="sendTestNotification()" style="display:none">Send test</button>
       </div>
       <p id="notif-status" style="font-size:13px;color:#888;margin-top:10px;min-height:18px"></p>
     </div>
@@ -596,12 +597,24 @@
     var status = document.getElementById('notif-status');
     var ok = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     if (!ok) { if (btn) btn.disabled = true; if (status) status.textContent = 'This browser does not support push notifications.'; return; }
+    var testBtn = document.getElementById('notif-test-btn');
+    function markOn(msg) { btn.textContent = 'Notifications on'; btn.disabled = true; if (testBtn) testBtn.style.display = ''; if (msg) status.textContent = msg; }
     navigator.serviceWorker.getRegistration().then(function (reg) {
       if (!reg) return;
       return reg.pushManager.getSubscription().then(function (sub) {
-        if (sub) { btn.textContent = 'Notifications on'; btn.disabled = true; status.textContent = "You're all set."; }
+        if (sub) markOn("You're all set.");
       });
     }).catch(function () {});
+    window.sendTestNotification = async function () {
+      status.textContent = 'Sending…';
+      try {
+        var r = await fetch('/api/push/test', { method: 'POST' }).then(function (x) { return x.json(); });
+        if (r.ok) status.textContent = 'Sent to ' + r.devices + ' device' + (r.devices === 1 ? '' : 's') + ' — check your notifications.';
+        else if (r.reason === 'no_subscription') status.textContent = 'This device isn’t subscribed yet — tap Enable first.';
+        else if (r.reason === 'not_configured') status.textContent = 'Notifications aren’t switched on for the server yet.';
+        else status.textContent = 'Could not send the test — please try again.';
+      } catch (e) { status.textContent = 'Could not send the test — please try again.'; }
+    };
     function b64ToUint8(s) {
       var pad = '='.repeat((4 - s.length % 4) % 4);
       var raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
@@ -618,7 +631,7 @@
         var sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(vk.publicKey) });
         var r = await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub) });
         if (!r.ok) throw new Error('save failed');
-        btn.textContent = 'Notifications on'; btn.disabled = true; status.textContent = "You're all set — I'll ping you here.";
+        markOn("You're all set — I'll ping you here.");
       } catch (e) { status.textContent = 'Could not enable notifications — please try again.'; }
     };
   })();
