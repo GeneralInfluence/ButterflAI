@@ -102,3 +102,18 @@ describe('test-user toggle', () => {
     assert.equal(r.status, 400);
   });
 });
+
+describe('feedback triage page', () => {
+  test('/admin/feedback serves for admin, 403 for a non-admin', async () => {
+    const userCookie = await authCookie('+12025556705');
+    const forbidden = await request.get('/admin/feedback').set('Cookie', userCookie);
+    assert.equal(forbidden.status, 403);
+
+    process.env.ADMIN_PHONE = '+12025556798';
+    const adminCookie = await authCookie('+12025556798');
+    const ok = await request.get('/admin/feedback').set('Cookie', adminCookie);
+    assert.equal(ok.status, 200);
+    assert.match(ok.text, /Feedback triage/);
+    delete process.env.ADMIN_PHONE;
+  });
+});

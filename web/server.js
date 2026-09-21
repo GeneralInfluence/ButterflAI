@@ -1264,6 +1264,13 @@ app.post('/api/onboarding/setup', webAuth.requireAuth, express.json(), async (re
 // ── Health check ─────────────────────────────────────────────────────────────
 
 // ── Admin routes (auth-gated via X-Admin-Secret header) ──────────────────────
+// Admin feedback triage PAGE — registered BEFORE the adminRouter mount so this
+// cookie-gated route wins over the X-Admin-Secret API router for this exact path.
+// Served from views/ (not public/) so express.static can't serve it unauthenticated.
+app.get('/admin/feedback', requireAdminPage, (req, res) => {
+  res.sendFile(path.join(__dirname, 'views/admin-feedback.html'));
+});
+
 app.use('/admin', express.json(), adminRouter);
 
 // ── Admin middleware ──────────────────────────────────────────────────────────
