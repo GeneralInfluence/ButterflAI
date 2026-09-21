@@ -35,6 +35,7 @@ const venues = require('./venues');
 const multiparty = require('./multiparty');
 const desires    = require('./desires');
 const sensitive  = require('./sensitive');
+const datetime   = require('./datetime');
 const coord      = require('./coordination');
 const sse        = require('./sse');
 const flai       = require('./flai');
@@ -520,7 +521,8 @@ const TOOL_DEFINITIONS = [
         activity_type: { type: 'string' },
         venue_name:    { type: 'string' },
         venue_address: { type: 'string' },
-        scheduled_at:  { type: 'string', description: 'ISO 8601 datetime with explicit timezone offset, e.g. 2026-07-17T19:00:00-07:00. OMIT entirely if the user said no fixed time ("come when ready", "open invite", "whenever").' },
+        when:          { type: 'string', description: 'PREFERRED. The user\'s day + time phrase exactly as they said it — "friday 7pm", "saturday evening", "tomorrow at 8pm", "tonight at 9". The server resolves the exact date in the user\'s timezone, so you do NOT compute or verify any date. Always use this instead of scheduled_at when the user gave a day/time in words. Include both a day and a time.' },
+        scheduled_at:  { type: 'string', description: 'Only for an explicit calendar date the user gave as a date (e.g. "September 30 at 7pm"). ISO 8601 with offset. Prefer "when" for weekday/relative phrasing. OMIT both if the user said no fixed time ("open invite", "whenever").' },
         flexible_time: { type: 'boolean', description: 'Set true when the user explicitly says no fixed time — "come when you\'re ready", "open invite", "whenever works". Omit or false when a specific time is set.' },
         duration_mins: { type: 'number' },
         notes:         { type: 'string' },
@@ -1324,7 +1326,16 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'create_social_event': {
-      const { contact_ids, ...eventData } = toolInput;
+      const { contact_ids, when, ...eventData } = toolInput;
+      // Deterministic date resolution: when the model passes the user's day+time
+      // phrase, resolve it server-side in the user's timezone (Haiku is unreliable at
+      // date math). This OVERRIDES any scheduled_at the model may have computed.
+      let resolvedWhen = null;
+      if (when && !eventData.flexible_time) {
+        const tz = db.getUser(userId)?.timezone || 'America/New_York';
+        resolvedWhen = datetime.resolveEventDateTime(when, tz);
+        if (resolvedWhen) eventData.scheduled_at = resolvedWhen.iso;
+      }
       const eventId = multiparty.createEvent(userId, eventData);
       let inviteResult = { sent: 0, skipped: 0 };
       if (contact_ids?.length) {
@@ -1373,6 +1384,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         eventId,
         invites_sent: inviteResult.sent,
         invites_skipped: inviteResult.skipped,
+        // Authoritative date the server scheduled — state THIS weekday+date back to the
+        // user verbatim; do not recompute or relabel it.
+        scheduled_for: resolvedWhen ? resolvedWhen.label : undefined,
         note: inviteResult.sent > 0
           ? `Invite(s) sent. Contacts can reply YES/NO and their response will be tracked automatically.`
           : `Event created but no invites sent (check contact_ids are valid and contacts aren't opted out).`,
@@ -1865,9 +1879,9 @@ LANGUAGE & TONE:
 RECIPE: "invite [name] to [activity]" (a specific person, maybe with a time)
 1. lookup_contact([name]) → note the returned contact_id. NEVER ask "who is [name]?" — resolving the name is your job.
 2. Reuse that exact contact_id in every later tool call (check_invitee_locations, create_social_event). Never pass the raw name string where a contact_id is expected.
-3. The date comes from the Date context block — never compute it. If a time was given, use it; if the time is vague AND it is not an open/flexible invite, ask ONLY the time (one question — never also ask what the activity is).
-4. create_social_event(contact_ids=[id], scheduled_at=<ISO date from the block>). Call it once.
-5. Confirm to the user using the exact weekday + date from the block.
+3. Determine day + time. If both were given, pass the user's phrase to create_social_event's "when" (the server resolves the date — you never compute it). If the time is vague AND it is not an open/flexible invite, ask ONLY the time (one question — never also ask what the activity is).
+4. create_social_event(contact_ids=[id], when="<the user's day+time phrase>"). Call it once.
+5. Confirm to the user using the "scheduled_for" label the tool returned.
 
 RECIPE: vague time ("set up dinner this weekend", "hang out sometime")
 1. lookup_contact each invitee → contact_ids.
@@ -1961,7 +1975,7 @@ HARD RULES — never violate:
 
 COORDINATING PLANS:
 - All times and dates from the user are in THEIR local timezone (shown in state snapshot). When passing scheduled_at to create_social_event, output a full ISO 8601 string WITH the explicit UTC offset for their timezone (e.g. "2026-07-17T19:00:00-07:00" for 7pm Pacific, "2026-07-17T19:00:00-04:00" for 7pm Eastern). NEVER pass a bare time without an offset — this causes the wrong UTC conversion. Display times back to them in their local timezone.
-- WEEKDAY & DATE RESOLUTION: NEVER compute a date yourself — use the "Date context" block in the state snapshot as the single source of truth (it lists today plus the weekday->date for the next 10 days). When the user names a day, FIND its row there and use that exact YYYY-MM-DD in scheduled_at — that is the NEXT occurrence of the weekday (if today IS that weekday they mean today, unless they say "next"). After scheduling, state the ACTUAL weekday + date from that block (e.g. "Friday, Sep 18 at 7pm"), and make every message about the event — the invite to the contact AND the confirmation to the host — use it. NEVER echo the user's word for the day if it does not match the date's weekday in the block; a message that says "Friday" while the event is on Saturday is a bug.
+- WEEKDAY & DATE RESOLUTION: NEVER compute a date yourself — Haiku gets weekday math wrong. To SCHEDULE an event, pass the user's day+time phrase VERBATIM to create_social_event's "when" field ("friday 7pm", "saturday evening", "tomorrow at 8pm"). The server resolves the exact date in the user's timezone and returns a "scheduled_for" label — state THAT label back, verbatim, in every message about the event (the invite AND the host confirmation). Do NOT hand-build scheduled_at for weekday/relative phrasing. The "Date context" block in the state snapshot is your reference for ANSWERING date questions ("what's this weekend?"): it lists today plus the weekday->date, i.e. the NEXT occurrence of each weekday (today if today is that weekday, unless they say "next"). A message that says "Friday" while the event is on Saturday is a bug.
 - When the user wants to invite someone to an activity (beer, dinner, lunch, hanging out, trying something, testing an app, etc.), ALWAYS use create_social_event with contact_ids — never send_logistics_sms or send_contact_invite for an invitation. This creates the tracking record that allows RSVP replies to be recognized automatically.
 - INVITING SOMEONE BY NAME — do the legwork, ask at most one thing: when the user says "invite [name] to [activity]", your FIRST action is lookup_contact([name]) (try the nickname AND full-name variants). NEVER ask "who is [name]?" or "which contact do you mean?" — resolving the name from the user's contacts is YOUR job, not theirs. After resolving the contact, the ONLY thing you may ask about is a genuinely-unknown scheduling detail — the time, and only when it is vague ("this weekend", "sometime") AND not a flexible open-invite. Do NOT also ask what the activity is: "a group hang", "dinner", "drinks", "hang out" is already enough to proceed. One question maximum, and only when you truly cannot proceed without it; if the only unknown is the time, ask ONLY the time.
 - When the user says "invite my [group/friends/crew] to [anything]": (1) call manage_contact_group(list_groups) or manage_contact_group(action=create_or_get) to get the group members, (2) call create_social_event with ALL of those contact_ids. Never use send_contact_invite for this — that is only for inviting people to JOIN ButterflAI, not to join an activity.
@@ -1976,7 +1990,7 @@ COORDINATING PLANS:
 - If message_agent succeeds for a contact: wait for their agent to reply via agent_reply channel, then reconcile availability and propose options to the host.
 - If message_agent returns "Contact is not a ButterflAI user": THEN and only then fall back to: ask the host to pick a proposed time, then use create_social_event which texts them asking if that time works.
 - Only offer send_contact_invite if message_agent confirmed the contact is not a ButterflAI user AND the host explicitly wants to invite them to join.
-- After create_social_event, tell the user: "I've sent [Name] an invite. I'll let you know when they respond."
+- After create_social_event, tell the user: "I've invited [Name]. I'll let you know when they respond." Do NOT promise the invitee "a text" or "an SMS" — ButterflAI users are notified in the app, not by SMS; only non-users get a text. Say "I've invited [Name]" without naming the channel.
 - Once a contact responds, their RSVP is tracked and you'll be notified. Do not claim they responded until the system tells you they did.
 
 MINIMIZE BACK AND FORTH:
@@ -2119,7 +2133,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         try {
           result = await executeTool(block.name, block.input, userId, userPhone);
         } catch (err) {
-          console.error(`[agent] tool error ${block.name}:`, err.message);
+          console.error(`[agent] tool error ${block.name}: ${err.message}\n${err.stack || ''}`);
           result = { error: err.message };
         }
 
@@ -2141,9 +2155,16 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
 
   if (iterations >= MAX_ITERATIONS) {
     console.error(`[agent] hit MAX_ITERATIONS for message ${msg.id}`);
-    if (userPhone && msg.channel !== 'webchat') {
-      await sms.notifyUser(userPhone, `Something went wrong on my end — I'll try again shortly. Sorry!`);
-    }
+    const stuck = `I couldn't wrap that up — mind trying again?`;
+    try {
+      if (msg.channel === 'webchat' && userId) {
+        sse.push(userId, { role: 'status', text: '' });
+        db.appendConversation(userId, 'assistant', stuck);
+        sse.push(userId, { role: 'assistant', text: stuck, ts: Math.floor(Date.now() / 1000) });
+      } else if (userPhone && msg.channel === 'sms') {
+        await sms.notifyUser(userPhone, stuck);
+      }
+    } catch (_) { /* best effort */ }
   }
 }
 
@@ -2163,15 +2184,19 @@ async function tick() {
       } catch (err) {
         // Log full stack so silent failures are visible in Fly logs
         console.error(`[agent] failed to process message ${msg.id}: ${err.message}\n${err.stack}`);
-        // Push an apology to the user's chat so they know something went wrong
-        if (msg.from_id && msg.channel === 'webchat') {
-          try {
+        // Surface a visible error on the user's OWN channel — never fail silently.
+        // Web → the chat; SMS → a reply text. Agent-to-agent channels stay log-only
+        // (a coordination hiccup is not the user's direct message to answer).
+        const snag = "Sorry, I hit a snag processing that — could you try again?";
+        try {
+          if (msg.channel === 'webchat' && msg.from_id) {
             sse.push(msg.from_id, { role: 'status', text: '' }); // clear thinking indicator
-            const errReply = "Sorry, I hit a snag processing that — could you try again?";
-            db.appendConversation(msg.from_id, 'assistant', errReply);
-            sse.push(msg.from_id, { role: 'assistant', text: errReply, ts: Math.floor(Date.now() / 1000) });
-          } catch (_) {}
-        }
+            db.appendConversation(msg.from_id, 'assistant', snag);
+            sse.push(msg.from_id, { role: 'assistant', text: snag, ts: Math.floor(Date.now() / 1000) });
+          } else if (msg.channel === 'sms' && msg.from_phone) {
+            await sms.notifyUser(msg.from_phone, snag);
+          }
+        } catch (_) { /* error-path best effort */ }
       } finally {
         db.markMessageProcessed(msg.id);
       }

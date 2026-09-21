@@ -122,6 +122,11 @@ async function sendOtp(req, res) {
   }
 }
 
+function isValidTimezone(tz) {
+  if (!tz || typeof tz !== 'string') return false;
+  try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return true; } catch { return false; }
+}
+
 function verifyOtpHandler(req, res) {
   const rawPhone = req.body?.phone;
   const code     = String(req.body?.code || '').trim();
@@ -144,6 +149,19 @@ function verifyOtpHandler(req, res) {
     const id = uuidv4();
     db.createUser({ id, phone, name: 'New user', onboarding_state: 'new' });
     user = db.getUser(id);
+  }
+
+  // Set the user's timezone from the browser (friction-free) when it is "unset".
+  // The users.timezone column defaults to 'America/New_York' (Eastern) for EVERY new
+  // account regardless of location — a real bug for non-Eastern users — and older rows
+  // may be null. We treat null OR that hardcoded default as unset and adopt the browser
+  // tz; a tz that was explicitly set (GPS via /api/user/location, or a non-default value)
+  // is left alone. The date-context table and location routing depend on this being real.
+  const DEFAULT_TZ = 'America/New_York';   // == users.timezone column default; treated as "unset"
+  const clientTz = typeof req.body?.timezone === 'string' ? req.body.timezone.trim() : '';
+  const tzIsUnset = !user.timezone || user.timezone === DEFAULT_TZ;
+  if (clientTz && clientTz !== user.timezone && tzIsUnset && isValidTimezone(clientTz)) {
+    try { db.updateUser(user.id, { timezone: clientTz }); user = db.getUser(user.id); } catch (_) { /* non-fatal */ }
   }
 
   const token = issueToken(user.id);

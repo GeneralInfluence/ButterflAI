@@ -170,8 +170,12 @@ describe('Tool routing — interaction patterns', () => {
     assertContains('NEVER compute a date yourself', 'dates come from the Date context block, not model arithmetic');
   });
 
+  test('Scheduling routes the day+time phrase through the "when" field (server resolves)', () => {
+    assertContains(`create_social_event's "when" field`, 'day+time phrase resolved server-side, not by the model');
+  });
+
   test('Every message about an event must use the actual scheduled weekday, not the user\'s word', () => {
-    assertContains('a message that says "Friday" while the event is on Saturday is a bug', 'no weekday/date mismatch across messages');
+    assertContains('message that says "Friday" while the event is on Saturday is a bug', 'no weekday/date mismatch across messages');
   });
 
 });
@@ -267,6 +271,12 @@ describe('Recipe layer for Haiku', () => {
   test('RSVP-arrives recipe acts on the single pending invite without re-asking', () => {
     assertContains('RECIPE: a reply that looks like an RSVP', 'rsvp-arrives recipe present');
     assertContains('do NOT ask "which event?"', 'act on the single pending invite');
+  });
+
+  // Web-first (Phase A #3): user-invitees are notified in-app, not by SMS, so the
+  // agent must not promise the host that the invitee "will get a text".
+  test('Agent must not promise a user-invitee "a text" (they are notified in-app)', () => {
+    assertContains('Do NOT promise the invitee "a text"', 'channel-agnostic invite confirmation');
   });
 
 });
