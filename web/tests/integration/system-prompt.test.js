@@ -170,8 +170,12 @@ describe('Tool routing — interaction patterns', () => {
     assertContains('NEVER compute a date yourself', 'dates come from the Date context block, not model arithmetic');
   });
 
+  test('Scheduling routes the day+time phrase through the "when" field (server resolves)', () => {
+    assertContains(`create_social_event's "when" field`, 'day+time phrase resolved server-side, not by the model');
+  });
+
   test('Every message about an event must use the actual scheduled weekday, not the user\'s word', () => {
-    assertContains('a message that says "Friday" while the event is on Saturday is a bug', 'no weekday/date mismatch across messages');
+    assertContains('message that says "Friday" while the event is on Saturday is a bug', 'no weekday/date mismatch across messages');
   });
 
 });
