@@ -158,6 +158,22 @@ describe('Tool routing — interaction patterns', () => {
     assertContains('ALWAYS try message_agent', 'always try message_agent for availability when time is vague');
   });
 
+  // Pattern: "invite bambam to dinner friday 7pm" (a NAMED weekday)
+  // Bug postmortem (2026-07-21, simulator): "Friday" → scheduled Saturday, and the
+  // invite said "Saturday" while the host confirmation said "Friday".
+  test('Named weekday must resolve to the next occurrence and be verified against the date', () => {
+    assertContains('WEEKDAY & DATE RESOLUTION', 'weekday resolution rule present');
+    assertContains('NEXT occurrence', 'resolve a named weekday to its next occurrence');
+  });
+
+  test('Agent must NOT compute dates itself — use the injected Date context block', () => {
+    assertContains('NEVER compute a date yourself', 'dates come from the Date context block, not model arithmetic');
+  });
+
+  test('Every message about an event must use the actual scheduled weekday, not the user\'s word', () => {
+    assertContains('a message that says "Friday" while the event is on Saturday is a bug', 'no weekday/date mismatch across messages');
+  });
+
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -216,6 +232,41 @@ describe('Minimize back-and-forth', () => {
 
   test('Affirmative replies (yeah, sounds good) mean approved — execute immediately', () => {
     assertContains('sounds good', 'affirmative = approved, execute');
+  });
+
+  // Pattern: "set up a group hang this weekend, invite bambam" (a KNOWN contact)
+  // Bug postmortem (2026-07-21, simulator): agent asked "Who is Bambam?" instead of
+  // calling lookup_contact, and piled on 3 questions when only the time was unknown.
+  test('Inviting someone by name must lookup_contact first, never ask who they are', () => {
+    assertContains('INVITING SOMEONE BY NAME', 'invite-by-name recipe present');
+    assertContains('NEVER ask "who is [name]?"', 'must not ask the user to identify a known contact');
+  });
+
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RECIPE LAYER (concrete step-by-step playbooks — Haiku follows these better than
+// diffuse principles; see 2026-07-21 simulator training)
+// ══════════════════════════════════════════════════════════════════════════════
+describe('Recipe layer for Haiku', () => {
+
+  test('A labeled RECIPES section exists', () => {
+    assertContains('## RECIPES', 'top-level recipes block present');
+  });
+
+  test('Invite recipe threads the resolved contact_id (never the raw name)', () => {
+    assertContains('RECIPE: "invite [name] to [activity]"', 'invite recipe present');
+    assertContains('Never pass the raw name string where a contact_id is expected', 'contact_id threading rule');
+  });
+
+  test('Vague-time recipe goes agent-to-agent first, without double-asking the user', () => {
+    assertContains('RECIPE: vague time', 'vague-time recipe present');
+    assertContains('do NOT also ask your own user for the time in the same turn', 'no redundant ask-user + message_agent');
+  });
+
+  test('RSVP-arrives recipe acts on the single pending invite without re-asking', () => {
+    assertContains('RECIPE: a reply that looks like an RSVP', 'rsvp-arrives recipe present');
+    assertContains('do NOT ask "which event?"', 'act on the single pending invite');
   });
 
 });

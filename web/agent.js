@@ -39,10 +39,27 @@ const coord      = require('./coordination');
 const sse        = require('./sse');
 const flai       = require('./flai');
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Test/sim injection: swap the Anthropic client (mirrors sms._setClient). No-op
+// in prod. Lets the multi-agent simulator (tools/sim.js) drive scripted or real
+// agent turns without the module-scope client being fixed at require time.
+function _setAnthropic(client) { anthropic = client; }
+
+// Optional tool-call observer for instrumentation (the sim's transcript). A
+// complete no-op unless a function is registered. Never affects behavior.
+let _toolObserver = null;
+function _setToolObserver(fn) { _toolObserver = fn; }
 
 const POLL_INTERVAL_MS = parseInt(process.env.AGENT_POLL_MS || '5000', 10);
-const MODEL = process.env.AGENT_MODEL || 'claude-3-5-haiku-20241022';  // fast + cheap for agent loop
+// Haiku 4.5 is the committed dev-user model (fast + cheap; reliability comes from the
+// recipe layer + deterministic scaffolding + the feedback loop, not a bigger model).
+// The old 'claude-3-5-haiku-20241022' default 404s on this account — never fall back to it.
+// The prod AGENT_MODEL Fly secret overrides this; keep that secret on a Haiku-4.5 id.
+const MODEL = process.env.AGENT_MODEL || 'claude-haiku-4-5-20251001';
+if (!/claude/.test(MODEL)) {
+  throw new Error(`AGENT_MODEL is set to an invalid value: "${MODEL}"`);
+}
 
 // ── Proposal provenance helpers (FLAI §2.2) ───────────────────────────────────
 
@@ -652,6 +669,9 @@ function toolStatusLine(toolName, input) {
 }
 
 async function executeTool(toolName, toolInput, userId, userPhone) {
+  if (_toolObserver) {
+    try { _toolObserver(toolName, toolInput, userId); } catch (_) { /* observer must never break the agent */ }
+  }
   switch (toolName) {
 
     case 'add_contact': {
@@ -1107,6 +1127,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'confirm_coordination_invite': {
       const { invitation_id, status, add_to_calendar } = toolInput;
+      // executeTool only receives userId — resolve the acting user (and their tz)
+      // locally, same idiom as the message_agent case. Referencing a bare `user`
+      // here previously threw ReferenceError, aborting before the host was notified.
+      const user = db.getUser(userId);
+      const userTimezone = user?.timezone || 'America/Los_Angeles';
       const inv = db._raw().prepare(`
         SELECT ei.*, se.title, se.activity_type, se.scheduled_at, se.venue_name,
                se.host_user_id, se.id as event_id
@@ -1142,14 +1167,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       // Queue as an inbound_message so the host's agent proactively processes it and
       // texts the host — without waiting for the host to ask.
       const host = db.getUser(inv.host_user_id);
-      const contact = db.getContactByPhone(user.phone);
+      const contact = db.getContactByPhone(user?.phone);
       if (host) {
         const emoji = status === 'accepted' ? '✅' : '❌';
         const ts = new Date(inv.scheduled_at * 1000).toLocaleString('en-US', {
           timeZone: host.timezone || 'America/Los_Angeles',
           weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
         });
-        const contactName = contact?.name || user.name;
+        const contactName = contact?.name || user?.name;
         // Queue for host agent to process proactively
         const agentMsg = `[Agent-to-Agent RSVP] ${emoji} ${contactName} has ${status} the invite for "${inv.title}" on ${ts}. Update the host and notify them now.`;
         db.storeInboundMessage({
@@ -1649,6 +1674,7 @@ async function processMessage(msg) {
   })();
 
   const userLocalTime = new Date().toLocaleString('en-US', { timeZone: userTimezone, weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const dateContext = buildDateContext(userTimezone);
   // Pending coordination: events this user was invited to by OTHER users' agents
   // Injected so this agent can act on them (update own calendar, notify host agent)
   const pendingCoordination = (() => {
@@ -1681,6 +1707,7 @@ async function processMessage(msg) {
   const stateSnapshot = [
     `## Current state`,
     `- User timezone: ${userTimezone} (current local time: ${userLocalTime})`,
+    dateContext,
     `- Location: ${user.city ? `${user.city}${user.lat ? ` (${Number(user.lat).toFixed(4)}, ${Number(user.lng).toFixed(4)})` : ''}` : 'unknown — ask user or request browser location'}`,
     `- Calendar: ${calendarConnected ? `✅ connected (${calendarProvider}) — can check availability & create events` : '❌ not connected — offer Google or Apple Calendar setup'}`,
     `- Contacts: ${contactCount} in address book`,
@@ -1744,6 +1771,41 @@ function humanizePrivateKey(dataKey) {
  *
  * Exported for the test suite.
  */
+/**
+ * buildDateContext — a deterministic weekday→date table injected into the state
+ * snapshot so the agent NEVER has to compute calendar dates itself. Haiku is
+ * unreliable at date arithmetic (it repeatedly mislabeled weekdays — e.g. calling
+ * Sep 13 "Saturday" — and gave inconsistent dates across messages). Handing it the
+ * exact dates removes the arithmetic entirely. `now` is injectable for tests.
+ * Exported for the test suite.
+ */
+function buildDateContext(timezone, now = new Date()) {
+  const tz  = timezone || 'America/Los_Angeles';
+  const wd  = (d) => d.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long' });
+  const iso = (d) => d.toLocaleDateString('en-CA', { timeZone: tz });   // YYYY-MM-DD in tz
+  const timeStr = now.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+
+  const rows = [];
+  const firstByWeekday = {};   // weekday name -> soonest matching ISO date
+  for (let i = 0; i < 11; i++) {
+    const d = new Date(now.getTime() + i * 86400000);
+    const w = wd(d), date = iso(d);
+    const tag = i === 0 ? '  <- TODAY' : i === 1 ? '  <- tomorrow' : '';
+    rows.push(`  - ${w} ${date}${tag}`);
+    if (firstByWeekday[w] === undefined) firstByWeekday[w] = date;
+  }
+  const todayW = wd(now), todayISO = iso(now);
+
+  return [
+    `\n## Date context — use these EXACT dates; NEVER compute a date yourself`,
+    `- Right now it is ${todayW}, ${todayISO}, ${timeStr} (${tz}).`,
+    `- "This weekend" = Saturday ${firstByWeekday['Saturday']} and Sunday ${firstByWeekday['Sunday']}.`,
+    `- Calendar for the next 10 days (weekday -> date):`,
+    ...rows,
+    `- When the user names a day ("Friday", "this weekend", "tomorrow", "the 20th"), FIND it in this list and use that exact YYYY-MM-DD in scheduled_at. If they name today's weekday, they mean TODAY unless they say "next". Every message you send about the event MUST use the weekday shown here for the date you picked.`,
+  ].join('\n');
+}
+
 function buildPrefsSection(prefs, { coordinationOnly = false } = {}) {
   if (!prefs) {
     return coordinationOnly
@@ -1797,6 +1859,28 @@ LANGUAGE & TONE:
 - You can be light about it: "Ha, want me to see if Allison wants to keep the night going after beers? 😏" — then offer to send a follow-up invite.
 - You will NOT send literally inappropriate messages to contacts. But you will also NOT shut down over casual language from the user. Interpret, deflect if needed, keep moving.
 - If something is genuinely impossible or harmful, say why briefly and offer an alternative. Never go full "That's not something I can help with."
+
+## RECIPES — match the request to a recipe, then follow its numbered steps in order. These override any vaguer guidance below.
+
+RECIPE: "invite [name] to [activity]" (a specific person, maybe with a time)
+1. lookup_contact([name]) → note the returned contact_id. NEVER ask "who is [name]?" — resolving the name is your job.
+2. Reuse that exact contact_id in every later tool call (check_invitee_locations, create_social_event). Never pass the raw name string where a contact_id is expected.
+3. The date comes from the Date context block — never compute it. If a time was given, use it; if the time is vague AND it is not an open/flexible invite, ask ONLY the time (one question — never also ask what the activity is).
+4. create_social_event(contact_ids=[id], scheduled_at=<ISO date from the block>). Call it once.
+5. Confirm to the user using the exact weekday + date from the block.
+
+RECIPE: vague time ("set up dinner this weekend", "hang out sometime")
+1. lookup_contact each invitee → contact_ids.
+2. check_invitee_locations(contact_ids). If it returns "flexible" (all nearby), create a flexible_time open invite and stop — no time question.
+3. Otherwise message_agent each ButterflAI-user invitee for availability. Agent-to-agent FIRST — do NOT also ask your own user for the time in the same turn.
+4. When their agents reply, reconcile and propose ONE time to your user, or create the event once a time is clear.
+5. Ask your user directly only if no agent responds after your attempts.
+
+RECIPE: a reply that looks like an RSVP ("yeah im in", "cant make it saturday")
+1. Look at the pending coordination invites in the state snapshot. If there is exactly ONE, this reply is about it — do NOT ask "which event?".
+2. Affirmative → confirm_coordination_invite(status="accepted"). Negative → confirm_coordination_invite(status="declined"). This notifies the host automatically.
+3. If the user names a day that doesn't match the invite, still act on the single pending invite; only clarify if there are genuinely multiple pending invites.
+4. Report the real status — never fabricate an acceptance.
 
 PRONOUN RESOLUTION — figure out who "him/her/them" means before asking:
 - When the user says "tell him", "let her know", "ask them", check the open events and recent conversation to figure out who they mean. If there's only one person recently discussed or invited to the active event, assume that's who they mean.
@@ -1877,7 +1961,9 @@ HARD RULES — never violate:
 
 COORDINATING PLANS:
 - All times and dates from the user are in THEIR local timezone (shown in state snapshot). When passing scheduled_at to create_social_event, output a full ISO 8601 string WITH the explicit UTC offset for their timezone (e.g. "2026-07-17T19:00:00-07:00" for 7pm Pacific, "2026-07-17T19:00:00-04:00" for 7pm Eastern). NEVER pass a bare time without an offset — this causes the wrong UTC conversion. Display times back to them in their local timezone.
+- WEEKDAY & DATE RESOLUTION: NEVER compute a date yourself — use the "Date context" block in the state snapshot as the single source of truth (it lists today plus the weekday->date for the next 10 days). When the user names a day, FIND its row there and use that exact YYYY-MM-DD in scheduled_at — that is the NEXT occurrence of the weekday (if today IS that weekday they mean today, unless they say "next"). After scheduling, state the ACTUAL weekday + date from that block (e.g. "Friday, Sep 18 at 7pm"), and make every message about the event — the invite to the contact AND the confirmation to the host — use it. NEVER echo the user's word for the day if it does not match the date's weekday in the block; a message that says "Friday" while the event is on Saturday is a bug.
 - When the user wants to invite someone to an activity (beer, dinner, lunch, hanging out, trying something, testing an app, etc.), ALWAYS use create_social_event with contact_ids — never send_logistics_sms or send_contact_invite for an invitation. This creates the tracking record that allows RSVP replies to be recognized automatically.
+- INVITING SOMEONE BY NAME — do the legwork, ask at most one thing: when the user says "invite [name] to [activity]", your FIRST action is lookup_contact([name]) (try the nickname AND full-name variants). NEVER ask "who is [name]?" or "which contact do you mean?" — resolving the name from the user's contacts is YOUR job, not theirs. After resolving the contact, the ONLY thing you may ask about is a genuinely-unknown scheduling detail — the time, and only when it is vague ("this weekend", "sometime") AND not a flexible open-invite. Do NOT also ask what the activity is: "a group hang", "dinner", "drinks", "hang out" is already enough to proceed. One question maximum, and only when you truly cannot proceed without it; if the only unknown is the time, ask ONLY the time.
 - When the user says "invite my [group/friends/crew] to [anything]": (1) call manage_contact_group(list_groups) or manage_contact_group(action=create_or_get) to get the group members, (2) call create_social_event with ALL of those contact_ids. Never use send_contact_invite for this — that is only for inviting people to JOIN ButterflAI, not to join an activity.
 - send_contact_invite is EXCLUSIVELY for inviting a Tier 0 (not yet connected) contact to JOIN ButterflAI itself. It is NEVER the right tool for inviting someone to a social activity, hangout, event, or gathering — even if the activity involves ButterflAI. If a contact is already Tier 1+, send_contact_invite will error.
 - send_logistics_sms is ONLY for one-way informational messages that do NOT expect a reply: "running 10 min late", "on my way", "parking on the corner". If the message asks a question or expects a yes/no, use create_social_event instead.
@@ -2105,4 +2191,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, executeTool, _safeForSms, resolveContactRelay };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver };
