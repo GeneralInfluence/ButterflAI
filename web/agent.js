@@ -2133,7 +2133,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         try {
           result = await executeTool(block.name, block.input, userId, userPhone);
         } catch (err) {
-          console.error(`[agent] tool error ${block.name}:`, err.message);
+          console.error(`[agent] tool error ${block.name}: ${err.message}\n${err.stack || ''}`);
           result = { error: err.message };
         }
 
@@ -2155,9 +2155,16 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
 
   if (iterations >= MAX_ITERATIONS) {
     console.error(`[agent] hit MAX_ITERATIONS for message ${msg.id}`);
-    if (userPhone && msg.channel !== 'webchat') {
-      await sms.notifyUser(userPhone, `Something went wrong on my end — I'll try again shortly. Sorry!`);
-    }
+    const stuck = `I couldn't wrap that up — mind trying again?`;
+    try {
+      if (msg.channel === 'webchat' && userId) {
+        sse.push(userId, { role: 'status', text: '' });
+        db.appendConversation(userId, 'assistant', stuck);
+        sse.push(userId, { role: 'assistant', text: stuck, ts: Math.floor(Date.now() / 1000) });
+      } else if (userPhone && msg.channel === 'sms') {
+        await sms.notifyUser(userPhone, stuck);
+      }
+    } catch (_) { /* best effort */ }
   }
 }
 
@@ -2177,15 +2184,19 @@ async function tick() {
       } catch (err) {
         // Log full stack so silent failures are visible in Fly logs
         console.error(`[agent] failed to process message ${msg.id}: ${err.message}\n${err.stack}`);
-        // Push an apology to the user's chat so they know something went wrong
-        if (msg.from_id && msg.channel === 'webchat') {
-          try {
+        // Surface a visible error on the user's OWN channel — never fail silently.
+        // Web → the chat; SMS → a reply text. Agent-to-agent channels stay log-only
+        // (a coordination hiccup is not the user's direct message to answer).
+        const snag = "Sorry, I hit a snag processing that — could you try again?";
+        try {
+          if (msg.channel === 'webchat' && msg.from_id) {
             sse.push(msg.from_id, { role: 'status', text: '' }); // clear thinking indicator
-            const errReply = "Sorry, I hit a snag processing that — could you try again?";
-            db.appendConversation(msg.from_id, 'assistant', errReply);
-            sse.push(msg.from_id, { role: 'assistant', text: errReply, ts: Math.floor(Date.now() / 1000) });
-          } catch (_) {}
-        }
+            db.appendConversation(msg.from_id, 'assistant', snag);
+            sse.push(msg.from_id, { role: 'assistant', text: snag, ts: Math.floor(Date.now() / 1000) });
+          } else if (msg.channel === 'sms' && msg.from_phone) {
+            await sms.notifyUser(msg.from_phone, snag);
+          }
+        } catch (_) { /* error-path best effort */ }
       } finally {
         db.markMessageProcessed(msg.id);
       }
