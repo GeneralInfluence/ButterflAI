@@ -63,30 +63,24 @@ so plainly to testers.
 Dev-users hit the agent on day one, so prod must run the fixed agent, on a known-good
 model, with correct per-user data.
 
-- 🔲 **Merge PR #10** (confirm_coordination_invite host-notify crash) → prod. Live bug today.
-- 🔲 **Ship the agent-behavior work** — open a PR for the training branch
-  (`claude/contacts-sms-routing-rewrite-getxcl`: weekday rule, deterministic date-context,
-  invite-by-name recipe, RECIPES layer) and merge → prod. Without this, testers get the
-  old agent that mislabels dates and asks "who is X?".
-- 🔲 **Pin Haiku 4.5** (`claude-haiku-4-5-20251001`) as the prod `AGENT_MODEL`. **Remove the stale
-  `claude-3-5-haiku-20241022` default in `agent.js:55`** (it 404s) — pin the valid Haiku id and
-  fail-fast on an unset `AGENT_MODEL` instead of silently using a dead model. Making Haiku reliable
-  is the recipe/scaffolding/feedback work, not a model swap.
-- 🔲 **Notify user-invitees in-app, not by SMS.** Today `create_social_event` texts every invitee,
-  including ButterflAI users (seen in the sim: "SMS → BamBam"). In the web-first model, an invitee
-  who is a user should be notified **in-app (push + the invited-events view)**; SMS is reserved for
-  **non-user** invitees. This is what makes the cohort run on ~zero SMS.
-- 🔲 **Push notifications working end-to-end** — they're the in-app replacement for the SMS nudge,
-  and were flagged incomplete in earlier sessions. Without them, a web-first user-invitee has no
-  timely signal that they were invited or that an RSVP came in.
-- 🔲 **Per-user data that coordination depends on:** capture/derive **timezone + lat/lng at
-  onboarding** for every user. The date-context block and location routing are only correct
-  when these are set. (Several existing accounts have null timezone / missing coords.)
-- 🔲 **Silent-failure sweep:** every agent error must surface a user-facing "hit a snag" AND
-  log a full stack (one such drop was fixed 2026-07-17 — audit the rest of the tool/loop paths).
-- **Definition of done:** a friend opens the web app, invites another friend (also in the app),
-  and invite → in-app notify → RSVP → host-notified works end-to-end with correct dates on Haiku —
-  with **no SMS sent** because both are users.
+- ✅ **Agent-behavior work shipped** (PR #11, merged, live): weekday rule, deterministic date-context,
+  invite-by-name recipe, RECIPES layer, and the coordination-invite host-notify crash fix (was PR #10).
+- ✅ **Pinned Haiku 4.5** (PR #11) — stale `claude-3-5-haiku-20241022` default removed + guarded; owner
+  set the `AGENT_MODEL` Fly secret.
+- ✅ **Date hardening** (PR #12) — `datetime.js` resolves the user's day+time phrase server-side via
+  create_social_event's `when` field; the model no longer does date math. Validated live.
+- ✅ **Notify user-invitees in-app, not by SMS** (PR #12) — `inviteContacts` routes users in-app +
+  best-effort push; SMS reserved for non-users. Cohort of app users runs on ~zero SMS.
+- ✅ **Timezone captured at login** (PR #12) — browser IANA tz adopted when the stored tz is unset,
+  fixing the Eastern-default bug. ⬜ *lat/lng auto-capture at onboarding still open* (a GPS opt-in
+  flow exists; auto-seeding from area code / browser is not wired).
+- ✅ **Silent-failure sweep** (PR #12) — agent errors now surface on the user's own channel (web +
+  SMS), `MAX_ITERATIONS` reaches both, tool errors log full stacks; regression-tested.
+- 🚧 **Push notifications end-to-end** (PR #12) — fully wired + a gesture-tied "Enable notifications"
+  button in Settings. **Needs (owner):** set the `VAPID_*` Fly secrets, then tap Enable on a device.
+- **Definition of done:** a friend opens the web app, invites another friend (also in the app), and
+  invite → in-app notify → RSVP → host-notified works with correct dates on Haiku, **no SMS sent**.
+  *Met in the simulator; confirm on real devices once the push secrets are set.*
 
 ---
 
