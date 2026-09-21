@@ -25,8 +25,8 @@ self.addEventListener('push', event => {
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
+      icon: '/icons/icon-192.png',      // full-colour brand icon (large icon)
+      badge: '/icons/badge-96.png',     // white butterfly silhouette for the status bar
       data: { url: data.url },
     })
   );
