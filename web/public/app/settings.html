@@ -197,6 +197,18 @@
     </div>
   </section>
 
+  <!-- Notifications -->
+  <section>
+    <h2>🔔 Notifications</h2>
+    <div class="card">
+      <p style="font-size:14px;color:#555;margin:0 0 12px;line-height:1.5">Get a push when someone invites you or an RSVP comes in — so you don't have to keep the app open.</p>
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="notif-btn" onclick="enableNotifications()">Enable notifications</button>
+      </div>
+      <p id="notif-status" style="font-size:13px;color:#888;margin-top:10px;min-height:18px"></p>
+    </div>
+  </section>
+
   <!-- What your agent knows about you -->
   <section>
     <h2>What your agent knows</h2>
@@ -577,6 +589,40 @@
 
   load();
 </script>
+  <script>
+  // Notifications: subscribe on a user gesture (required by iOS/Safari).
+  (function () {
+    var btn = document.getElementById('notif-btn');
+    var status = document.getElementById('notif-status');
+    var ok = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    if (!ok) { if (btn) btn.disabled = true; if (status) status.textContent = 'This browser does not support push notifications.'; return; }
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      if (!reg) return;
+      return reg.pushManager.getSubscription().then(function (sub) {
+        if (sub) { btn.textContent = 'Notifications on'; btn.disabled = true; status.textContent = "You're all set."; }
+      });
+    }).catch(function () {});
+    function b64ToUint8(s) {
+      var pad = '='.repeat((4 - s.length % 4) % 4);
+      var raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+      return Uint8Array.from([].map.call(raw, function (c) { return c.charCodeAt(0); }));
+    }
+    window.enableNotifications = async function () {
+      try {
+        status.textContent = 'Setting up…';
+        var reg = await navigator.serviceWorker.register('/sw.js');
+        var perm = await Notification.requestPermission();
+        if (perm !== 'granted') { status.textContent = 'Notifications are blocked — turn them on in your browser or phone settings, then try again.'; return; }
+        var vk = await fetch('/api/push/vapid-key').then(function (r) { return r.json(); });
+        if (!vk.publicKey) { status.textContent = 'Notifications aren’t switched on for the server yet — check back soon.'; return; }
+        var sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(vk.publicKey) });
+        var r = await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub) });
+        if (!r.ok) throw new Error('save failed');
+        btn.textContent = 'Notifications on'; btn.disabled = true; status.textContent = "You're all set — I'll ping you here.";
+      } catch (e) { status.textContent = 'Could not enable notifications — please try again.'; }
+    };
+  })();
+  </script>
   <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
   </script>
   <script src="/update-check.js"></script>
