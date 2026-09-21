@@ -1264,6 +1264,13 @@ app.post('/api/onboarding/setup', webAuth.requireAuth, express.json(), async (re
 // ── Health check ─────────────────────────────────────────────────────────────
 
 // ── Admin routes (auth-gated via X-Admin-Secret header) ──────────────────────
+// Admin feedback triage PAGE — registered BEFORE the adminRouter mount so this
+// cookie-gated route wins over the X-Admin-Secret API router for this exact path.
+// Served from views/ (not public/) so express.static can't serve it unauthenticated.
+app.get('/admin/feedback', requireAdminPage, (req, res) => {
+  res.sendFile(path.join(__dirname, 'views/admin-feedback.html'));
+});
+
 app.use('/admin', express.json(), adminRouter);
 
 // ── Admin middleware ──────────────────────────────────────────────────────────
@@ -1294,6 +1301,35 @@ function requireAdminPage(req, res, next) {
   req.user = user;
   next();
 }
+
+// ── Feedback (Phase B dev-user loop) ────────────────────────────────────────
+// A tester flags an agent reply that missed expectations; we capture the message +
+// recent turns so it can be reproduced in the simulator (see web/tools/sim.js).
+app.post('/api/feedback', webAuth.requireAuth, express.json(), (req, res) => {
+  const { agent_message, note } = req.body || {};
+  let context = null;
+  try { context = JSON.stringify(db.getRecentConversation(req.user.id, 12) || []); } catch (_) {}
+  const id = db.createFeedback({
+    user_id: req.user.id,
+    rating: 'down',
+    agent_message: (agent_message || '').slice(0, 4000) || null,
+    user_note: (note || '').slice(0, 2000) || null,
+    context_json: context,
+    model: process.env.AGENT_MODEL || null,
+  });
+  res.json({ ok: true, id });
+});
+
+// Admin triage: list feedback and set its status.
+app.get('/api/admin/feedback', requireAdmin, (req, res) => {
+  res.json({ feedback: db.getRecentFeedback(200, req.query.status || null) });
+});
+app.patch('/api/admin/feedback/:id', requireAdmin, express.json(), (req, res) => {
+  const status = req.body?.status;
+  if (!['new', 'triaged', 'fixed'].includes(status)) return res.status(400).json({ error: 'invalid status' });
+  db.updateFeedbackStatus(req.params.id, status);
+  res.json({ ok: true });
+});
 
 // ── Admin page ────────────────────────────────────────────────────────────────
 app.get('/admin', requireAdminPage, (req, res) => {
@@ -1550,9 +1586,18 @@ app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, 
 
 // GET /api/user/me — current user profile
 app.get('/api/user/me', webAuth.requireAuth, (req, res) => {
-  const { id, name, nickname, also_known_as, phone, city, lat, lng, share_location } = req.user;
+  const { id, name, nickname, also_known_as, phone, city, lat, lng, share_location, test_user } = req.user;
   res.json({ id, name, nickname, also_known_as, phone, city, lat, lng,
-    share_location: share_location === 0 ? false : true }); // default true if null/1
+    share_location: share_location === 0 ? false : true, // default true if null/1
+    test_user: !!test_user });
+});
+
+// PATCH /api/user/test-mode — opt in/out of the dev-user (test) cohort.
+app.patch('/api/user/test-mode', webAuth.requireAuth, express.json(), (req, res) => {
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be boolean' });
+  db.updateUser(req.user.id, { test_user: enabled ? 1 : 0 });
+  res.json({ ok: true, test_user: enabled });
 });
 
 // PATCH /api/user/location-sharing — toggle whether location is visible to other agents

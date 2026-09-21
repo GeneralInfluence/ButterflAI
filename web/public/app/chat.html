@@ -123,6 +123,20 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
     .ts { font-size: 11px; color: #bbb; margin-top: 2px; padding: 0 4px; }
+    .msg-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+    .msg-foot .ts { margin-top: 0; }
+    .fb-btn { display: none; background: none; border: none; cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: 6px; opacity: .3; transition: opacity .15s, background .15s; }
+    body.test-user .fb-btn { display: inline-block; }
+    .fb-btn:hover { opacity: .75; background: rgba(108,71,255,.08); }
+    .fb-btn.flagged { opacity: .7; font-size: 11px; color: #8a7fb0; cursor: default; background: none; }
+    .fb-box { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; max-width: 340px; }
+    .fb-note { border: 1.5px solid #e5e5e5; border-radius: 10px; padding: 8px 10px; font-family: inherit; font-size: 14px; resize: vertical; color: inherit; background: #fff; }
+    .fb-note:focus { outline: none; border-color: #6c47ff; }
+    .fb-actions { display: flex; gap: 8px; align-items: center; }
+    .fb-send { background: #6c47ff; color: #fff; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .fb-send:disabled { opacity: .55; cursor: default; }
+    .fb-cancel { background: none; border: none; color: #999; font-size: 13px; cursor: pointer; }
+    .fb-thanks { font-size: 13px; color: #8a7fb0; }
 
     /* Typing indicator */
     .typing { display: none; align-self: flex-start; }
@@ -465,7 +479,13 @@
       const div  = document.createElement('div');
       div.className = `msg ${role}`;
       const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
-      div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="ts">${time}</div>`;
+      if (role === 'bot') {
+        div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="msg-foot"><span class="ts">${time}</span><button class="fb-btn" type="button" title="Flag this reply as wrong" aria-label="Flag this reply">👎</button></div>`;
+        const fb = div.querySelector('.fb-btn');
+        if (fb) fb.addEventListener('click', () => openFeedback(fb, text));
+      } else {
+        div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="ts">${time}</div>`;
+      }
       // Insert before typing indicator so anchor stays last
       messagesEl.insertBefore(div, typingEl);
       // Track latest message timestamp for catch-up polling — only from server-sourced messages,
@@ -481,6 +501,28 @@
       } else {
         scrollToBottom();
       }
+    }
+
+    function openFeedback(btn, text) {
+      const div = btn.closest('.msg');
+      if (!div || div.querySelector('.fb-box')) return; // already open
+      const box = document.createElement('div');
+      box.className = 'fb-box';
+      box.innerHTML = `<textarea class="fb-note" rows="2" placeholder="What was wrong, or what did you expect? (optional)"></textarea>
+        <div class="fb-actions"><button class="fb-send" type="button">Send feedback</button><button class="fb-cancel" type="button">Cancel</button></div>`;
+      div.appendChild(box);
+      const ta = box.querySelector('.fb-note');
+      ta.focus();
+      box.querySelector('.fb-cancel').addEventListener('click', () => box.remove());
+      box.querySelector('.fb-send').addEventListener('click', async () => {
+        const send = box.querySelector('.fb-send');
+        send.disabled = true;
+        try {
+          const r = await fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_message: text, note: ta.value.trim() }) });
+          if (r.ok) { box.innerHTML = '<span class="fb-thanks">✓ Thanks — noted.</span>'; btn.classList.add('flagged'); btn.disabled = true; }
+          else { send.disabled = false; }
+        } catch (e) { send.disabled = false; }
+      });
     }
 
     function showLocationPrompt() {
@@ -642,6 +684,10 @@
     })();
 
     // ── Init ───────────────────────────────────────────────────────────────────
+    // Show the feedback affordance only for opted-in test users (Settings toggle).
+    fetch('/api/user/me').then(r => r.ok ? r.json() : null).then(me => {
+      if (me && me.test_user) document.body.classList.add('test-user');
+    }).catch(() => {});
     loadHistory();
     connectSSE();
     checkLocationNeeded();

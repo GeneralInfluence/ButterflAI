@@ -210,6 +210,25 @@
     </div>
   </section>
 
+  <!-- Test user / help improve -->
+  <section>
+    <h2>🧪 Help improve ButterflAI</h2>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#555">
+          <input type="checkbox" id="test-user-toggle" onchange="toggleTestUser(this.checked)"
+            style="width:18px;height:18px;accent-color:#6c47ff">
+          Be a test user
+        </label>
+      </div>
+      <p style="font-size:12px;color:#aaa;margin-top:6px;line-height:1.5">
+        Turns on a feedback button on each reply in chat, so you can flag anything that's off and
+        say what you expected. It helps me get better fast. Perks for testers coming soon.
+      </p>
+      <p id="test-user-status" style="font-size:13px;color:#888;margin-top:8px;min-height:16px"></p>
+    </div>
+  </section>
+
   <!-- What your agent knows about you -->
   <section>
     <h2>What your agent knows</h2>
@@ -429,6 +448,8 @@
         document.getElementById('loc-clear-btn').style.display = '';
       }
       document.getElementById('loc-sharing-toggle').checked = me.share_location !== false;
+      const tt = document.getElementById('test-user-toggle');
+      if (tt) tt.checked = !!me.test_user;
       if (me.nickname) {
         document.getElementById('profile-nickname').textContent = me.nickname;
         document.getElementById('nickname-field').style.display = '';
@@ -508,6 +529,24 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ share })
     });
+  }
+
+  async function toggleTestUser(enabled) {
+    const status = document.getElementById('test-user-status');
+    try {
+      const r = await fetch('/api/user/test-mode', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+      if (!r.ok) throw new Error();
+      if (status) status.textContent = enabled
+        ? "You're a test user — open Chat and you'll see a feedback button on each reply."
+        : 'Test mode off.';
+    } catch (e) {
+      if (status) status.textContent = 'Could not update — please try again.';
+      document.getElementById('test-user-toggle').checked = !enabled;
+    }
   }
 
   async function clearLocation() {

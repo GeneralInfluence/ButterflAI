@@ -133,7 +133,7 @@ module.exports = {
   updateUser(id, fields) {
     const allowed = ['name', 'nickname', 'also_known_as', 'phone', 'onboarding_state', 'onboarding_data',
                      'telegram_id', 'telegram_chat_id', 'agent_endpoint',
-                     'city', 'lat', 'lng', 'location_updated_at', 'share_location', 'timezone'];
+                     'city', 'lat', 'lng', 'location_updated_at', 'share_location', 'timezone', 'test_user'];
     const sets = Object.keys(fields)
       .filter(k => allowed.includes(k))
       .map(k => `${k} = ?`);
@@ -478,6 +478,26 @@ module.exports = {
     return db.prepare(`
       SELECT * FROM inbound_messages WHERE processed = 0 ORDER BY created_at ASC
     `).all();
+  },
+
+  // ── Feedback (Phase B dev-user loop) ───────────────────────────────────────
+  createFeedback({ user_id, rating, agent_message, user_note, context_json, model }) {
+    const info = db.prepare(`
+      INSERT INTO feedback (user_id, rating, agent_message, user_note, context_json, model)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(user_id, rating || 'down', agent_message || null, user_note || null, context_json || null, model || null);
+    return info.lastInsertRowid;
+  },
+
+  getRecentFeedback(limit = 100, status = null) {
+    if (status) {
+      return db.prepare(`SELECT * FROM feedback WHERE status = ? ORDER BY created_at DESC LIMIT ?`).all(status, limit);
+    }
+    return db.prepare(`SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?`).all(limit);
+  },
+
+  updateFeedbackStatus(id, status) {
+    return db.prepare(`UPDATE feedback SET status = ? WHERE id = ?`).run(status, id);
   },
 
   // ── Conversation history (agent context across turns) ──────────────────────
