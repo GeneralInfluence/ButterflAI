@@ -1295,6 +1295,35 @@ function requireAdminPage(req, res, next) {
   next();
 }
 
+// ── Feedback (Phase B dev-user loop) ────────────────────────────────────────
+// A tester flags an agent reply that missed expectations; we capture the message +
+// recent turns so it can be reproduced in the simulator (see web/tools/sim.js).
+app.post('/api/feedback', webAuth.requireAuth, express.json(), (req, res) => {
+  const { agent_message, note } = req.body || {};
+  let context = null;
+  try { context = JSON.stringify(db.getRecentConversation(req.user.id, 12) || []); } catch (_) {}
+  const id = db.createFeedback({
+    user_id: req.user.id,
+    rating: 'down',
+    agent_message: (agent_message || '').slice(0, 4000) || null,
+    user_note: (note || '').slice(0, 2000) || null,
+    context_json: context,
+    model: process.env.AGENT_MODEL || null,
+  });
+  res.json({ ok: true, id });
+});
+
+// Admin triage: list feedback and set its status.
+app.get('/api/admin/feedback', requireAdmin, (req, res) => {
+  res.json({ feedback: db.getRecentFeedback(200, req.query.status || null) });
+});
+app.patch('/api/admin/feedback/:id', requireAdmin, express.json(), (req, res) => {
+  const status = req.body?.status;
+  if (!['new', 'triaged', 'fixed'].includes(status)) return res.status(400).json({ error: 'invalid status' });
+  db.updateFeedbackStatus(req.params.id, status);
+  res.json({ ok: true });
+});
+
 // ── Admin page ────────────────────────────────────────────────────────────────
 app.get('/admin', requireAdminPage, (req, res) => {
   res.sendFile(path.join(__dirname, 'public/admin/index.html'));

@@ -123,6 +123,11 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
     .ts { font-size: 11px; color: #bbb; margin-top: 2px; padding: 0 4px; }
+    .msg-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+    .msg-foot .ts { margin-top: 0; }
+    .fb-btn { background: none; border: none; cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: 6px; opacity: .28; transition: opacity .15s, background .15s; }
+    .fb-btn:hover { opacity: .75; background: rgba(108,71,255,.08); }
+    .fb-btn.flagged { opacity: .7; font-size: 11px; color: #8a7fb0; cursor: default; background: none; }
 
     /* Typing indicator */
     .typing { display: none; align-self: flex-start; }
@@ -465,7 +470,13 @@
       const div  = document.createElement('div');
       div.className = `msg ${role}`;
       const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
-      div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="ts">${time}</div>`;
+      if (role === 'bot') {
+        div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="msg-foot"><span class="ts">${time}</span><button class="fb-btn" type="button" title="Flag this reply as wrong" aria-label="Flag this reply">👎</button></div>`;
+        const fb = div.querySelector('.fb-btn');
+        if (fb) fb.addEventListener('click', () => flagMessage(fb, text));
+      } else {
+        div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="ts">${time}</div>`;
+      }
       // Insert before typing indicator so anchor stays last
       messagesEl.insertBefore(div, typingEl);
       // Track latest message timestamp for catch-up polling — only from server-sourced messages,
@@ -481,6 +492,17 @@
       } else {
         scrollToBottom();
       }
+    }
+
+    async function flagMessage(btn, text) {
+      if (btn.dataset.done) return;
+      btn.dataset.done = '1';
+      btn.textContent = '…';
+      try {
+        const r = await fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_message: text }) });
+        if (r.ok) { btn.textContent = '✓ flagged'; btn.classList.add('flagged'); }
+        else { btn.textContent = '👎'; delete btn.dataset.done; }
+      } catch (e) { btn.textContent = '👎'; delete btn.dataset.done; }
     }
 
     function showLocationPrompt() {

@@ -480,6 +480,26 @@ module.exports = {
     `).all();
   },
 
+  // ── Feedback (Phase B dev-user loop) ───────────────────────────────────────
+  createFeedback({ user_id, rating, agent_message, user_note, context_json, model }) {
+    const info = db.prepare(`
+      INSERT INTO feedback (user_id, rating, agent_message, user_note, context_json, model)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(user_id, rating || 'down', agent_message || null, user_note || null, context_json || null, model || null);
+    return info.lastInsertRowid;
+  },
+
+  getRecentFeedback(limit = 100, status = null) {
+    if (status) {
+      return db.prepare(`SELECT * FROM feedback WHERE status = ? ORDER BY created_at DESC LIMIT ?`).all(status, limit);
+    }
+    return db.prepare(`SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?`).all(limit);
+  },
+
+  updateFeedbackStatus(id, status) {
+    return db.prepare(`UPDATE feedback SET status = ? WHERE id = ?`).run(status, id);
+  },
+
   // ── Conversation history (agent context across turns) ──────────────────────
 
   appendConversation(userId, role, text) {
