@@ -312,6 +312,15 @@ describe('Live state over stale memory', () => {
     assertContains('previous turn', 'do not rely on previous turn for live data');
   });
 
+  // Bug postmortem (2026-09-22): a months-old event surfaced as "tonight".
+  test('Past events must never be presented as current', () => {
+    assertContains('ALREADY HAPPENED', 'past events are flagged, not presented as upcoming');
+  });
+
+  test('"Send a test" sends a neutral test, not a resurrected old plan', () => {
+    assertContains('a brief, neutral test message', 'a test is a test — not an old event');
+  });
+
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

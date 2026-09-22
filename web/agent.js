@@ -1669,10 +1669,10 @@ async function processMessage(msg) {
   const pendingEvents = (() => {
     try {
       const events = multiparty.getEventsByHost(userId).filter(e => e.status === 'open');
-      if (!events.length) return '  (none)';
-      return events.map(e => {
-        const rsvp = multiparty.getRsvpSummary(e.id);
-        // Get invitee details with status
+      const rows = [];
+      for (const e of events) {
+        const recency = eventRecency(e.scheduled_at, e.flexible_time);
+        if (recency === 'stale') continue;   // long-past events are noise — never surface them as current
         const invitations = db._raw
           ? db._raw().prepare(`
               SELECT c.name, ei.status FROM event_invitations ei
@@ -1681,9 +1681,13 @@ async function processMessage(msg) {
             `).all(e.id)
           : [];
         const inviteeList = invitations.map(i => `${i.name} (${i.status})`).join(', ') || 'no invitees yet';
-        const ts = new Date(e.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
-        return `  - eventId="${e.id}" | "${e.title}" | ${ts} | invitees: ${inviteeList}`;
-      }).join('\n');
+        const ts = recency === 'flexible'
+          ? 'open invite (no fixed time)'
+          : new Date(e.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+        const pastTag = recency === 'past' ? '  [ALREADY HAPPENED — do NOT present as upcoming]' : '';
+        rows.push(`  - eventId="${e.id}" | "${e.title}" | ${ts}${pastTag} | invitees: ${inviteeList}`);
+      }
+      return rows.length ? rows.join('\n') : '  (none)';
     } catch (_) { return '  (none)'; }
   })();
 
@@ -1820,6 +1824,21 @@ function buildDateContext(timezone, now = new Date()) {
   ].join('\n');
 }
 
+/**
+ * eventRecency — classify an event's time relative to now so the agent never
+ * presents a past event as if it's happening tonight. 'flexible' = open invite
+ * (no fixed time); 'upcoming' = still in the future; 'past' = happened within the
+ * last ~2 days (kept for "did you make it?" follow-ups); 'stale' = long past (noise
+ * — excluded from the snapshot). Exported for tests.
+ */
+function eventRecency(scheduledAt, flexibleTime, now = Date.now()) {
+  if (flexibleTime || !scheduledAt) return 'flexible';
+  const nowSec = Math.floor(now / 1000);
+  if (scheduledAt >= nowSec) return 'upcoming';
+  if (scheduledAt >= nowSec - 48 * 3600) return 'past';
+  return 'stale';
+}
+
 function buildPrefsSection(prefs, { coordinationOnly = false } = {}) {
   if (!prefs) {
     return coordinationOnly
@@ -1931,6 +1950,8 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - The user should feel like things just got handled — not like they're managing a group chat.
 
 LIVE STATE OVER MEMORY — always check the snapshot:
+- PAST EVENTS — never present them as current: an open event tagged [ALREADY HAPPENED] in the snapshot is in the PAST. NEVER compose a message implying it is happening now or tonight, and never base an outbound message on it. Before mentioning any event's timing, cross-check its date against the Date context block. Only message about UPCOMING events.
+- "Send a test" / "send [name] a test" means a brief, neutral test message (e.g. "Hey! This is a test from ButterflAI — ignore me 🦋"). Do NOT resurrect an old event or plan to fill it.
 - When asked "did she reply?", "who's confirmed?", "any updates?" — read the open events section of THIS message's state snapshot. It shows live RSVP statuses from the DB. Do NOT rely on what you said in a previous turn.
 - If the snapshot shows a contact as "accepted" or "declined", report that immediately — even if you previously said "waiting for a reply."
 - Agent-to-agent notifications arrive as [System notification] messages. When you receive one, your job is to inform the user proactively — send them an SMS with the update and report back.
@@ -2216,4 +2237,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver };
