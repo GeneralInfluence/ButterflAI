@@ -13,7 +13,7 @@
     "sim": "node tools/sim.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.26.0",
+    "@anthropic-ai/sdk": "^0.131.0",
     "better-sqlite3": "^12.11.1",
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.5",
