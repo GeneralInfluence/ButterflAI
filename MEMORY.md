@@ -68,6 +68,7 @@ build_state:
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
   test_suite: live_382_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
+  anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
   source_of_truth: four_flag_edge            # tiers are UI over this
   flags: [can_store, can_infer, can_contact, can_coordinate]
@@ -428,6 +429,20 @@ Owner locked a rearchitecture of the two weakest subsystems. **Full design: `doc
 > **Canonical docs (2026-07-17):** Shared project docs now live at **repo root** — single source of truth. This file is the merged canonical `MEMORY.md` (combines the former root behavioral sections + the `.claude/` test-suite + rearchitecture sections). The `.claude/` duplicates were removed; `.claude/` now holds only `settings.local.json` (Claude Code config). Session history moved to `docs/sessions/`. `CLAUDE.md` imports project docs from root and reads OpenClaw's identity files from `workspace/`.
 >
 > **Deferred to a joint session with the OpenClaw agent** (owner-directed, do NOT do unilaterally): rewriting `workspace/AGENTS.md` so OpenClaw reads/writes these root docs (and stops regenerating a separate copy), and removing the now-stale `workspace/MEMORY.md`. Until then, `workspace/` is left untouched and OpenClaw still boots from its own copies.
+
+## 9. Anthropic auth: keyless (Workload Identity Federation) `[LOCKED 2026-10-02]`
+
+Prod has **no Anthropic API key**. The Fly machine mints a short-lived OIDC token, the SDK exchanges it for a ~10-min Anthropic access token, and refreshes on its own. The old key was deleted from the Console on 2026-10-02.
+
+- **Single construction point:** `web/anthropic-client.js` → `createAnthropicClient()`. Never `new Anthropic(...)` anywhere else. Order: `ANTHROPIC_API_KEY` (wins if set — local dev, sim, rollback) → token file → GitHub Actions OIDC → Fly OIDC (`/.fly/api` socket). No credentials = explicit error; it **never** falls back to a local `ant` login, so tests cannot make billed calls.
+- **Prod config (Fly secrets, IDs only — not secret):** `ANTHROPIC_FEDERATION_RULE_ID=fdrl_012XnXFhZaZ82JSBtoBdzLgL`, `ANTHROPIC_ORGANIZATION_ID=2b9d76fb-b200-4924-ad27-939f48a28915`, `ANTHROPIC_SERVICE_ACCOUNT_ID=svac_01SKgsRBbdK756yhvZYQijo7`, `ANTHROPIC_WORKSPACE_ID=wrkspc_013UDMFnQxx3ereyaBV8DtML`.
+- **Fly issuer is `https://oidc.fly.io/sean-gonzalez`** — NOT the `personal` slug `flyctl orgs list` shows. Token `sub` = `sean-gonzalez:butterflai:<machine>`; rule matches `subject_prefix sean-gonzalez:butterflai:*` + `audience https://api.anthropic.com`.
+- **Health signal:** agent startup log ends `auth=federation:fly`. `auth=api_key` means a key crept back in; `agent loop disabled` means auth is broken.
+- **Rollback:** create a new key in the Console, `flyctl secrets set -a butterflai ANTHROPIC_API_KEY=...` (key takes precedence immediately).
+- **Failed exchanges** return an opaque 401; the reason is in Console → Workload identity → authentication history.
+- **SDK:** `@anthropic-ai/sdk` 0.131 (upgraded from 0.26 for this).
+- **Trust-model note:** this removes the stored Anthropic credential (leak risk); it does not change who can read private data (§3.8 / §8 still describe that). The Phase 2 enclave on AWS/GCP should use the same keyless pattern (both are native WIF providers).
+- **Open:** nightly eval (GitHub Actions) not yet on federation — needs its own Console connection + repo variables; it was already failing before this change. Setup steps: `docs/workload-identity.md`.
 
 ---
 *Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*
