@@ -24,7 +24,7 @@
 
 'use strict';
 
-const Anthropic = require('@anthropic-ai/sdk');
+const { createAnthropicClient, resolveAuth } = require('./anthropic-client');
 const db = require('./db');
 const sms = require('./sms');
 const { ConsentRequired } = require('./sms');
@@ -40,7 +40,7 @@ const coord      = require('./coordination');
 const sse        = require('./sse');
 const flai       = require('./flai');
 
-let anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let anthropic = createAnthropicClient();
 
 // Test/sim injection: swap the Anthropic client (mirrors sms._setClient). No-op
 // in prod. Lets the multi-agent simulator (tools/sim.js) drive scripted or real
@@ -2207,11 +2207,12 @@ async function tick() {
 }
 
 function startAgentLoop() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('[agent] ANTHROPIC_API_KEY not set — agent loop disabled');
+  const auth = resolveAuth();
+  if (auth.mode === 'none') {
+    console.warn(`[agent] ${auth.error} — agent loop disabled`);
     return;
   }
-  console.log(`[agent] starting loop (poll every ${POLL_INTERVAL_MS}ms, model=${MODEL})`);
+  console.log(`[agent] starting loop (poll every ${POLL_INTERVAL_MS}ms, model=${MODEL}, auth=${auth.mode})`);
   setInterval(tick, POLL_INTERVAL_MS);
   tick(); // run immediately on start
 }

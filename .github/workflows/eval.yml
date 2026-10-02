@@ -5,6 +5,13 @@ on:
   schedule:
     - cron: '0 6 * * *'   # nightly at 06:00 UTC
 
+# id-token: write lets the job mint a GitHub OIDC token for Anthropic
+# Workload Identity Federation (web/anthropic-client.js). No stored key needed
+# once the ANTHROPIC_FEDERATION_* repo variables are set.
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   eval:
     runs-on: ubuntu-latest
@@ -29,6 +36,12 @@ jobs:
         env:
           NODE_ENV: test
           DB_PATH: ':memory:'
+          # Federation (preferred). IDs are not secrets, so they live in repo
+          # *variables*. While ANTHROPIC_API_KEY is still set it takes
+          # precedence; delete that secret to cut over.
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}

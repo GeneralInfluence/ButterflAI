@@ -26,9 +26,9 @@ const db = require('./db');
 const sms = require('./sms');
 const push = require('./push');
 const { ConsentRequired } = require('./sms');
-const Anthropic = require('@anthropic-ai/sdk');
+const { createAnthropicClient } = require('./anthropic-client');
 
-const _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const _anthropic = createAnthropicClient();
 
 /**
  * Use Claude to classify an RSVP reply as YES / NO / UNCLEAR.
