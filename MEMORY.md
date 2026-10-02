@@ -442,7 +442,7 @@ Prod has **no Anthropic API key**. The Fly machine mints a short-lived OIDC toke
 - **Failed exchanges** return an opaque 401; the reason is in Console → Workload identity → authentication history.
 - **SDK:** `@anthropic-ai/sdk` 0.131 (upgraded from 0.26 for this).
 - **Trust-model note:** this removes the stored Anthropic credential (leak risk); it does not change who can read private data (§3.8 / §8 still describe that). The Phase 2 enclave on AWS/GCP should use the same keyless pattern (both are native WIF providers).
-- **Open:** nightly eval (GitHub Actions) not yet on federation — needs its own Console connection + repo variables; it was already failing before this change. Setup steps: `docs/workload-identity.md`.
+- **Nightly eval (GitHub Actions):** rule `fdrl_011AWBXihUa91RsZqKtRS4dg` (subject `repo:GeneralInfluence/ButterflAI:ref:refs/heads/main`), dedicated service account `svac_01NgzQ2uo7hWjtLD5V4wLTK1`; exchange verified 2026-10-02. Workflow reads the IDs from repo *variables* (not secrets). The eval itself was failing before this change for an unrelated reason. Setup steps: `docs/workload-identity.md`.
 
 ---
 *Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*
