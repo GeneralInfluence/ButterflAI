@@ -1,0 +1,35 @@
+# TEMPORARY — one-off check of the GitHub Actions → Anthropic federation rule.
+# Delete after it runs green.
+name: anthropic-wif-test
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/anthropic-wif-test.yml']
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  call-claude:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch GitHub OIDC token
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const token = await core.getIDToken('https://api.anthropic.com');
+            core.setSecret(token);
+            core.exportVariable('JWT', token);
+      - name: Exchange for an Anthropic access token
+        run: |
+          curl -sS --fail-with-body https://api.anthropic.com/v1/oauth/token \
+            -H "content-type: application/json" \
+            --data @- <<JSON | jq 'with_entries(if (.key | test("token$")) then .value = "<redacted>" else . end)'
+          {
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": "$JWT",
+            "federation_rule_id": "fdrl_011AWBXihUa91RsZqKtRS4dg",
+            "organization_id": "2b9d76fb-b200-4924-ad27-939f48a28915",
+            "service_account_id": "svac_01NgzQ2uo7hWjtLD5V4wLTK1",
+            "workspace_id": "wrkspc_013UDMFnQxx3ereyaBV8DtML"
+          }
+          JSON
