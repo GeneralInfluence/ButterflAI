@@ -55,10 +55,13 @@ including from forks.
 ### Prod (Fly.io)
 
 - Provider tile: **Custom OIDC**.
-  - Issuer URL: `https://oidc.fly.io/<fly-org-slug>` (find the slug with
-    `flyctl orgs list`); JWKS: discovery.
+  - Issuer URL: `https://oidc.fly.io/sean-gonzalez`; JWKS: discovery.
+    Note: this is NOT the `personal` slug that `flyctl orgs list` shows — read
+    the real `iss` from a token on the machine (decoded 2026-10-02:
+    `iss=https://oidc.fly.io/sean-gonzalez`,
+    `sub=sean-gonzalez:butterflai:<machine-name>`, 10-minute lifetime, has `jti`).
 - Rule match:
-  - `subject_prefix`: `<fly-org-slug>:butterflai:*` (Fly's `sub` is `org:app:machine`)
+  - `subject_prefix`: `sean-gonzalez:butterflai:*` (Fly's `sub` is `org:app:machine`)
   - `audience`: `https://api.anthropic.com`
 - Scope `workspace:developer`, lifetime 600s.
 - Set the IDs on Fly (they are not secrets, but `fly secrets` is the simplest
