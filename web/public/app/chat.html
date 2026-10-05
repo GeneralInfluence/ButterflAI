@@ -268,10 +268,11 @@
     <div id="scroll-anchor" style="height:1px;flex-shrink:0;"></div>
   </div>
 
-  <!-- Sensitive mode banner (hidden by default) -->
-  <div id="sensitive-banner" style="display:none;background:#fff0f0;color:#b91c1c;font-size:12px;font-weight:600;text-align:center;padding:6px 12px;border-top:1px solid #fca5a5">
-    🔒 Private mode on — your messages are saved encrypted, visible only to you, and never shared with other people without your approval
-  </div>
+  <!-- Sensitive mode banner (hidden by default). Tap → full explanation in Settings. -->
+  <a id="sensitive-banner" href="/app/settings#private-mode" aria-label="Private mode on — what this means"
+     style="display:none;background:#fff0f0;color:#b91c1c;font-size:12px;font-weight:600;text-align:center;padding:6px 12px;border-top:1px solid #fca5a5;text-decoration:none">
+    🔒 Private mode on <span style="font-weight:500;opacity:.8">· what this means ›</span>
+  </a>
   <div class="input-row">
     <button id="mic-btn" onclick="toggleMic()" title="Speak to ButterflAI">
       <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-1.5 16.93A7.001 7.001 0 0 1 5 11H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2a7 7 0 0 1-5.5 6.93z"/></svg>
@@ -318,7 +319,7 @@
       const input = document.getElementById('msg-input');
       btn.style.opacity = sensitiveMode ? '1' : '0.4';
       btn.style.background = sensitiveMode ? '#fff0f0' : 'none';
-      banner.style.display = sensitiveMode ? '' : 'none';
+      banner.style.display = sensitiveMode ? 'block' : 'none';
       input.placeholder = sensitiveMode
         ? '🔒 Private — saved encrypted, visible only to you'
         : 'Message your ButterflAI…';

@@ -255,6 +255,25 @@
     <div id="sharing-list"><div style="color:#aaa;font-size:14px">Loading…</div></div>
   </section>
 
+  <!-- Private mode — the full explanation the chat banner links to -->
+  <section id="private-mode" style="scroll-margin-top:72px">
+    <h2>🔒 Private mode</h2>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="flex:1;min-width:140px;font-size:14px">Status: <strong id="private-mode-status">—</strong></div>
+        <button class="btn btn-secondary" id="private-mode-btn" onclick="togglePrivateMode()">—</button>
+      </div>
+      <p style="font-size:14px;color:#555;margin-bottom:8px">Turn it on with the 🔒 in chat when you want to tell your agent something personal. While it's on:</p>
+      <ul style="font-size:14px;color:#555;line-height:1.5;padding-left:20px;margin-bottom:8px">
+        <li>Your messages, and your agent's replies, are saved <strong>only encrypted</strong>. You see them in your chat; nobody else does.</li>
+        <li>Your agent can't save anything you say to your regular preferences or notes — only to your encrypted store.</li>
+        <li>Nothing is shared with other people unless you approve it, one person at a time (see <strong>Private info sharing</strong>).</li>
+        <li>Your agent still uses what you tell it — for example, people on your <strong>Avoid list</strong> are never invited — without ever saying why.</li>
+      </ul>
+      <p style="font-size:12px;color:#8e8e93;line-height:1.5">Good to know: your messages are processed by Anthropic's Claude to write replies. ButterflAI can technically decrypt your private data to act for you; every read is logged (see <strong>Your data</strong>). Replies sent by text message travel over your phone carrier like any SMS. Later in a conversation, your agent sees earlier private messages only as "🔒 Private message".</p>
+    </div>
+  </section>
+
   <!-- Avoid list — private, enforced by your agent, never said to anyone -->
   <section>
     <h2>🚫 Avoid list</h2>
@@ -478,6 +497,32 @@
   // update-check.js loads after this script, so wait for it.
   window.addEventListener('load', showAppVersion);
 
+  // ── Private mode (the chat banner links here) ───────────────────────────────
+  let privateModeOn = false;
+
+  function renderPrivateMode() {
+    document.getElementById('private-mode-status').textContent = privateModeOn ? 'On' : 'Off';
+    document.getElementById('private-mode-btn').textContent = privateModeOn ? 'Turn off' : 'Turn on';
+  }
+
+  async function loadPrivateMode() {
+    try {
+      privateModeOn = !!(await fetch('/api/chat/sensitive-mode').then(r => r.json())).sensitive_mode;
+      renderPrivateMode();
+    } catch (_) {
+      document.getElementById('private-mode-status').textContent = 'Could not load';
+    }
+  }
+
+  async function togglePrivateMode() {
+    const r = await fetch('/api/chat/sensitive-mode', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on: !privateModeOn })
+    });
+    if (r.ok) { privateModeOn = !privateModeOn; renderPrivateMode(); }
+    else alert('Could not update. Try again.');
+  }
+
   // ── Avoid list + agent activity ──────────────────────────────────────────────
   let avoidEntries = [];
 
@@ -583,6 +628,11 @@
 
       // Per-contact private-data sharing
       await loadSharing();
+
+      await loadPrivateMode();
+      // Arriving from the chat banner: the section loaded after the browser's initial
+      // anchor jump, so scroll to it now.
+      if (location.hash === '#private-mode') document.getElementById('private-mode').scrollIntoView();
 
       // Avoid list first: the activity view uses it for "Ask me next time"
       await loadAvoidList();

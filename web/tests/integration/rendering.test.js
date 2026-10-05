@@ -531,7 +531,22 @@ describe('Private mode + avoid list UI (PRIVACY.md "act on it, never say it")', 
   test('chat banner no longer over-promises', () => {
     const html = read('chat.html');
     assert.ok(!html.includes('everything you say is stored encrypted'), 'old over-promising banner removed');
-    assert.ok(html.includes('visible only to you'), 'honest banner present');
+    assert.ok(html.includes('visible only to you'), 'honest placeholder present');
+  });
+
+  test('chat banner is a short "Private mode on" link to the explanation in settings', () => {
+    const html = read('chat.html');
+    assert.match(html, /<a id="sensitive-banner" href="\/app\/settings#private-mode"/);
+    assert.ok(html.includes('🔒 Private mode on'));
+    assert.ok(html.includes("banner.style.display = sensitiveMode ? 'block' : 'none'"), 'link shown as a block');
+  });
+
+  test('settings explains private mode honestly and can turn it on/off', () => {
+    const html = read('settings.html');
+    assert.ok(html.includes('id="private-mode"'), 'anchor target for the chat banner');
+    assert.ok(html.includes("Anthropic's Claude"), 'discloses the model provider');
+    assert.ok(html.includes('can technically decrypt'), 'does not claim we cannot read it (PRIVACY.md)');
+    assert.ok(html.includes('function togglePrivateMode('));
   });
 
   test('settings page has the avoid list and agent activity sections', () => {
