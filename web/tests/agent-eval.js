@@ -16,6 +16,18 @@ require('dotenv').config({ path: '.env' });
 
 const { processMessage } = require('../agent');
 const db = require('../db');
+const { resolveAuth } = require('../anthropic-client');
+
+// Without credentials every Claude call fails and the RSVP classifier silently falls back
+// to keyword matching — which surfaced for weeks as misleading "RSVP ... got unclear"
+// failures while the real cause (no credentials in CI) went unnoticed. Fail loudly instead.
+const auth = resolveAuth();
+if (auth.mode === 'none') {
+  console.error(`\n❌ Agent eval cannot run: ${auth.error}`);
+  console.error('   In CI, set the ANTHROPIC_FEDERATION_* repo variables (docs/workload-identity.md).\n');
+  process.exit(1);
+}
+console.log(`Anthropic auth: ${auth.mode}`);
 
 // ── Test harness ──────────────────────────────────────────────────────────────
 
