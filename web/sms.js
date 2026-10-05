@@ -100,7 +100,26 @@ function _setDb(mockDb) {
  * @param {string} body - Message text
  * @throws {ConsentRequired} if no consent record exists for `to`
  */
+/**
+ * SMS doesn't render markdown — "**Friday, 7 PM**" arrives with literal asterisks.
+ * The agent writes markdown for the web chat, so every outbound text goes through
+ * this. Conservative: only paired markers are touched, so "5*" or snake_case survive.
+ */
+function toPlainSms(text) {
+  return String(text ?? '')
+    .replace(/```[a-z]*\n?([\s\S]*?)```/gi, '$1')                // code fences
+    .replace(/`([^`\n]+)`/g, '$1')                                 // inline code
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,           // [text](url)
+      (_, t, u) => (t === u ? u : `${t} (${u})`))
+    .replace(/\*\*([^*\n]+?)\*\*/g, '$1')                          // **bold**
+    .replace(/__([^_\n]+?)__/g, '$1')                              // __bold__
+    .replace(/(^|[\s(])\*([^*\s][^*\n]*?)\*(?=$|[\s.,!?;:)])/gm, '$1$2') // *italic*
+    .replace(/^#{1,6}\s+/gm, '')                                   // # headings
+    .replace(/^(\s*)[-*]\s+/gm, '$1• ');                           // - bullets → •
+}
+
 async function send(to, body, opts = {}) {
+  body = toPlainSms(body);
   // ── GATE: opt-out checked first (explicit STOP always wins), then consent ─
   const db = _getDb();
   if (db.isOptedOut(to)) {
@@ -180,6 +199,7 @@ async function notifyUser(to, text) {
  * @param {string} body - Message text
  */
 async function sendUnchecked(to, body) {
+  body = toPlainSms(body);
   const client = _getClient();
   if (!client) {
     console.log(`[SMS dev/unchecked] → ${to}: ${body}`);
@@ -234,6 +254,7 @@ module.exports = {
   send,
   sendUnchecked,
   sendContactInvite,
+  toPlainSms,
   notifyUser,
   validateTwilioRequest,
   RecipientOptedOut,

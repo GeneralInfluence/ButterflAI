@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: ['**']
+    # Docs-only pushes don't need tests or a deploy (2026-10-05: a burst of doc/debug
+    # pushes produced 8 overlapping deploys in 20 minutes, which left prod stopped).
+    paths-ignore: ['**.md', 'docs/**']
   pull_request:
     branches: ['**']
 
@@ -45,6 +48,11 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # One deploy at a time. Overlapping deploys left the replacement machine created but
+    # stopped (2026-10-05), so prod sat idle until a request woke it.
+    concurrency:
+      group: fly-deploy-prod
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -53,5 +61,16 @@ jobs:
 
       - name: Deploy to Fly.io
         run: flyctl deploy --remote-only --build-arg BUILD_VERSION=$(git rev-parse --short HEAD)-$(date +%s)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      # min_machines_running=1 should guarantee this, but a deploy has left the only
+      # machine stopped before. Start anything stopped, then prove the app answers.
+      - name: Make sure prod is running
+        run: |
+          for id in $(flyctl machines list --json | jq -r '.[] | select(.state=="stopped") | .id'); do
+            echo "Starting stopped machine $id"; flyctl machine start "$id"
+          done
+          curl -fsS --retry 6 --retry-delay 10 --retry-all-errors https://butterflai.fly.dev/health
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
