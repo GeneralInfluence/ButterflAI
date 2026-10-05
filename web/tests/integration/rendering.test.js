@@ -542,3 +542,50 @@ describe('Private mode + avoid list UI (PRIVACY.md "act on it, never say it")', 
     assert.ok(html.includes('Ask me next time'), 'fine-tune from the activity log');
   });
 });
+
+describe('PWA update flow — visible updates + manual check', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const pub = (f) => fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8');
+
+  // Regression: updates applied silently on foreground/navigation, so the banner seemed
+  // to vanish for no reason. Every update-driven reload must leave a confirmation.
+  test('update-driven reloads show an "updated" confirmation', () => {
+    const js = pub('update-check.js');
+    assert.ok(js.includes('function reloadForUpdate('), 'single reload path for updates');
+    assert.ok(js.includes('sessionStorage.setItem(JUST_UPDATED_KEY'), 'flag set before reload');
+    assert.ok(js.includes('function showUpdatedToast('), 'confirmation shown after reload');
+  });
+
+  // Regression: if a second deploy landed while the banner was up, tapping it messaged an
+  // obsolete worker and nothing happened.
+  test('applyUpdate uses the registration\'s current waiting worker, with a reload fallback', () => {
+    const js = pub('update-check.js');
+    assert.match(js, /reg && reg\.waiting\) \|\| waitingWorker/);
+    assert.match(js, /setTimeout\(reloadForUpdate, \d+\)/);
+  });
+
+  test('update-check.js exposes a manual check and the running version', () => {
+    const js = pub('update-check.js');
+    assert.ok(js.includes('window.bflyCheckForUpdate'));
+    assert.ok(js.includes('window.bflyRunningVersion'));
+  });
+
+  test('service worker answers GET_VERSION with BUILD_VERSION', () => {
+    const sw = pub('sw.js');
+    assert.match(sw, /GET_VERSION[\s\S]*postMessage\(\{ version: BUILD_VERSION \}\)/);
+  });
+
+  test('settings has a "Check for updates" button and shows the app version', () => {
+    const html = pub('app/settings.html');
+    assert.ok(html.includes('id="update-check-btn"') && html.includes('Check for updates'));
+    assert.ok(html.includes('id="app-version"'));
+    assert.ok(html.includes("window.addEventListener('load', showAppVersion)"), 'waits for update-check.js, which loads later');
+  });
+
+  test('no leftover __REMOVE__ placeholder scripts on any app page', () => {
+    for (const f of fs.readdirSync(path.join(__dirname, '../../public/app')).filter((x) => x.endsWith('.html'))) {
+      assert.ok(!pub(`app/${f}`).includes('__REMOVE__'), `${f} still has the placeholder`);
+    }
+  });
+});

@@ -16,6 +16,10 @@ self.addEventListener('message', e => {
   if (e.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
+  // Settings shows the running version ("Check for updates").
+  if (e.data?.type === 'GET_VERSION' && e.ports?.[0]) {
+    e.ports[0].postMessage({ version: BUILD_VERSION });
+  }
 });
 
 // ── Push notifications ────────────────────────────────────────────────────────

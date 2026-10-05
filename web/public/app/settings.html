@@ -318,6 +318,16 @@
     <h2>App</h2>
     <div id="install-prompt-slot"></div>
     <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px">
+          <div style="font-size:14px;font-weight:600">App version</div>
+          <div id="app-version" style="font-size:13px;color:#8e8e93">—</div>
+        </div>
+        <button class="btn btn-secondary" id="update-check-btn" onclick="checkForUpdates()">Check for updates</button>
+      </div>
+      <div id="update-check-status" role="status" style="font-size:13px;color:#8e8e93;margin-top:8px"></div>
+    </div>
+    <div class="card">
       <a class="btn btn-danger" href="/auth/logout">Sign out</a>
     </div>
   </section>
@@ -439,6 +449,34 @@
     });
     if (r.ok) await loadSharing(); else alert('Could not update. Try again.');
   }
+
+  // ── App version + manual update check (update-check.js exposes the helpers) ──
+  async function showAppVersion() {
+    const el = document.getElementById('app-version');
+    if (!window.bflyRunningVersion) { el.textContent = 'Not installed as an app'; return; }
+    const v = await window.bflyRunningVersion();
+    el.textContent = v ? v.split('-')[0] : 'Unknown';
+  }
+
+  async function checkForUpdates() {
+    const btn = document.getElementById('update-check-btn');
+    const status = document.getElementById('update-check-status');
+    if (!window.bflyCheckForUpdate) { status.textContent = 'Updates aren\'t supported in this browser — reload the page to get the latest.'; return; }
+    btn.disabled = true;
+    status.textContent = 'Checking…';
+    try {
+      const r = await window.bflyCheckForUpdate();
+      if (r.status === 'updating') status.textContent = 'New version found — updating…';
+      else if (r.status === 'latest') { status.textContent = '✓ You\'re on the latest version.'; btn.disabled = false; }
+      else { status.textContent = 'Reload the page to get the latest.'; btn.disabled = false; }
+    } catch (_) {
+      status.textContent = 'Couldn\'t check right now. Try again in a moment.';
+      btn.disabled = false;
+    }
+  }
+
+  // update-check.js loads after this script, so wait for it.
+  window.addEventListener('load', showAppVersion);
 
   // ── Avoid list + agent activity ──────────────────────────────────────────────
   let avoidEntries = [];
@@ -764,6 +802,5 @@
   </script>
   <script src="/update-check.js"></script>
   <script src="/install-prompt.js"></script>
-  <script>__REMOVE__</script>
 </body>
 </html>

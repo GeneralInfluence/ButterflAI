@@ -61,16 +61,58 @@
     document.body.prepend(banner);
   }
 
+  // ── "Updated" confirmation ────────────────────────────────────────────────
+  // Updates also apply silently (on foreground / on opening a page), which made the
+  // banner seem to vanish for no reason. Every update-driven reload now leaves a flag
+  // so the next page says so.
+  const JUST_UPDATED_KEY = 'bfly-just-updated';
+
+  function reloadForUpdate() {
+    try { sessionStorage.setItem(JUST_UPDATED_KEY, '1'); } catch (_) {}
+    location.reload();
+  }
+
+  function showUpdatedToast() {
+    const t = document.createElement('div');
+    t.id = 'bfly-updated-toast';
+    t.setAttribute('role', 'status');
+    t.textContent = '✓ ButterflAI updated to the latest version';
+    t.style.cssText = [
+      'position:fixed', 'left:50%', 'transform:translateX(-50%)', 'z-index:9999',
+      'bottom:calc(76px + env(safe-area-inset-bottom))',
+      'background:#1c1c1e', 'color:#fff', 'border-radius:12px', 'padding:10px 16px',
+      'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
+      'font-size:14px', 'font-weight:500', 'box-shadow:0 2px 12px rgba(0,0,0,.25)',
+      'max-width:calc(100% - 32px)', 'text-align:center',
+    ].join(';');
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+  }
+
+  try {
+    if (sessionStorage.getItem(JUST_UPDATED_KEY)) {
+      sessionStorage.removeItem(JUST_UPDATED_KEY);
+      if (document.body) showUpdatedToast();
+      else document.addEventListener('DOMContentLoaded', showUpdatedToast);
+    }
+  } catch (_) {}
+
   // ── Apply update ──────────────────────────────────────────────────────────
   let waitingWorker = null;
 
-  function applyUpdate() {
-    if (waitingWorker) {
-      // Tell the waiting SW to take over — controllerchange fires → reload below
-      waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-    } else {
-      location.reload(true);
-    }
+  async function applyUpdate() {
+    // Always use the registration's CURRENT waiting worker: if another deploy landed
+    // while the banner was up, the worker we remembered is already obsolete and
+    // messaging it would do nothing.
+    let reg = null;
+    try { reg = await navigator.serviceWorker.getRegistration(); } catch (_) {}
+    const worker = (reg && reg.waiting) || waitingWorker;
+    if (!worker) { reloadForUpdate(); return; }
+    // Tell the waiting SW to take over — controllerchange fires → reload below.
+    worker.postMessage({ type: 'SKIP_WAITING' });
+    // Fallback: a page that wasn't controlled by the SW (e.g. after a hard reload)
+    // never gets controllerchange, so reload anyway.
+    setTimeout(reloadForUpdate, 4000);
   }
 
   // controllerchange is the authoritative signal — reload when the new SW takes over.
@@ -81,8 +123,43 @@
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloading || !hadController) return;
     reloading = true;
-    location.reload();
+    reloadForUpdate();
   });
+
+  // ── Manual check (Settings → "Check for updates") ─────────────────────────
+  // Resolves { status: 'updating' | 'latest' | 'unsupported' }. 'updating' means the
+  // page is about to reload onto the new version.
+  window.bflyCheckForUpdate = async function () {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return { status: 'unsupported' };
+    if (!reg.waiting) {
+      await reg.update();
+      const w = reg.installing || reg.waiting;
+      if (w && w.state !== 'installed') {
+        await new Promise(res => {
+          w.addEventListener('statechange', () => {
+            if (w.state === 'installed' || w.state === 'redundant') res();
+          });
+          setTimeout(res, 15000);
+        });
+      }
+    }
+    if (reg.waiting) { applyUpdate(); return { status: 'updating' }; }
+    return { status: 'latest' };
+  };
+
+  // The version the active service worker was deployed as (e.g. "745ec2d-1791225311").
+  window.bflyRunningVersion = async function () {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sw = navigator.serviceWorker.controller || (reg && reg.active);
+    if (!sw) return null;
+    return new Promise(res => {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = e => res(e.data && e.data.version || null);
+      sw.postMessage({ type: 'GET_VERSION' }, [ch.port2]);
+      setTimeout(() => res(null), 2000);
+    });
+  };
 
   // ── Auto-update on foreground ─────────────────────────────────────────────
   // When the user brings the app back from background, if a new version is
