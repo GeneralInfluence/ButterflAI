@@ -4,7 +4,7 @@ Social ButterflAI: personal social agent. Agent does the logistical labor of fri
 
 **Prod:** https://butterflai.social / https://butterflai.fly.dev  
 **Stack:** Node/Express + SQLite on Fly.io. SMS via Twilio. Agent loop in `web/agent.js`.  
-**Tests:** `cd web && npm test` — run before every commit. 382 passing. Never skip or delete tests.  
+**Tests:** `cd web && npm test` — run before every commit. 560 passing. Never skip or delete tests.  
 **Deploy:** push to main → CI tests → auto-deploy (requires `FLY_API_TOKEN` in GitHub secrets).
 
 ---
@@ -34,6 +34,7 @@ The OpenClaw agent that owns this repo has its own identity, operating rules, an
 
 ## Session history (newest first)
 
+@docs/sessions/session-2026-10-05.md
 @docs/sessions/session-2026-07-18.md
 @docs/sessions/session-2026-07-17.md
 @docs/sessions/session-2026-07-16.md
