@@ -51,8 +51,10 @@ async function classifyRsvp(inviteText, replyText) {
     if (word === 'YES') return 'yes';
     if (word === 'NO') return 'no';
     return 'unclear';
-  } catch (_) {
-    // Fallback to a simple keyword check if Claude call fails
+  } catch (err) {
+    // Fallback to a simple keyword check if Claude call fails. Log why: a silent fallback
+    // hid missing CI credentials behind "RSVP ... got unclear" eval failures for weeks.
+    console.error(`[multiparty] classifyRsvp: Claude call failed (${err.status || err.name}: ${err.message}) — using keyword fallback`);
     const lower = replyText.toLowerCase();
     if (/\b(yes|yeah|yep|sure|in|absolutely|definitely|totally|down)\b/.test(lower)) return 'yes';
     if (/\b(no|nope|can't|busy|pass)\b/.test(lower)) return 'no';
