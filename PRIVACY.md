@@ -128,6 +128,127 @@ cross-user leak) and `privacy.test.js` Invariant 2.
 
 ---
 
+## Using private data: act on it, never say it `[DESIGN 2026-10-05 — not built]`
+
+> **Status:** design, owner-requested. Nothing in this section is built yet. Read with
+> "Current state" below before assuming any of it works.
+
+### Why private data exists at all
+
+Users tell ButterflAI private things ("make sure my STI results don't get out", "I don't
+want to hang out with Julie") because they want the agent to **use** them, not just hold
+them. A store the agent writes to and never acts on is decoration. The guarantee we make
+is about what gets **said**, not what gets **used**:
+
+> **Private data shapes what the user's own agent does. It never appears in what any
+> agent says to anyone else — except an individual datum the user approved for a
+> specific person (per-edge consent, above).**
+
+This is the existing rule from `IMPLEMENTATION.md` §1 — *agents propose and respond, they
+never explain* — applied to all private data. Julie's agent can observe that Sean is "not
+available Friday"; it never learns why. A peer may infer a pattern over time; that
+inference asymmetry is accepted (same as `IMPLEMENTATION.md` §1). Explicit transmission
+is not.
+
+### Plain-text vs private, by use
+
+| | Plain-text preferences (`user_preferences`) | Private data (encrypted store) |
+|---|---|---|
+| Examples | allergies, diet, availability, vibe, neighborhood | avoid-lists, STI/health, private notes about people |
+| In the agent's prompt | always, verbatim | only minimized, derived facts, when a task needs them; every read audit-logged |
+| Crosses to other agents | yes, as hard constraints | never — only the *result* of a decision |
+| Shown to contacts | as needed for logistics | never, except a per-edge-approved datum |
+
+### Three use classes
+
+Every private datum is stored with one of these classes. The class decides how it may be
+used.
+
+1. **`act_on` — act on, never say.** Example: "don't put me in plans with Julie."
+   - Code removes the person when resolving candidates, building suggestions, and choosing
+     invitees (`multiparty.js`, `coord-loop.js`, `coordination.js`). Deterministic, not a
+     prompt instruction — the model never needs to see the reason.
+   - Inbound opportunities: an invite/probe from (or centered on) an avoided person gets a
+     neutral outcome — answered "not available" / `reject {}`, or surfaced privately to the
+     user. Which one is an open question (below).
+   - Outbound: only the resulting proposal (a plan without Julie). No reason, no hint, no
+     "can't because…".
+2. **`share_with_approval` — say only to people the user approved.** Example: STI results.
+   - Withheld by default. Disclosed only via `readPrivateDataForSharing` to a user on the
+     datum's `sharing_approved_to` list (already built for health notes).
+   - The agent asks at the moment sharing would help ("share this with Alex?"), not up
+     front, and records the approval for that one person only.
+3. **`context` — inform the user's own agent only.** Example: "Marcus is going through a
+   breakup."
+   - May shape tone, timing, and suggestions *to the user*, and reminders to the user.
+   - Never disclosed, never used to message Marcus with sentiment the user didn't see
+     (expressive messages still need the user in the send path, `MEMORY.md` §4).
+
+### Enforcement points (in code — the prompt is not an enforcement layer)
+
+- **Storage is structured, not prose.** An avoid-list is `{ class: 'act_on', subject:
+  <contact_id>, scope: 'all_social' | <activity> }`, not the user's sentence. Derive and
+  discard (`IMPLEMENTATION.md` §2.3): keep the operative rule, drop the confession.
+- **Owner read path.** A server-side function returns *derived* facts for planning
+  (e.g. "contact 42 is excluded from social plans") and logs the read. The raw value and
+  the user's original words are not returned to the model.
+- **Filters live where decisions are made:** candidate resolution, invite composition,
+  inbound probe/invite handling. Each has a test that an excluded contact never appears in
+  any outbound payload, SMS, or `agent_messages` row.
+- **Private mode is enforced in code:** while on, tools that write plain-text data
+  (`update_preferences`, agent notes) refuse; and the message is not stored in plain text
+  in `conversation_history` (a placeholder is stored instead). Closes the gap with
+  Invariant 7.
+- **No new cross-agent field.** The `butterflai-coord/1.0` payloads stay enum/typed-only;
+  `reject` stays `{}`. Use classes add no wire format.
+
+### Current state (2026-10-05) — why none of this works yet
+
+- `crypto.js` private-prefs store (exclusions, private notes): has a reader tool
+  (`get_private_preferences`) but **no writer** anywhere in the app — always empty.
+- `sensitive.js` store (`user_private_data`): has a writer (`store_private_data`) but the
+  owner's own agent has **no read path** — only the cross-user health-sharing path reads it.
+  So "I don't want to see Julie" can be stored and is then never used.
+- Private mode is a **prompt instruction only**; messages are still saved verbatim in
+  `conversation_history`; the chat page doesn't load the real mode on open; the banner
+  over-promises ("everything you say is stored encrypted").
+
+### Build order
+
+1. Private-mode hardening (code-enforced writes, no plain-text history copy, real state on
+   page load, honest banner). Small, closes an existing over-promise.
+2. `act_on` avoid-lists end to end: structured storage + use class, owner read path,
+   filters in candidate/invite code, inbound handling, tests that the reason never leaves.
+3. Generalize per-edge approval (`share_with_approval`) beyond health notes; ask at the
+   moment of need.
+4. `context` class: minimized owner read path for tone/timing.
+
+Store consolidation onto one cipher stays in Phase 2 (`docs/REARCHITECTURE.md`); this
+design works on either store and should not wait for it.
+
+### Invariants to add when built
+
+- **Invariant 8 — Private data is used, not said.** No `act_on` or `context` datum, or its
+  reason, appears in any `agent_messages` payload, coordination message, SMS, or API
+  response visible to another user. Test: seed an avoid-list, run invite/coordination
+  flows, scan every outbound artifact for the subject's exclusion and any reason text.
+- **Invariant 9 — Exclusions are enforced in code.** An `act_on` subject is never
+  proposed or invited, regardless of model output. Test: a scripted model that tries to
+  invite the excluded contact is blocked.
+
+### Open questions (owner to decide)
+
+1. Inbound invite from an avoided person: auto-reply "not available", or ask the user
+   privately first? (Default proposal: ask privately; auto-decline only if the user opts in.)
+2. Group events where an avoided person was invited by someone else: hide, show with a
+   private note to the user, or let the user decide per avoid-list entry?
+3. Do avoid-lists decay (`passively_accumulated`-style TTL) or persist until removed
+   (`user_asserted`)? (Default proposal: persist — the user said it explicitly.)
+4. Private mode history placeholder: does the user lose that scrollback, or is it kept
+   encrypted and shown only to them?
+
+---
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.
