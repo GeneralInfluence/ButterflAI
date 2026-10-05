@@ -26,7 +26,7 @@ const db = require('./db');
 const sms = require('./sms');
 const push = require('./push');
 const { ConsentRequired } = require('./sms');
-const { createAnthropicClient } = require('./anthropic-client');
+const { createAnthropicClient, DEFAULT_MODEL } = require('./anthropic-client');
 
 const _anthropic = createAnthropicClient();
 
@@ -38,7 +38,7 @@ const _anthropic = createAnthropicClient();
 async function classifyRsvp(inviteText, replyText) {
   try {
     const result = await _anthropic.messages.create({
-      model: process.env.AGENT_MODEL || 'claude-haiku-4-5-20251001',
+      model: process.env.AGENT_MODEL || DEFAULT_MODEL,
       max_tokens: 10,
       system: 'You classify RSVP replies. Reply with exactly one word: YES, NO, or UNCLEAR.',
       messages: [{

@@ -173,3 +173,22 @@ describe('createAnthropicClient — federation end to end (loopback fakes)', () 
     assert.equal(seen.messagesAuth, `Bearer ${FAKE_ACCESS}`);
   });
 });
+
+describe('model defaults', () => {
+  test('DEFAULT_MODEL is a current model, not a retired claude-3 id', () => {
+    const { DEFAULT_MODEL } = require('../../anthropic-client');
+    assert.doesNotMatch(DEFAULT_MODEL, /^claude-3/);
+  });
+
+  // Regression: desires.js defaulted to claude-3-5-haiku-20241022, which 404s.
+  // App code must take its fallback from DEFAULT_MODEL, never hardcode one.
+  test('no app module hardcodes a retired claude-3 model id', () => {
+    const webDir = path.join(__dirname, '..', '..');
+    const offenders = fs.readdirSync(webDir)
+      .filter((f) => f.endsWith('.js'))
+      .filter((f) => /['"]claude-3[^'"]*['"]/.test(
+        // ignore comments that mention the old id as a warning
+        fs.readFileSync(path.join(webDir, f), 'utf8').replace(/\/\/.*$/gm, '')));
+    assert.deepEqual(offenders, []);
+  });
+});

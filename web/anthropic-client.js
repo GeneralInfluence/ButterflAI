@@ -28,6 +28,10 @@ const { identityTokenFromFile, identityTokenFromValue } = require('@anthropic-ai
 // The `aud` claim requested from every identity provider. Federation rules in
 // the Claude Console must match this exact value.
 const AUDIENCE = 'https://api.anthropic.com';
+
+// Model used when AGENT_MODEL is unset. Single source of truth — the old
+// per-file defaults drifted and desires.js kept a retired model that 404s.
+const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_FLY_SOCKET = '/.fly/api';
 
 function looksLikeJwt(s) {
@@ -141,4 +145,4 @@ function hasAnthropicCredentials(env = process.env, opts = {}) {
   return resolveAuth(env, opts).mode !== 'none';
 }
 
-module.exports = { createAnthropicClient, resolveAuth, hasAnthropicCredentials, AUDIENCE };
+module.exports = { createAnthropicClient, resolveAuth, hasAnthropicCredentials, AUDIENCE, DEFAULT_MODEL };

@@ -24,7 +24,7 @@
 
 'use strict';
 
-const { createAnthropicClient, resolveAuth } = require('./anthropic-client');
+const { createAnthropicClient, resolveAuth, DEFAULT_MODEL } = require('./anthropic-client');
 const db = require('./db');
 const sms = require('./sms');
 const { ConsentRequired } = require('./sms');
@@ -57,7 +57,7 @@ const POLL_INTERVAL_MS = parseInt(process.env.AGENT_POLL_MS || '5000', 10);
 // recipe layer + deterministic scaffolding + the feedback loop, not a bigger model).
 // The old 'claude-3-5-haiku-20241022' default 404s on this account — never fall back to it.
 // The prod AGENT_MODEL Fly secret overrides this; keep that secret on a Haiku-4.5 id.
-const MODEL = process.env.AGENT_MODEL || 'claude-haiku-4-5-20251001';
+const MODEL = process.env.AGENT_MODEL || DEFAULT_MODEL;
 if (!/claude/.test(MODEL)) {
   throw new Error(`AGENT_MODEL is set to an invalid value: "${MODEL}"`);
 }

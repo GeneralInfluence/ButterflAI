@@ -29,14 +29,14 @@
  *   in-flight coordination sessions, notifies peer agents, and returns a receipt.
  */
 
-const { createAnthropicClient } = require('./anthropic-client');
+const { createAnthropicClient, DEFAULT_MODEL } = require('./anthropic-client');
 const { v4: uuidv4 } = require('uuid');
 const db  = require('./db');
 const msg = require('./mcp-messages');
 const { CATEGORIES, ACTIVITY_TYPES } = require('./mcp-messages');
 
 const anthropic = createAnthropicClient();
-const MODEL = process.env.AGENT_MODEL || 'claude-3-5-haiku-20241022';
+const MODEL = process.env.AGENT_MODEL || DEFAULT_MODEL;
 
 // ─── Parsing ──────────────────────────────────────────────────────────────────
 
