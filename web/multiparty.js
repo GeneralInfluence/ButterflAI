@@ -36,12 +36,22 @@ const _anthropic = createAnthropicClient();
  * Regex will always lose against natural human language ("absofuckinglutely",
  * "you know it", "lmao yes"). Claude handles all of it.
  */
+// Friends answer invites casually. Idioms and rhetorical questions are real answers —
+// treating them as UNCLEAR leaves a friend's yes unrecorded (eval: "do bears shit in
+// the woods" came back UNCLEAR from Haiku with the one-line prompt).
+const RSVP_SYSTEM_PROMPT = `You classify a friend's reply to an invitation. Reply with exactly one word: YES, NO, or UNCLEAR.
+
+- YES: any acceptance, however casual — slang, profanity, emoji, or enthusiasm ("hell yeah", "count me in", "🙌").
+- YES: a rhetorical question or idiom whose obvious answer is yes ("is the pope catholic?", "does a bear sleep in the woods?", "you even have to ask?").
+- NO: any decline, however soft ("can't make it", "won't be able to", "rain check", "I'll pass").
+- UNCLEAR: only when the reply genuinely doesn't commit either way ("maybe", "what time?", "who else is going?").`;
+
 async function classifyRsvp(inviteText, replyText) {
   try {
     const result = await _anthropic.messages.create({
       model: process.env.AGENT_MODEL || DEFAULT_MODEL,
       max_tokens: 10,
-      system: 'You classify RSVP replies. Reply with exactly one word: YES, NO, or UNCLEAR.',
+      system: RSVP_SYSTEM_PROMPT,
       messages: [{
         role: 'user',
         content: `Invite: "${inviteText}"\nReply: "${replyText}"\n\nIs this a yes, no, or unclear?`,
@@ -655,6 +665,7 @@ module.exports = {
   handleRsvpReply,
   // Exposed for eval harness only
   _classifyRsvpPublic: (reply, inviteContext) => classifyRsvp(inviteContext, reply),
+  _RSVP_SYSTEM_PROMPT: RSVP_SYSTEM_PROMPT,
   getEvent,
   getEventsByHost,
   getInvitedEvents,

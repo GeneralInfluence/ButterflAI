@@ -546,3 +546,19 @@ describe('Avoid list — act on it, never say it (PRIVACY.md)', () => {
     assertContains('If a tool returns PRIVATE_MODE_ON', 'private mode refusal handling');
   });
 });
+
+describe('RSVP classifier prompt (multiparty.classifyRsvp)', () => {
+  const { _RSVP_SYSTEM_PROMPT: rsvp } = require('../../multiparty');
+
+  // Regression (nightly eval, 2026-10-05): Haiku classified "do bears shit in the woods"
+  // as UNCLEAR with a one-line prompt, so a friend's yes went unrecorded.
+  test('treats rhetorical yes-questions and idioms as YES', () => {
+    assert.ok(rsvp.includes('rhetorical question or idiom whose obvious answer is yes'));
+  });
+
+  test('casual acceptances and soft declines are covered; UNCLEAR is the narrow case', () => {
+    assert.ok(rsvp.includes('any acceptance, however casual'));
+    assert.ok(rsvp.includes('any decline, however soft'));
+    assert.ok(rsvp.includes('UNCLEAR: only when the reply genuinely doesn\'t commit'));
+  });
+});
