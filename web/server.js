@@ -1860,6 +1860,12 @@ app.patch('/api/contacts/:id/nickname', webAuth.requireAuth, express.json(), (re
   res.json({ ok: true });
 });
 
+// GET /api/version — the deploy currently being served. update-check.js compares this
+// with the version stamped into the page's own script to detect a stale open page.
+app.get('/api/version', (req, res) => {
+  res.json({ version: process.env.BUILD_VERSION || 'dev' });
+});
+
 app.get('/health', (req, res) => {
   // Verify DB is reachable
   try {

@@ -1,14 +1,48 @@
 /**
- * update-check.js — PWA update detection and banner
+ * update-check.js — keep the open app on the latest deploy.
  *
  * Include this script in every app page (after the SW registration).
+ *
+ * Staleness is decided by VERSION COMPARISON, not service-worker events:
+ *   - PAGE_VERSION is stamped into this file at deploy (Dockerfile), and this file is
+ *     served no-store with its page, so it is the version of the page you're looking at.
+ *   - GET /api/version is the version being served right now.
+ *   - Different → this open page is stale.
+ * The SW only proxies to the network (it caches nothing), so a reload always gets the
+ * latest. SW lifecycle events alone missed cases (an already-activated SW with an
+ * un-reloaded page; a banner pointing at a worker a newer deploy replaced), which is how
+ * the banner could vanish with the page still on the old version.
+ *
  * It will:
- *   1. Force an SW update check on every page load (so users don't wait 24h)
- *   2. Show a top banner when a new version is waiting
- *   3. On banner tap → tell the waiting SW to activate → reload
+ *   1. Check on load, whenever the app returns to the foreground, and every 10 minutes
+ *      while visible (an installed PWA can stay open for hours without reloading)
+ *   2. Foreground + stale → reload silently (all state is server-side, so it's lossless);
+ *      visible + stale → show the banner
+ *   3. Banner "Update now" → activate any waiting SW → reload
+ *   4. After any update-driven reload, confirm it ("ButterflAI updated")
+ *   5. Expose window.bflyCheckForUpdate / bflyRunningVersion for Settings
  */
 (function () {
   if (!('serviceWorker' in navigator)) return;
+
+  const PAGE_VERSION = '__BUILD_VERSION__';
+  const STAMPED = PAGE_VERSION.indexOf('__') !== 0; // unstamped in local dev
+  const POLL_MS = 10 * 60 * 1000;
+
+  // ── Version comparison ────────────────────────────────────────────────────
+  async function serverVersion() {
+    try {
+      const r = await fetch('/api/version', { cache: 'no-store' });
+      if (!r.ok) return null;
+      return (await r.json()).version || null;
+    } catch (_) { return null; }
+  }
+
+  async function isStale() {
+    if (!STAMPED) return false;
+    const v = await serverVersion();
+    return !!v && v !== 'dev' && v !== PAGE_VERSION;
+  }
 
   // ── Banner UI ─────────────────────────────────────────────────────────────
   function showUpdateBanner() {
@@ -42,7 +76,7 @@
 
     const dismiss = document.createElement('button');
     dismiss.textContent = '✕';
-    dismiss.title = 'Dismiss';
+    dismiss.title = 'Dismiss — the update applies next time you open the app, or from Settings';
     dismiss.style.cssText = [
       'background:none', 'border:none', 'color:rgba(255,255,255,.7)',
       'font-size:18px', 'cursor:pointer', 'padding:0 2px', 'flex-shrink:0',
@@ -62,9 +96,8 @@
   }
 
   // ── "Updated" confirmation ────────────────────────────────────────────────
-  // Updates also apply silently (on foreground / on opening a page), which made the
-  // banner seem to vanish for no reason. Every update-driven reload now leaves a flag
-  // so the next page says so.
+  // Updates also apply silently (on foreground / on opening a page). Every
+  // update-driven reload leaves a flag so the next page says so.
   const JUST_UPDATED_KEY = 'bfly-just-updated';
 
   function reloadForUpdate() {
@@ -102,8 +135,7 @@
 
   async function applyUpdate() {
     // Always use the registration's CURRENT waiting worker: if another deploy landed
-    // while the banner was up, the worker we remembered is already obsolete and
-    // messaging it would do nothing.
+    // while the banner was up, the worker we remembered is already obsolete.
     let reg = null;
     try { reg = await navigator.serviceWorker.getRegistration(); } catch (_) {}
     const worker = (reg && reg.waiting) || waitingWorker;
@@ -126,62 +158,29 @@
     reloadForUpdate();
   });
 
-  // ── Manual check (Settings → "Check for updates") ─────────────────────────
-  // Resolves { status: 'updating' | 'latest' | 'unsupported' }. 'updating' means the
-  // page is about to reload onto the new version.
-  window.bflyCheckForUpdate = async function () {
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg) return { status: 'unsupported' };
-    if (!reg.waiting) {
-      await reg.update();
-      const w = reg.installing || reg.waiting;
-      if (w && w.state !== 'installed') {
-        await new Promise(res => {
-          w.addEventListener('statechange', () => {
-            if (w.state === 'installed' || w.state === 'redundant') res();
-          });
-          setTimeout(res, 15000);
-        });
-      }
-    }
-    if (reg.waiting) { applyUpdate(); return { status: 'updating' }; }
-    return { status: 'latest' };
-  };
-
-  // The version the active service worker was deployed as (e.g. "745ec2d-1791225311").
-  window.bflyRunningVersion = async function () {
-    const reg = await navigator.serviceWorker.getRegistration();
-    const sw = navigator.serviceWorker.controller || (reg && reg.active);
-    if (!sw) return null;
-    return new Promise(res => {
-      const ch = new MessageChannel();
-      ch.port1.onmessage = e => res(e.data && e.data.version || null);
-      sw.postMessage({ type: 'GET_VERSION' }, [ch.port2]);
-      setTimeout(() => res(null), 2000);
-    });
-  };
-
-  // ── Auto-update on foreground ─────────────────────────────────────────────
-  // When the user brings the app back from background, if a new version is
-  // waiting just reload silently — all state is server-side so it's lossless.
-  document.addEventListener('visibilitychange', () => {
+  // ── Periodic + foreground checks ──────────────────────────────────────────
+  async function checkWhileVisible() {
     if (document.visibilityState !== 'visible') return;
-    if (waitingWorker) { applyUpdate(); return; }
-    // An installed PWA resumes from the background WITHOUT reloading, so the
-    // load-time update() never re-runs and new deploys are never noticed. Re-check
-    // every time the app returns to the foreground — this is what stops users from
-    // having to uninstall/reinstall to get updates.
+    if (await isStale()) showUpdateBanner();
+  }
+  setInterval(checkWhileVisible, POLL_MS);
+
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible') return;
+    // An installed PWA resumes from the background WITHOUT reloading. Returning to the
+    // app is a natural moment to move to the latest version — reload silently (the
+    // "updated" toast confirms it).
+    if (waitingWorker || await isStale()) { applyUpdate(); return; }
     navigator.serviceWorker.ready.then(reg => reg.update().catch(() => {}));
   });
 
-  // ── Registration + update detection ──────────────────────────────────────
+  // ── Registration + SW update detection ────────────────────────────────────
   navigator.serviceWorker.ready.then(registration => {
-    // 1. Check for a SW waiting right now (e.g. user revisited after update deployed)
+    // 1. A SW waiting right now (deployed while we were away) — fresh open, apply it.
     if (registration.waiting) {
       waitingWorker = registration.waiting;
-      // A new version was deployed while we were away — apply it now. This is a fresh
-      // open, so reloading to the latest is expected, not disruptive.
       applyUpdate();
+      return;
     }
 
     // 2. Detect new SW found while page is open
@@ -190,12 +189,8 @@
       newWorker.addEventListener('statechange', () => {
         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
           waitingWorker = newWorker;
-          // If app is in background right now, the next foreground will auto-reload.
-          // If app is in foreground (user is actively using it), show the banner.
-          if (document.visibilityState === 'visible') {
-            showUpdateBanner();
-          }
-          // If invisible, we'll silently reload on next visibilitychange above.
+          if (document.visibilityState === 'visible') showUpdateBanner();
+          // If invisible, the next visibilitychange applies it.
         }
       });
     });
@@ -203,4 +198,33 @@
     // 3. Force an update check on every page load — bypasses the 24h throttle
     registration.update().catch(() => {});
   });
+
+  // 4. A deploy can land between this page being served and loading — check once now.
+  checkWhileVisible();
+
+  // ── Manual check (Settings → "Check for updates") ─────────────────────────
+  // Resolves { status: 'updating' | 'latest' }. 'updating' means the page is about to
+  // reload onto the new version.
+  window.bflyCheckForUpdate = async function () {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (reg && !reg.waiting) {
+      try { await reg.update(); } catch (_) {}
+      const w = reg.installing;
+      if (w) {
+        await new Promise(res => {
+          w.addEventListener('statechange', () => {
+            if (w.state === 'installed' || w.state === 'redundant') res();
+          });
+          setTimeout(res, 15000);
+        });
+      }
+    }
+    if ((reg && reg.waiting) || await isStale()) { applyUpdate(); return { status: 'updating' }; }
+    return { status: 'latest' };
+  };
+
+  // The deploy this open page came from (e.g. "7d1d3e8-1791227000"), or null in dev.
+  window.bflyRunningVersion = async function () {
+    return STAMPED ? PAGE_VERSION : null;
+  };
 })();

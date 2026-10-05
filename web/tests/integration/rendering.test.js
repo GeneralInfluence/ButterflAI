@@ -571,9 +571,29 @@ describe('PWA update flow — visible updates + manual check', () => {
     assert.ok(js.includes('window.bflyRunningVersion'));
   });
 
-  test('service worker answers GET_VERSION with BUILD_VERSION', () => {
-    const sw = pub('sw.js');
-    assert.match(sw, /GET_VERSION[\s\S]*postMessage\(\{ version: BUILD_VERSION \}\)/);
+  // Regression: the banner vanished while the page stayed on the old version — SW
+  // lifecycle events alone missed it. Staleness is now page version vs server version.
+  test('the page carries its own deploy version, stamped at build', () => {
+    const js = pub('update-check.js');
+    assert.ok(js.includes("const PAGE_VERSION = '__BUILD_VERSION__'"), 'placeholder present in source');
+    const dockerfile = fs.readFileSync(path.join(__dirname, '../../../Dockerfile'), 'utf8');
+    assert.match(dockerfile, /sed -i "s\/__BUILD_VERSION__\/\$\{BUILD_VERSION\}\/" public\/sw\.js public\/update-check\.js/,
+      'Dockerfile stamps update-check.js too');
+    assert.match(dockerfile, /ENV BUILD_VERSION=\$\{BUILD_VERSION\}/, 'server knows its version at runtime');
+  });
+
+  test('stale detection compares page version with GET /api/version, on foreground and on a timer', () => {
+    const js = pub('update-check.js');
+    assert.ok(js.includes("fetch('/api/version'"));
+    assert.ok(js.includes('v !== PAGE_VERSION'));
+    assert.match(js, /setInterval\(checkWhileVisible, POLL_MS\)/);
+    assert.match(js, /visibilitychange[\s\S]*await isStale\(\)/);
+  });
+
+  test('GET /api/version reports the served deploy', async () => {
+    const res = await request.get('/api/version');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.version, process.env.BUILD_VERSION || 'dev');
   });
 
   test('settings has a "Check for updates" button and shows the app version', () => {

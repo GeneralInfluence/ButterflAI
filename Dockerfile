@@ -13,9 +13,12 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY web/ ./
 COPY db/ ./db/
 
-# Stamp BUILD_VERSION into service worker so every deploy produces a detectably new SW file
+# Stamp BUILD_VERSION into the service worker (so every deploy is a detectably new SW)
+# and into update-check.js (so an open page knows which deploy it came from and can
+# compare against GET /api/version — the reliable "is this page stale?" signal).
 ARG BUILD_VERSION=dev
-RUN sed -i "s/__BUILD_VERSION__/${BUILD_VERSION}/" public/sw.js
+RUN sed -i "s/__BUILD_VERSION__/${BUILD_VERSION}/" public/sw.js public/update-check.js
+ENV BUILD_VERSION=${BUILD_VERSION}
 
 # Persistent volume mount point for SQLite
 RUN mkdir -p /data
