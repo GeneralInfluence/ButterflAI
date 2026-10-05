@@ -1,25 +1,32 @@
-# TEMPORARY — print the (non-secret) claims of the GitHub OIDC token, fetched the
-# wizard's way and the app's way, to debug a 401 federation exchange. Delete after.
+# TEMPORARY — debug a 401 federation exchange. Delete after.
 name: wif-claims-debug
 on:
   push:
     branches: [main]
     paths: ['.github/workflows/wif-claims-debug.yml']
+  workflow_dispatch:
 permissions:
   id-token: write
   contents: read
 jobs:
-  claims:
+  exchange:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v8
         with:
           script: |
-            const show = (label, jwt) => {
-              const p = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
-              console.log(label, JSON.stringify({ iss: p.iss, sub: p.sub, aud: p.aud, ref: p.ref, repository_owner: p.repository_owner, event_name: p.event_name, ttl: p.exp - p.iat }));
-            };
-            show('core.getIDToken:', await core.getIDToken('https://api.anthropic.com'));
-            const url = `${process.env.ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${encodeURIComponent('https://api.anthropic.com')}`;
-            const r = await fetch(url, { headers: { authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` } });
-            show('app fetch:      ', (await r.json()).value);
+            for (const ws of [true, false]) {
+              const jwt = await core.getIDToken('https://api.anthropic.com');
+              const body = {
+                grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt,
+                federation_rule_id: 'fdrl_011AWBXihUa91RsZqKtRS4dg',
+                organization_id: '2b9d76fb-b200-4924-ad27-939f48a28915',
+                service_account_id: 'svac_01NgzQ2uo7hWjtLD5V4wLTK1',
+                ...(ws ? { workspace_id: 'wrkspc_013UDMFnQxx3ereyaBV8DtML' } : {}),
+              };
+              const r = await fetch('https://api.anthropic.com/v1/oauth/token', {
+                method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-beta': 'oidc-federation-2026-04-01' },
+                body: JSON.stringify(body) });
+              const j = await r.json().catch(() => ({}));
+              console.log(`event=${context.eventName} workspace_id=${ws}: HTTP ${r.status}`, j.access_token ? 'access_token=<redacted>' : JSON.stringify(j));
+            }
