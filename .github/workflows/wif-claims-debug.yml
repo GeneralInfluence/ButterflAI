@@ -1,0 +1,25 @@
+# TEMPORARY — print the (non-secret) claims of the GitHub OIDC token, fetched the
+# wizard's way and the app's way, to debug a 401 federation exchange. Delete after.
+name: wif-claims-debug
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wif-claims-debug.yml']
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  claims:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const show = (label, jwt) => {
+              const p = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
+              console.log(label, JSON.stringify({ iss: p.iss, sub: p.sub, aud: p.aud, ref: p.ref, repository_owner: p.repository_owner, event_name: p.event_name, ttl: p.exp - p.iat }));
+            };
+            show('core.getIDToken:', await core.getIDToken('https://api.anthropic.com'));
+            const url = `${process.env.ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${encodeURIComponent('https://api.anthropic.com')}`;
+            const r = await fetch(url, { headers: { authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` } });
+            show('app fetch:      ', (await r.json()).value);
