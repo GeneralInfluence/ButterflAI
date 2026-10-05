@@ -29,6 +29,7 @@ const sms = require('./sms');
 const { ConsentRequired, RecipientOptedOut } = require('./sms');
 const sse      = require('./sse');
 const sensitive = require('./sensitive');
+const avoid = require('./avoid');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
@@ -1422,18 +1423,27 @@ app.get('/api/chat/messages', webAuth.requireAuth, (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const since = parseInt(req.query.since) || 0;
   let msgs;
+  const cols = 'role, text, created_at, private_ct, private_iv, private_tag';
   if (since > 0) {
     msgs = db._raw().prepare(
-      `SELECT role, text, created_at FROM conversation_history
+      `SELECT ${cols} FROM conversation_history
        WHERE user_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?`
     ).all(req.user.id, since, limit);
   } else {
     msgs = db._raw().prepare(
-      `SELECT role, text, created_at FROM conversation_history
+      `SELECT ${cols} FROM conversation_history
        WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`
     ).all(req.user.id, limit).reverse();
   }
-  res.json({ messages: msgs });
+  // Private-mode messages are decrypted only here, for their owner (the query is scoped
+  // to req.user.id). Not access-logged per poll: this is the owner reading their own chat.
+  res.json({
+    messages: msgs.map(({ private_ct, private_iv, private_tag, ...m }) => {
+      if (!private_ct) return m;
+      try { return { ...m, text: sensitive.decrypt(private_ct, private_iv, private_tag), private: true }; }
+      catch (_) { return { ...m, private: true }; }
+    }),
+  });
 });
 
 // GET /api/chat/stream — SSE stream for real-time agent responses
@@ -1663,6 +1673,43 @@ app.post('/api/chat/sensitive-mode', webAuth.requireAuth, express.json(), (req, 
   if (typeof on !== 'boolean') return res.status(400).json({ error: 'on must be boolean' });
   sensitive.setSensitiveMode(req.user.id, on);
   res.json({ ok: true, sensitive_mode: on });
+});
+
+// GET /api/chat/sensitive-mode — the persisted state, so the chat page shows the truth on load
+app.get('/api/chat/sensitive-mode', webAuth.requireAuth, (req, res) => {
+  res.json({ sensitive_mode: sensitive.isSensitiveMode(req.user.id) });
+});
+
+// ── Avoid list + agent activity (owner-only; PRIVACY.md "act on it, never say it") ──
+// Every route is scoped to req.user.id (Invariant 4); entry ids from another user 404.
+
+app.get('/api/user/avoid-list', webAuth.requireAuth, (req, res) => {
+  const entries = avoid.listAvoid(req.user.id, { accessor: 'owner', context: 'settings view' });
+  res.json({ entries: entries.map(({ id, contact_id, name, on_invite }) => ({ id, contact_id, name, on_invite })) });
+});
+
+app.post('/api/user/avoid-list', webAuth.requireAuth, express.json(), (req, res) => {
+  const { contact_id, on_invite } = req.body || {};
+  const r = avoid.addAvoid(req.user.id, contact_id, { onInvite: on_invite || 'auto_decline' });
+  if (r.error) return res.status(r.error === 'CONTACT_NOT_FOUND' ? 404 : 400).json(r);
+  res.json(r);
+});
+
+app.patch('/api/user/avoid-list/:id', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = avoid.setPolicy(req.user.id, req.params.id, req.body?.on_invite, { accessor: 'owner' });
+  if (r.error) return res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r);
+  res.json(r);
+});
+
+app.delete('/api/user/avoid-list/:id', webAuth.requireAuth, (req, res) => {
+  const r = avoid.removeAvoid(req.user.id, req.params.id, { accessor: 'owner' });
+  if (r.error) return res.status(404).json(r);
+  res.json(r);
+});
+
+app.get('/api/user/activity', webAuth.requireAuth, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  res.json({ activity: avoid.listActivity(req.user.id, { limit }) });
 });
 
 // GET /api/user/private-data — list private data keys (not values) for the logged-in user

@@ -516,3 +516,29 @@ describe('Contacts page — Android Contact Picker null-safety', () => {
     );
   });
 });
+
+describe('Private mode + avoid list UI (PRIVACY.md "act on it, never say it")', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '../../public/app', f), 'utf8');
+
+  test('chat page loads the real private-mode state on open', () => {
+    const html = read('chat.html');
+    assert.match(html, /fetch\('\/api\/chat\/sensitive-mode'\)\s*\n?\s*\.then/, 'GET on load, not only POST on toggle');
+    assert.ok(html.includes('function applySensitiveUI('), 'UI state applied from server');
+  });
+
+  test('chat banner no longer over-promises', () => {
+    const html = read('chat.html');
+    assert.ok(!html.includes('everything you say is stored encrypted'), 'old over-promising banner removed');
+    assert.ok(html.includes('visible only to you'), 'honest banner present');
+  });
+
+  test('settings page has the avoid list and agent activity sections', () => {
+    const html = read('settings.html');
+    assert.ok(html.includes('id="avoid-list"') && html.includes("fetch('/api/user/avoid-list')"));
+    assert.ok(html.includes('id="activity-list"') && html.includes("fetch('/api/user/activity')"));
+    assert.ok(html.includes('Ask me first') && html.includes('Decline for me'), 'per-person policy control');
+    assert.ok(html.includes('Ask me next time'), 'fine-tune from the activity log');
+  });
+});

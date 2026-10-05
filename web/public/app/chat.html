@@ -270,7 +270,7 @@
 
   <!-- Sensitive mode banner (hidden by default) -->
   <div id="sensitive-banner" style="display:none;background:#fff0f0;color:#b91c1c;font-size:12px;font-weight:600;text-align:center;padding:6px 12px;border-top:1px solid #fca5a5">
-    🔒 Private mode on — everything you say is stored encrypted and never shared without your approval
+    🔒 Private mode on — your messages are saved encrypted, visible only to you, and never shared with other people without your approval
   </div>
   <div class="input-row">
     <button id="mic-btn" onclick="toggleMic()" title="Speak to ButterflAI">
@@ -296,7 +296,23 @@
     let sensitiveMode  = false; // 🔒 private mode — routes all content to encrypted store
 
     function toggleSensitiveMode() {
-      sensitiveMode = !sensitiveMode;
+      applySensitiveUI(!sensitiveMode);
+      // Notify server of mode change
+      fetch('/api/chat/sensitive-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on: sensitiveMode }),
+      }).catch(() => {});
+    }
+
+    // The mode is stored on the server and survives reloads; show the real state on open.
+    fetch('/api/chat/sensitive-mode')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && d.sensitive_mode !== sensitiveMode) applySensitiveUI(d.sensitive_mode); })
+      .catch(() => {});
+
+    function applySensitiveUI(on) {
+      sensitiveMode = on;
       const btn = document.getElementById('private-btn');
       const banner = document.getElementById('sensitive-banner');
       const input = document.getElementById('msg-input');
@@ -304,14 +320,8 @@
       btn.style.background = sensitiveMode ? '#fff0f0' : 'none';
       banner.style.display = sensitiveMode ? '' : 'none';
       input.placeholder = sensitiveMode
-        ? '🔒 Private — stored encrypted, never shared without your approval'
+        ? '🔒 Private — saved encrypted, visible only to you'
         : 'Message your ButterflAI…';
-      // Notify server of mode change
-      fetch('/api/chat/sensitive-mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ on: sensitiveMode }),
-      }).catch(() => {});
     }
 
     // ── Input auto-resize ──────────────────────────────────────────────────────

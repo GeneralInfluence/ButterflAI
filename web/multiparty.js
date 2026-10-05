@@ -25,6 +25,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 const sms = require('./sms');
 const push = require('./push');
+const avoid = require('./avoid');
 const { ConsentRequired } = require('./sms');
 const { createAnthropicClient, DEFAULT_MODEL } = require('./anthropic-client');
 
@@ -92,6 +93,7 @@ function ensureEventTables() {
       responded_at INTEGER,
       response_note TEXT,
       dismissed_at INTEGER,              -- set when user hides this invite (migration 021)
+      needs_owner_decision INTEGER NOT NULL DEFAULT 0, -- invitee must decide before their agent responds (migration 030)
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_event_invites_event   ON event_invitations(event_id);
@@ -161,6 +163,75 @@ function createEvent(hostUserId, { title, activity_type, venue_name, venue_addre
  * @param {string[]} contactIds  - must all belong to the host
  * @returns {{ sent: number, skipped: number }}
  */
+/**
+ * Queue the "invitee RSVP'd" notice for the host's agent. Shared by
+ * confirm_coordination_invite and automatic avoid-list declines, so an automatic
+ * decline is indistinguishable from a manual one on the host's side.
+ */
+function queueHostRsvpNotice({ title, scheduled_at, host_user_id }, inviteeUser, status) {
+  const host = db.getUser(host_user_id);
+  if (!host) return false;
+  const emoji = status === 'accepted' ? '✅' : '❌';
+  const ts = new Date(scheduled_at * 1000).toLocaleString('en-US', {
+    timeZone: host.timezone || 'America/Los_Angeles',
+    weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+  const contact = db.getContactByPhone(inviteeUser?.phone);
+  const contactName = contact?.name || inviteeUser?.name;
+  // Queue for host agent to process proactively
+  db.storeInboundMessage({
+    from_phone: host.phone,
+    from_type: 'user',
+    from_id: host.id,
+    channel: 'agent',
+    text: `[Agent-to-Agent RSVP] ${emoji} ${contactName} has ${status} the invite for "${title}" on ${ts}. Update the host and notify them now.`,
+  });
+  return true;
+}
+
+// Ask a user (via their own agent) to decide on an invite before anyone responds.
+function promptOwnerDecision(user, text) {
+  db.storeInboundMessage({
+    from_phone: user.phone,
+    from_type: 'user',
+    from_id: user.id,
+    channel: 'agent',
+    text: `[Invite needs your decision] ${text} Ask the user whether to go. Do not RSVP or contact the host until they answer, and never tell anyone else why.`,
+  });
+}
+
+function flagForOwnerDecision(invitationId) {
+  db._raw().prepare('UPDATE event_invitations SET needs_owner_decision = 1 WHERE id = ?').run(invitationId);
+}
+
+/**
+ * A newly added invitee may be on the avoid list of a ButterflAI user already
+ * invited to this event. Group events with an avoided person always ask
+ * (PRIVACY.md owner decision 2), including when the person is added later.
+ */
+function reviewExistingInvitees(event, newContact, newInvId, whenFor) {
+  const others = db._raw().prepare(`
+    SELECT ei.id, ei.status, ei.needs_owner_decision, c.phone
+    FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+    WHERE ei.event_id = ? AND ei.id != ? AND ei.status IN ('invited','accepted')
+  `).all(event.id, newInvId);
+  for (const o of others) {
+    if (avoid.phoneKey(o.phone) === avoid.phoneKey(newContact.phone)) continue;
+    const u = db.getUserByPhone(o.phone);
+    if (!u) continue;
+    const entry = avoid.findByPhone(avoid.listAvoid(u.id, { context: 'group invite check' }), newContact.phone);
+    if (!entry || o.needs_owner_decision) continue;
+    flagForOwnerDecision(o.id);
+    avoid.recordActivity(u.id, 'needs_decision', {
+      eventId: event.id, avoidId: entry.id,
+      text: `${entry.name} (on your avoid list) was added to "${event.title}" (${whenFor(u)}). Asked you before responding.`,
+    });
+    promptOwnerDecision(u, o.status === 'accepted'
+      ? `Someone on the user's avoid list was just added to "${event.title}" (${whenFor(u)}), which they already accepted. Check whether they still want to go.`
+      : `Someone on the user's avoid list is also invited to "${event.title}" (${whenFor(u)}).`);
+  }
+}
+
 async function inviteContacts(eventId, contactIds) {
   // Guard: refuse to send invites for events that have already passed
   const eventCheck = db._raw().prepare('SELECT scheduled_at, flexible_time FROM social_events WHERE id = ?').get(eventId);
@@ -175,15 +246,24 @@ async function inviteContacts(eventId, contactIds) {
   if (!host) throw new Error('Host not found');
 
   const hostTimezone = host.timezone || 'America/Los_Angeles';
+  const whenFor = (u) => event.flexible_time
+    ? 'open invite'
+    : formatEventDate(event.scheduled_at, u?.timezone || hostTimezone);
+
+  // The host's own avoid list is enforced here, in code (PRIVACY.md Invariant 9):
+  // an avoided contact is never invited, whatever the model asked for.
+  const hostAvoid = avoid.listAvoid(host.id, { context: 'invite filter' });
 
   let sent = 0;
   let skipped = 0;
+  const avoided = [];
 
   for (const contactId of contactIds) {
     const contact = db.getContact(contactId);
     if (!contact || contact.invited_by_user_id !== event.host_user_id) { skipped++; continue; }
     if (!contact.phone) { skipped++; continue; }
     if (db.isOptedOut(contact.phone)) { skipped++; continue; }
+    if (avoid.findByPhone(hostAvoid, contact.phone)) { skipped++; avoided.push(contact.nickname || contact.name); continue; }
 
     // Idempotent: don't send twice to same contact for same event
     const existing = db._raw()
@@ -198,11 +278,48 @@ async function inviteContacts(eventId, contactIds) {
       VALUES (?, ?, ?, 'invited', strftime('%s','now'))
     `).run(invId, eventId, contactId);
 
+    // Anyone already invited who avoids this new person gets asked (owner decision 2).
+    reviewExistingInvitees(event, contact, invId, whenFor);
+
     // Web-first: if the invitee is a ButterflAI user, notify them IN-APP, not by SMS.
     // The invitation row above already surfaces in their invited-events view; we add a
     // best-effort push nudge. SMS is reserved for non-users (the only channel to them).
     const inviteeUser = db.getUserByPhone(contact.phone);
     if (inviteeUser) {
+      // The invitee's avoid list acts here. "Act on, never say": the host only ever
+      // sees an ordinary decline (same notice as a manual one), never a reason.
+      const inviteeAvoid = avoid.listAvoid(inviteeUser.id, { context: 'incoming invite' });
+      const hostEntry = avoid.findByPhone(inviteeAvoid, host.phone);
+      const groupEntry = hostEntry ? null : db._raw().prepare(`
+        SELECT c.phone FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+        WHERE ei.event_id = ? AND ei.id != ?
+      `).all(eventId, invId).map((r) => avoid.findByPhone(inviteeAvoid, r.phone)).find(Boolean);
+
+      if (hostEntry && hostEntry.on_invite === 'auto_decline') {
+        db._raw().prepare(`UPDATE event_invitations SET status = 'declined', responded_at = strftime('%s','now') WHERE id = ?`).run(invId);
+        queueHostRsvpNotice(event, inviteeUser, 'declined');
+        avoid.recordActivity(inviteeUser.id, 'auto_declined', {
+          eventId, avoidId: hostEntry.id,
+          text: `Declined ${host.name}'s invite to "${event.title}" (${whenFor(inviteeUser)}) for you — ${hostEntry.name} is on your avoid list. Switch them to "ask me first" if you'd rather decide.`,
+        });
+        sent++;
+        console.log(`[multiparty] invite event=${eventId} user=${inviteeUser.id} auto-declined (avoid list)`);
+        continue;
+      }
+      if (hostEntry || groupEntry) {
+        const entry = hostEntry || groupEntry;
+        flagForOwnerDecision(invId);
+        avoid.recordActivity(inviteeUser.id, 'needs_decision', {
+          eventId, avoidId: entry.id,
+          text: hostEntry
+            ? `${host.name} invited you to "${event.title}" (${whenFor(inviteeUser)}). ${entry.name} is set to "ask me first", so your agent asked you.`
+            : `${host.name} invited you to "${event.title}" (${whenFor(inviteeUser)}). ${entry.name} (on your avoid list) is also invited, so your agent asked you.`,
+        });
+        promptOwnerDecision(inviteeUser, hostEntry
+          ? `${host.name} invited the user to "${event.title}" (${whenFor(inviteeUser)}).`
+          : `${host.name} invited the user to "${event.title}" (${whenFor(inviteeUser)}). Someone on the user's avoid list is also invited.`);
+      }
+
       const whenStr = event.flexible_time
         ? 'open invite — come whenever'
         : formatEventDate(event.scheduled_at, inviteeUser.timezone || hostTimezone);
@@ -237,7 +354,7 @@ async function inviteContacts(eventId, contactIds) {
     }
   }
 
-  return { sent, skipped };
+  return avoided.length ? { sent, skipped, avoided } : { sent, skipped };
 }
 
 /**
@@ -532,6 +649,7 @@ function dismissInvitation(invitationId, userPhone) {
 module.exports = {
   createEvent,
   inviteContacts,
+  queueHostRsvpNotice,
   handleRsvpReply,
   // Exposed for eval harness only
   _classifyRsvpPublic: (reply, inviteContext) => classifyRsvp(inviteContext, reply),

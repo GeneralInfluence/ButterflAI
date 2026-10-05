@@ -35,6 +35,7 @@ const venues = require('./venues');
 const multiparty = require('./multiparty');
 const desires    = require('./desires');
 const sensitive  = require('./sensitive');
+const avoid      = require('./avoid');
 const datetime   = require('./datetime');
 const coord      = require('./coordination');
 const sse        = require('./sse');
@@ -266,6 +267,19 @@ const TOOL_DEFINITIONS = [
         category:  { type: 'string', enum: ['HEALTH', 'SEXUAL', 'FINANCIAL', 'LEGAL', 'MENTAL_HEALTH', 'RELATIONSHIP', 'OTHER'], description: 'Category for access control' },
       },
       required: ['data_key', 'value', 'category'],
+    },
+  },
+  {
+    name: 'manage_avoid_list',
+    description: 'The user\'s private AVOID LIST: people they don\'t want to be in plans with ("I don\'t want to hang out with Julie", "keep me away from Dave", "stop inviting me to things with Sam"). Use action=add as soon as the user says this — look the person up with lookup_contact first and pass their contact_id. Store NO reason. The list is encrypted and enforced in code: avoided people are never invited by this user, and their invites to this user are declined automatically ("not available", never a reason) unless the entry is set to ask. Use set_policy with on_invite="ask" when the user wants to decide each time ("ask me when Julie invites me"), or "auto_decline" to stop asking. Use remove when the user is fine with the person again.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action:     { type: 'string', enum: ['add', 'remove', 'set_policy', 'list'] },
+        contact_id: { type: 'string', description: 'The person\'s contact id (from lookup_contact). Required for add, remove, set_policy.' },
+        on_invite:  { type: 'string', enum: ['auto_decline', 'ask'], description: 'What to do when this person invites the user. Default auto_decline.' },
+      },
+      required: ['action'],
     },
   },
   {
@@ -645,6 +659,7 @@ function toolStatusLine(toolName, input) {
     case 'get_contact_preferences':return `Checking preferences…`;
     case 'get_private_preferences':return `Checking private notes…`;
     case 'update_preferences':     return `Saving your preferences…`;
+    case 'manage_avoid_list':      return `Updating your private settings…`;
     case 'manage_contact_group':   return `Managing contact group…`;
     case 'create_invite':          return `Sending invite…`;
     case 'draft_contact_message':  return `Drafting message…`;
@@ -670,11 +685,36 @@ function toolStatusLine(toolName, input) {
   }
 }
 
+// Tools that persist what the user says in plain text. Refused while private mode is on.
+const PLAINTEXT_WRITE_TOOLS = ['update_preferences', 'save_agent_note'];
+
 async function executeTool(toolName, toolInput, userId, userPhone) {
   if (_toolObserver) {
     try { _toolObserver(toolName, toolInput, userId); } catch (_) { /* observer must never break the agent */ }
   }
+  // Private mode is enforced here, not just in the prompt (PRIVACY.md Invariant 7):
+  // while it's on, nothing the user says may be written to a plain-text store.
+  if (PLAINTEXT_WRITE_TOOLS.includes(toolName) && sensitive.isSensitiveMode(userId)) {
+    return {
+      error: 'PRIVATE_MODE_ON',
+      message: 'Private mode is on — nothing can be saved in plain text. Use store_private_data (or manage_avoid_list for people the user wants to avoid) instead.',
+    };
+  }
   switch (toolName) {
+
+    case 'manage_avoid_list': {
+      const { action, contact_id, on_invite } = toolInput;
+      if (action === 'list') {
+        return { entries: avoid.listAvoid(userId, { context: 'agent list' }).map(e => ({ contact_id: e.contact_id, name: e.name, on_invite: e.on_invite })) };
+      }
+      if (!contact_id) return { error: 'contact_id is required — look the person up with lookup_contact first' };
+      if (action === 'add') return avoid.addAvoid(userId, contact_id, { onInvite: on_invite || 'auto_decline' });
+      const entry = avoid.listAvoid(userId, { context: `agent ${action}` }).find(e => e.contact_id === contact_id);
+      if (!entry) return { error: 'NOT_ON_AVOID_LIST' };
+      if (action === 'remove') return avoid.removeAvoid(userId, entry.id);
+      if (action === 'set_policy') return avoid.setPolicy(userId, entry.id, on_invite);
+      return { error: `Unknown action: ${action}` };
+    }
 
     case 'add_contact': {
       const contactId = db.upsertContact({
@@ -1166,27 +1206,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       }
 
       // Notify the host's agent (agent-to-agent: share only RSVP result, not private prefs).
-      // Queue as an inbound_message so the host's agent proactively processes it and
-      // texts the host — without waiting for the host to ask.
+      // Queued as an inbound_message so the host's agent proactively texts the host.
+      // Shared with avoid-list auto-declines so both look identical to the host.
       const host = db.getUser(inv.host_user_id);
-      const contact = db.getContactByPhone(user?.phone);
-      if (host) {
-        const emoji = status === 'accepted' ? '✅' : '❌';
-        const ts = new Date(inv.scheduled_at * 1000).toLocaleString('en-US', {
-          timeZone: host.timezone || 'America/Los_Angeles',
-          weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-        });
-        const contactName = contact?.name || user?.name;
-        // Queue for host agent to process proactively
-        const agentMsg = `[Agent-to-Agent RSVP] ${emoji} ${contactName} has ${status} the invite for "${inv.title}" on ${ts}. Update the host and notify them now.`;
-        db.storeInboundMessage({
-          from_phone: host.phone,
-          from_type: 'user',
-          from_id: host.id,
-          channel: 'agent',
-          text: agentMsg,
-        });
-      }
+      if (host) multiparty.queueHostRsvpNotice(inv, user, status);
+      // The user has now decided, so the invite no longer waits on them.
+      db._raw().prepare('UPDATE event_invitations SET needs_owner_decision = 0 WHERE id = ?').run(invitation_id);
 
       const calFailed = calendarResult?.error;
       return {
@@ -1387,6 +1412,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         // Authoritative date the server scheduled — state THIS weekday+date back to the
         // user verbatim; do not recompute or relabel it.
         scheduled_for: resolvedWhen ? resolvedWhen.label : undefined,
+        // Not invited because they're on the user's own avoid list. Tell the user (only
+        // the user) and offer to remove them from the list if this was intentional.
+        avoided_not_invited: inviteResult.avoided,
         note: inviteResult.sent > 0
           ? `Invite(s) sent. Contacts can reply YES/NO and their response will be tracked automatically.`
           : `Event created but no invites sent (check contact_ids are valid and contacts aren't opted out).`,
@@ -1697,22 +1725,24 @@ async function processMessage(msg) {
   // Injected so this agent can act on them (update own calendar, notify host agent)
   const pendingCoordination = (() => {
     try {
-      const contact = db.getContactByPhone(user.phone);
-      if (!contact) return '';
+      // Match on phone, not one contact row: each host has their own contact row for
+      // this user, so a single getContactByPhone() lookup missed other hosts' invites.
       const rows = db._raw().prepare(`
-        SELECT ei.id as inv_id, ei.status, se.id as event_id, se.title, se.activity_type,
-               se.scheduled_at, se.venue_name, u.name as host_name
+        SELECT ei.id as inv_id, ei.status, ei.needs_owner_decision, se.id as event_id, se.title,
+               se.activity_type, se.scheduled_at, se.venue_name, u.name as host_name
         FROM event_invitations ei
+        JOIN contacts c ON c.id = ei.contact_id
         JOIN social_events se ON se.id = ei.event_id
         JOIN users u ON u.id = se.host_user_id
-        WHERE ei.contact_id = ? AND ei.notified_at > strftime('%s','now') - 604800
+        WHERE c.phone = ? AND se.host_user_id != ? AND ei.notified_at > strftime('%s','now') - 604800
         ORDER BY ei.notified_at DESC LIMIT 5
-      `).all(contact.id);
+      `).all(user.phone, userId);
       if (!rows.length) return '';
       const lines = rows.map(r => {
         const ts = new Date(r.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
         const venue = r.venue_name ? ` at ${r.venue_name}` : '';
-        return `  - inv_id="${r.inv_id}" | "${r.title}" hosted by ${r.host_name} | ${ts}${venue} | your status: ${r.status}`;
+        const ask = r.needs_owner_decision && r.status === 'invited' ? ' | ⚠ ASK YOUR USER before responding (never say why)' : '';
+        return `  - inv_id="${r.inv_id}" | "${r.title}" hosted by ${r.host_name} | ${ts}${venue} | your status: ${r.status}${ask}`;
       }).join('\n');
       return `\n## You have been invited to (by other ButterflAI users)\n${lines}\n- Use confirm_coordination_invite to RSVP and optionally add to your calendar`;
     } catch (_) { return ''; }
@@ -2034,6 +2064,15 @@ LEARNING THE USER — build their profile over time:
   - If the user says something that sounds sensitive but you're unsure: tell them "That sounds like it might be personal — I'm treating it as private and storing it encrypted. Is that right?" Then use store_private_data unless they say otherwise.
   - If private mode is ON (shown at top of this prompt): everything goes to store_private_data regardless.
   - update_preferences has a safety net that will reject sensitive content — if it returns SENSITIVE_DATA_DETECTED, call store_private_data instead.
+  - If a tool returns PRIVATE_MODE_ON, private mode is on: save it with store_private_data (or manage_avoid_list) instead. Never retry the plain-text tool.
+
+AVOID LIST — ACT ON IT, NEVER SAY IT:
+- When the user says they don't want to be in plans with someone ("I don't want to hang out with Julie", "keep me away from Dave"), look the person up and call manage_avoid_list action=add right away. Do not ask why and do not store a reason. Confirm in one short line.
+- The avoid list is enforced in code: avoided people are never invited, and their invites are declined automatically unless the user chose "ask me first" for that person. You do not need to remember it or work around it.
+- NEVER mention the avoid list, or any reason, to another agent, a contact, or in any message that leaves this conversation. To anyone else, an avoided invite is simply "can't make it".
+- If create_social_event returns avoided_not_invited, tell the user (only the user) that person is on their avoid list and wasn't invited, and offer to remove them from the list.
+- An invite marked "ASK YOUR USER" (or a "[Invite needs your decision]" message) must be put to the user before you RSVP. Ask in one line ("Sam invited you to trivia Thursday — want to go?"); for a group with someone they avoid, say someone on their avoid list is also going. Never RSVP until they answer.
+- The user can review what you did automatically and change any person to "ask me first" in Settings → Agent activity. Point them there when they ask what you've been doing.
 - Examples: "I hate sushi" → cuisine_avoids; "I'm usually free after 7" → availability_notes; "I'm allergic to peanuts" → food_allergies; "I'm more of a dive bar person" → vibe; "I try to keep nights under $50" → budget_high.
 - Food allergies are the most important — always save them and always factor them in when suggesting venues.
 - After the first week, you should know their neighborhood, rough availability, dietary constraints, and vibe. Build this naturally through conversation, not with a form.
@@ -2073,6 +2112,19 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
  * _processMessageContinue — the rest of processMessage, extracted so buildSystemPrompt
  * can live as a named, exported function between the two halves.
  */
+// Channels that carry the user's own words (private mode applies to these).
+const USER_CHANNELS = ['sms', 'webchat'];
+const PRIVATE_PLACEHOLDER = '🔒 Private message';
+
+// Private mode (owner decision 4): the message is kept, but only encrypted. Anything
+// reading conversation_history.text — including this agent's own history — sees the
+// placeholder; only the owner's chat view decrypts it.
+function appendHistory(userId, role, text, isPrivate) {
+  if (!isPrivate) return db.appendConversation(userId, role, text);
+  const e = sensitive.encrypt(String(text).slice(0, 4000));
+  return db.appendConversation(userId, role, PRIVATE_PLACEHOLDER, { ct: e.encrypted_v, iv: e.iv, tag: e.auth_tag });
+}
+
 async function _processMessageContinue({ msg, user, userId, userPhone, systemPrompt }) {
   // Load recent conversation history so the agent has context across SMS turns.
   // Filter: Anthropic only accepts 'user' and 'assistant' roles in messages[].
@@ -2095,8 +2147,12 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
     { role: 'user', content: msg.text },
   ];
 
-  // Store this inbound message in conversation history
-  db.appendConversation(userId, 'user', msg.text);
+  // Store this inbound message in conversation history. In private mode the user's own
+  // words (and this turn's replies) are kept only encrypted, and the queued copy of
+  // the message is scrubbed, so no plain-text copy is left at rest.
+  const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
+  appendHistory(userId, 'user', msg.text, isPrivate);
+  if (isPrivate) db.scrubInboundMessageText(msg.id, PRIVATE_PLACEHOLDER);
 
   // Agentic loop — run until Claude stops calling tools
   let iterations = 0;
@@ -2128,7 +2184,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       const replyText = textBlocks.map(b => b.text).join('\n').trim();
       if (replyText) {
         // Store reply in conversation history before sending
-        db.appendConversation(userId, 'assistant', replyText);
+        appendHistory(userId, 'assistant', replyText, isPrivate);
         // Push to web UI via SSE if connected
         sse.push(userId, { role: 'assistant', text: replyText, ts: Math.floor(Date.now() / 1000) });
         // Send via SMS only if the message came in via SMS, not web chat

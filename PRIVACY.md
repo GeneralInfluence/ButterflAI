@@ -128,10 +128,11 @@ cross-user leak) and `privacy.test.js` Invariant 2.
 
 ---
 
-## Using private data: act on it, never say it `[DESIGN 2026-10-05 — not built]`
+## Using private data: act on it, never say it `[DESIGN 2026-10-05 — steps 1–2 built]`
 
-> **Status:** design, owner-requested. Nothing in this section is built yet. Read with
-> "Current state" below before assuming any of it works.
+> **Status:** owner decisions locked 2026-10-05 (below). Private-mode hardening and
+> `act_on` avoid-lists (for invites) are built; per-person sharing beyond health notes and
+> the `context` class are not. See "Current state" for exactly what works.
 
 ### Why private data exists at all
 
@@ -202,23 +203,45 @@ used.
 - **No new cross-agent field.** The `butterflai-coord/1.0` payloads stay enum/typed-only;
   `reject` stays `{}`. Use classes add no wire format.
 
-### Current state (2026-10-05) — why none of this works yet
+### Current state (updated 2026-10-05)
 
-- `crypto.js` private-prefs store (exclusions, private notes): has a reader tool
-  (`get_private_preferences`) but **no writer** anywhere in the app — always empty.
-- `sensitive.js` store (`user_private_data`): has a writer (`store_private_data`) but the
-  owner's own agent has **no read path** — only the cross-user health-sharing path reads it.
-  So "I don't want to see Julie" can be stored and is then never used.
-- Private mode is a **prompt instruction only**; messages are still saved verbatim in
-  `conversation_history`; the chat page doesn't load the real mode on open; the banner
-  over-promises ("everything you say is stored encrypted").
+**Built (steps 1–2):**
+- **Private mode is enforced in code.** `update_preferences` and `save_agent_note` return
+  `PRIVATE_MODE_ON` while it's on (`agent.js` `PLAINTEXT_WRITE_TOOLS`). The user's SMS/web
+  message and that turn's reply are stored only encrypted (`conversation_history.private_*`,
+  `text` = placeholder); the queued `inbound_messages` copy is scrubbed; only the owner's
+  `GET /api/chat/messages` decrypts. The chat page loads the real state
+  (`GET /api/chat/sensitive-mode`) and the banner no longer over-promises.
+- **`act_on` avoid lists** (`web/avoid.js`, table `avoid_list`): encrypted payload (only
+  `user_id` plaintext), every read in `private_data_access_log`, no expiry, no reason stored.
+  Agent tool `manage_avoid_list`; owner routes `/api/user/avoid-list`; Settings UI.
+  Enforced in `multiparty.inviteContacts` (the single invite choke point):
+  host's avoided contacts are skipped (`avoided` returned → `avoided_not_invited`);
+  an invite from an avoided person is auto-declined via the same host notice as a manual
+  decline (`queueHostRsvpNotice`) or, with `ask`, flagged `needs_owner_decision` and the
+  invitee prompted; any group containing an avoided person (incl. added later) asks.
+- **Agent activity log** (`agent_activity`, encrypted descriptions): every automatic
+  decline and every "asked you" is recorded; Settings → Agent activity, with
+  "Ask me next time" to fine-tune.
+- Tests: `web/tests/integration/avoid-list.test.js`, rendering + system-prompt assertions.
+
+**Known limitations (not yet addressed):**
+- An auto-decline happens immediately; a host watching closely could notice the instant
+  response. Mitigation (randomized delay) needs a scheduler — not built.
+- The agent sees a placeholder for earlier private-mode turns, so it can't refer back to
+  them. Facts it needs should be stored with `store_private_data` / `manage_avoid_list`.
+- Replies sent by **SMS** in private mode still travel over the carrier in plain text.
+- Avoid lists act on invites only. `message_agent` to an avoided contact and the
+  (currently inert) desire-coordination candidate resolution are not yet filtered.
+- `crypto.js` private-prefs store still has no writer; `sensitive.js` facts still have no
+  owner read path for planning (steps 3–4).
 
 ### Build order
 
-1. Private-mode hardening (code-enforced writes, no plain-text history copy, real state on
-   page load, honest banner). Small, closes an existing over-promise.
-2. `act_on` avoid-lists end to end: structured storage + use class, owner read path,
-   filters in candidate/invite code, inbound handling, tests that the reason never leaves.
+1. ✅ Private-mode hardening (code-enforced writes, no plain-text history copy, real state
+   on page load, honest banner).
+2. ✅ `act_on` avoid-lists end to end for invites: encrypted storage, per-person policy,
+   enforcement in `inviteContacts`, inbound handling, activity log, tests.
 3. Generalize per-edge approval (`share_with_approval`) beyond health notes; ask at the
    moment of need.
 4. `context` class: minimized owner read path for tone/timing.
@@ -226,26 +249,30 @@ used.
 Store consolidation onto one cipher stays in Phase 2 (`docs/REARCHITECTURE.md`); this
 design works on either store and should not wait for it.
 
-### Invariants to add when built
+### Invariants 8–9 `[LOCKED 2026-10-05 — enforced for invites]`
 
 - **Invariant 8 — Private data is used, not said.** No `act_on` or `context` datum, or its
   reason, appears in any `agent_messages` payload, coordination message, SMS, or API
-  response visible to another user. Test: seed an avoid-list, run invite/coordination
-  flows, scan every outbound artifact for the subject's exclusion and any reason text.
+  response visible to another user. An automatic decline is indistinguishable from a
+  manual one in content. Test: `avoid-list.test.js` → "auto_decline: declined, host gets
+  the ordinary decline notice, no reason anywhere".
 - **Invariant 9 — Exclusions are enforced in code.** An `act_on` subject is never
-  proposed or invited, regardless of model output. Test: a scripted model that tries to
-  invite the excluded contact is blocked.
+  invited, regardless of model output. Test: `avoid-list.test.js` → "inviteContacts
+  skips an avoided contact" and "create_social_event tells the agent who was left out".
 
-### Open questions (owner to decide)
+### Owner decisions `[LOCKED 2026-10-05]`
 
-1. Inbound invite from an avoided person: auto-reply "not available", or ask the user
-   privately first? (Default proposal: ask privately; auto-decline only if the user opts in.)
-2. Group events where an avoided person was invited by someone else: hide, show with a
-   private note to the user, or let the user decide per avoid-list entry?
-3. Do avoid-lists decay (`passively_accumulated`-style TTL) or persist until removed
-   (`user_asserted`)? (Default proposal: persist — the user said it explicitly.)
-4. Private mode history placeholder: does the user lose that scrollback, or is it kept
-   encrypted and shown only to them?
+1. **Invites from an avoided person: per-person setting, default automatic.** The agent's
+   job is to minimize questions while maximizing fun, so an avoid-list entry defaults to
+   `auto_decline` (answer "not available", never a reason). Each entry can be switched to
+   `ask` ("ask me when Julie invites me, but not when Nate does"). The user can see every
+   automatic action in an **agent activity** log and fine-tune from there.
+2. **Group events that include someone on the avoid list: always ask.** The agent prompts
+   its user before responding, regardless of that entry's per-person setting. This also
+   applies when the avoided person is added after the user was invited.
+3. **Avoid lists do not expire.** They persist until the user removes an entry.
+4. **Private-mode messages are kept encrypted,** visible only to their owner in chat
+   history. The agent's own history sees a placeholder, not the text.
 
 ---
 

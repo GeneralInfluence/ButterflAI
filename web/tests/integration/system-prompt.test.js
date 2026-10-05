@@ -521,3 +521,28 @@ describe('Per-edge private-data sharing consent', () => {
     assertContains('treat it as private by default', 'default-private rule');
   });
 });
+
+describe('Avoid list — act on it, never say it (PRIVACY.md)', () => {
+  test('prompt adds avoided people via manage_avoid_list without asking why', () => {
+    assertContains('AVOID LIST — ACT ON IT, NEVER SAY IT', 'avoid-list section');
+    assertContains('call manage_avoid_list action=add right away. Do not ask why and do not store a reason', 'add immediately, no reason');
+  });
+
+  test('prompt forbids revealing the avoid list or reasons to anyone else', () => {
+    assertContains('NEVER mention the avoid list, or any reason, to another agent, a contact', 'never-say rule');
+    assertContains('simply "can\'t make it"', 'neutral outward phrasing');
+  });
+
+  test('prompt requires asking before RSVPing flagged invites', () => {
+    assertContains('must be put to the user before you RSVP', 'ask-first invites');
+    assertContains('Never RSVP until they answer', 'no RSVP before answer');
+  });
+
+  test('prompt tells the agent to report avoided_not_invited to the user only', () => {
+    assertContains('avoided_not_invited', 'create_social_event avoided field handled');
+  });
+
+  test('prompt handles PRIVATE_MODE_ON refusals', () => {
+    assertContains('If a tool returns PRIVATE_MODE_ON', 'private mode refusal handling');
+  });
+});

@@ -502,12 +502,19 @@ module.exports = {
 
   // ── Conversation history (agent context across turns) ──────────────────────
 
-  appendConversation(userId, role, text) {
+  // `privateEnc` ({ ct, iv, tag }) stores a private-mode message encrypted; `text` is
+  // then only the placeholder. See agent.js appendHistory.
+  appendConversation(userId, role, text, privateEnc = null) {
     const { v4: uuidv4 } = require('uuid');
     db.prepare(`
-      INSERT INTO conversation_history (id, user_id, role, text)
-      VALUES (?, ?, ?, ?)
-    `).run(uuidv4(), userId, role, text.slice(0, 4000));
+      INSERT INTO conversation_history (id, user_id, role, text, private_ct, private_iv, private_tag)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(uuidv4(), userId, role, text.slice(0, 4000),
+      privateEnc?.ct || null, privateEnc?.iv || null, privateEnc?.tag || null);
+  },
+
+  scrubInboundMessageText(id, placeholder) {
+    db.prepare('UPDATE inbound_messages SET text = ? WHERE id = ?').run(placeholder, id);
   },
 
   getRecentConversation(userId, limit = 20) {

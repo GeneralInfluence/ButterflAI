@@ -430,6 +430,7 @@ module.exports = {
   listSharingApprovals,
   deletePrivateData,
   HEALTH_NOTES_KEY,
+  logAccess,
   getAccessLog,
   setSensitiveMode,
   isSensitiveMode,

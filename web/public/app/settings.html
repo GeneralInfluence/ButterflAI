@@ -255,6 +255,20 @@
     <div id="sharing-list"><div style="color:#aaa;font-size:14px">Loading…</div></div>
   </section>
 
+  <!-- Avoid list — private, enforced by your agent, never said to anyone -->
+  <section>
+    <h2>🚫 Avoid list</h2>
+    <p style="font-size:13px;color:#888;margin:-4px 0 12px;line-height:1.5">People you'd rather not be in plans with. Your agent never invites them, and never tells anyone why. Choose what happens when one of them invites you. To add someone, just tell your agent.</p>
+    <div class="card"><div id="avoid-list"><div style="color:#aaa;font-size:14px">Loading…</div></div></div>
+  </section>
+
+  <!-- Agent activity — what your agent did on its own -->
+  <section>
+    <h2>🤖 Agent activity</h2>
+    <p style="font-size:13px;color:#888;margin:-4px 0 12px;line-height:1.5">What your agent handled for you without asking. Change how it handles anyone from here.</p>
+    <div class="card"><div id="activity-list"><div style="color:#aaa;font-size:14px">Loading…</div></div></div>
+  </section>
+
   <!-- Your data -->
   <section>
     <h2>Your data</h2>
@@ -426,6 +440,73 @@
     if (r.ok) await loadSharing(); else alert('Could not update. Try again.');
   }
 
+  // ── Avoid list + agent activity ──────────────────────────────────────────────
+  let avoidEntries = [];
+
+  async function loadAvoidList() {
+    const el = document.getElementById('avoid-list');
+    try {
+      ({ entries: avoidEntries } = await fetch('/api/user/avoid-list').then(r => r.json()));
+      if (!avoidEntries.length) {
+        el.innerHTML = '<div style="color:#aaa;font-size:14px">No one. Tell your agent "I don\'t want to hang out with …" to add someone.</div>';
+        return;
+      }
+      el.innerHTML = avoidEntries.map(e => `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f8f8f8;flex-wrap:wrap">
+          <div style="flex:1;min-width:120px;font-size:14px;font-weight:600">${escHtml(e.name)}</div>
+          <select onchange="setAvoidPolicy('${e.id}', this.value)" aria-label="When ${escHtml(e.name)} invites you"
+                  style="padding:6px;border:1px solid #e5e5ea;border-radius:8px;font-size:13px">
+            <option value="auto_decline" ${e.on_invite === 'auto_decline' ? 'selected' : ''}>Decline for me</option>
+            <option value="ask" ${e.on_invite === 'ask' ? 'selected' : ''}>Ask me first</option>
+          </select>
+          <button onclick="removeAvoid('${e.id}')" title="Remove from avoid list" style="background:none;border:none;color:#c7c7cc;font-size:16px;cursor:pointer;padding:4px">✕</button>
+        </div>`).join('');
+    } catch (_) {
+      el.innerHTML = '<div style="color:#aaa;font-size:14px">Could not load.</div>';
+    }
+  }
+
+  async function setAvoidPolicy(id, onInvite) {
+    const r = await fetch(`/api/user/avoid-list/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on_invite: onInvite })
+    });
+    if (!r.ok) alert('Could not update. Try again.');
+    await loadAvoidList();
+    await loadActivity();
+  }
+
+  async function removeAvoid(id) {
+    const r = await fetch(`/api/user/avoid-list/${id}`, { method: 'DELETE' });
+    if (!r.ok) alert('Could not remove. Try again.');
+    await loadAvoidList();
+    await loadActivity();
+  }
+
+  async function loadActivity() {
+    const el = document.getElementById('activity-list');
+    try {
+      const { activity } = await fetch('/api/user/activity').then(r => r.json());
+      if (!activity.length) {
+        el.innerHTML = '<div style="color:#aaa;font-size:14px">Nothing yet.</div>';
+        return;
+      }
+      el.innerHTML = activity.map(a => {
+        const when = new Date(a.created_at * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const entry = avoidEntries.find(e => e.id === a.avoid_id);
+        const tune = a.kind === 'auto_declined' && entry && entry.on_invite === 'auto_decline'
+          ? `<button onclick="setAvoidPolicy('${entry.id}','ask')" style="margin-top:6px;padding:4px 10px;border:none;border-radius:8px;background:#f2effe;color:#6c47ff;font-size:12px;font-weight:600;cursor:pointer">Ask me next time</button>`
+          : '';
+        return `<div style="padding:8px 0;border-bottom:1px solid #f8f8f8">
+          <div style="color:#8e8e93;font-size:12px">${escHtml(when)}</div>
+          <div style="font-size:14px;line-height:1.4">${escHtml(a.text)}</div>${tune}
+        </div>`;
+      }).join('');
+    } catch (_) {
+      el.innerHTML = '<div style="color:#aaa;font-size:14px">Could not load.</div>';
+    }
+  }
+
   function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
@@ -464,6 +545,10 @@
 
       // Per-contact private-data sharing
       await loadSharing();
+
+      // Avoid list first: the activity view uses it for "Ask me next time"
+      await loadAvoidList();
+      await loadActivity();
 
       // Audit
       const { audit } = await fetch(`/api/user/${me.id}/audit`).then(r => r.json());
