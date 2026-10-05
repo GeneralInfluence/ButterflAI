@@ -43,8 +43,12 @@ one connection per environment.
   - `audience`: `https://api.anthropic.com`
   - claims: `repository_owner = GeneralInfluence`
 - Scope `workspace:developer`, lifetime 600s.
+- **Do not restrict the event type** (no `event_name` claim/condition): the eval runs on
+  `schedule` and `workflow_dispatch`, not `push`. The subject pin to `main` is the guard.
 - Then in GitHub → repo **Settings → Secrets and variables → Actions → Variables**, add
-  `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`.
+  `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`,
+  and `ANTHROPIC_WORKSPACE_ID` (required — the exchange returns 401 without it). Check they
+  saved: `gh variable list`.
 - Run the eval workflow manually once (it still uses the key — key wins), then
   **delete the `ANTHROPIC_API_KEY` repo secret** and run it again to confirm
   federation works.

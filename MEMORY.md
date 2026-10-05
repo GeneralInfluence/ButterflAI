@@ -442,7 +442,7 @@ Prod has **no Anthropic API key**. The Fly machine mints a short-lived OIDC toke
 - **Failed exchanges** return an opaque 401; the reason is in Console → Workload identity → authentication history.
 - **SDK:** `@anthropic-ai/sdk` 0.131 (upgraded from 0.26 for this).
 - **Trust-model note:** this removes the stored Anthropic credential (leak risk); it does not change who can read private data (§3.8 / §8 still describe that). The Phase 2 enclave on AWS/GCP should use the same keyless pattern (both are native WIF providers).
-- **Nightly eval (GitHub Actions):** rule `fdrl_011AWBXihUa91RsZqKtRS4dg` (subject `repo:GeneralInfluence/ButterflAI:ref:refs/heads/main`), dedicated service account `svac_01NgzQ2uo7hWjtLD5V4wLTK1`; exchange verified 2026-10-02. Workflow reads the IDs from repo *variables* (not secrets). The eval itself was failing before this change for an unrelated reason. Setup steps: `docs/workload-identity.md`.
+- **Nightly eval (GitHub Actions):** rule `fdrl_011AWBXihUa91RsZqKtRS4dg` (subject `repo:GeneralInfluence/ButterflAI:ref:refs/heads/main`, NO event restriction — scheduled and manual runs must match), service account `svac_01NgzQ2uo7hWjtLD5V4wLTK1`. Repo *variables* (not secrets): `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`, `ANTHROPIC_WORKSPACE_ID` (the workspace ID is required — the exchange 401s without it). Green 24/24 on 2026-10-05. Before that it had never had credentials: the silent RSVP keyword fallback disguised it as "RSVP got unclear" failures; the eval now exits loudly with no credentials and `classifyRsvp` logs failed calls.
 
 ---
 *Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*
