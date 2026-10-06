@@ -103,6 +103,13 @@ function resolveAuth(env = process.env, { flySocketPath = DEFAULT_FLY_SOCKET } =
     return { mode: 'federation:github', identityTokenProvider: githubIdentityToken(env) };
   }
   if (env.FLY_APP_NAME && fs.existsSync(flySocketPath)) {
+    // Existing isn't enough: the socket is root-only unless docker-entrypoint.sh opened
+    // it to the app user. Checking only existsSync once reported federation:fly while
+    // every call failed with EACCES (2026-10-06).
+    try { fs.accessSync(flySocketPath, fs.constants.R_OK | fs.constants.W_OK); }
+    catch (_) {
+      return { mode: 'none', error: `Fly OIDC socket ${flySocketPath} exists but this process can't use it (permissions — see docker-entrypoint.sh)` };
+    }
     return { mode: 'federation:fly', identityTokenProvider: flyIdentityToken(flySocketPath) };
   }
   return { mode: 'none', error: 'Workload identity federation is configured but no identity token source was found (token file, GitHub Actions OIDC, or Fly Machine OIDC)' };

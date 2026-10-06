@@ -73,6 +73,20 @@ describe('resolveAuth', () => {
     assert.equal(resolveAuth(env).mode, 'federation:github');
   });
 
+  // Regression (2026-10-06): the socket existed but was root-only, so every call failed
+  // with EACCES while startup claimed federation:fly.
+  test('Fly socket that exists but is not accessible → none, with the reason', () => {
+    const p = path.join(os.tmpdir(), `fly-noaccess-${process.pid}`);
+    fs.writeFileSync(p, '');
+    fs.chmodSync(p, 0o000);
+    try {
+      const a = resolveAuth({ ...FED, FLY_APP_NAME: 'butterflai' }, { flySocketPath: p });
+      if (process.getuid && process.getuid() === 0) return; // root ignores modes; nothing to assert
+      assert.equal(a.mode, 'none');
+      assert.match(a.error, /can't use it/);
+    } finally { fs.chmodSync(p, 0o600); fs.unlinkSync(p); }
+  });
+
   test('Fly is only selected when the machine socket exists', () => {
     assert.equal(resolveAuth({ ...FED, FLY_APP_NAME: 'butterflai' }, { flySocketPath: '/nonexistent/socket' }).mode, 'none');
   });

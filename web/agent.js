@@ -2300,6 +2300,12 @@ function startAgentLoop() {
     return;
   }
   console.log(`[agent] starting loop (poll every ${POLL_INTERVAL_MS}ms, model=${MODEL}, auth=${auth.mode})`);
+  // Prove auth works end to end with a free call (lists one model, no tokens). Picking a
+  // credential source isn't proof — keyless auth once "selected" fine while every real
+  // call failed. CI checks for this line after each deploy.
+  anthropic.models.list({ limit: 1 })
+    .then(() => console.log(`[agent] Anthropic auth verified (${auth.mode}, version ${process.env.BUILD_VERSION || 'dev'})`))
+    .catch((err) => console.error(`[agent] ANTHROPIC AUTH FAILED (${auth.mode}, version ${process.env.BUILD_VERSION || 'dev'}): ${err.status || ''} ${err.message}`));
   setInterval(tick, POLL_INTERVAL_MS);
   tick(); // run immediately on start
 }

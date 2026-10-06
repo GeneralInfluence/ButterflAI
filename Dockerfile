@@ -1,7 +1,7 @@
 FROM node:20-alpine AS base
 
 # Native build deps for better-sqlite3
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ su-exec
 
 WORKDIR /app
 
@@ -26,7 +26,9 @@ RUN mkdir -p /data
 # Non-root user for least-privilege
 RUN addgroup -S butterflai && adduser -S butterflai -G butterflai
 RUN chown -R butterflai:butterflai /app /data
-USER butterflai
+# No USER here: docker-entrypoint.sh starts as root to fix /data and /.fly/api
+# permissions, then drops to `butterflai` (su-exec) before running the app.
+RUN chmod +x /app/docker-entrypoint.sh
 
 ENV DB_PATH=/data/butterflai.sqlite
 ENV PORT=3000
@@ -38,4 +40,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://localhost:3000/health || exit 1
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["node", "server.js"]

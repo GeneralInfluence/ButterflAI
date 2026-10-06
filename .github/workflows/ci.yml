@@ -60,7 +60,10 @@ jobs:
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy to Fly.io
-        run: flyctl deploy --remote-only --build-arg BUILD_VERSION=$(git rev-parse --short HEAD)-$(date +%s)
+        run: |
+          V=$(git rev-parse --short HEAD)-$(date +%s)
+          echo "BUILD_VERSION=$V" >> "$GITHUB_ENV"
+          flyctl deploy --remote-only --build-arg BUILD_VERSION=$V
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
@@ -72,5 +75,24 @@ jobs:
             echo "Starting stopped machine $id"; flyctl machine start "$id"
           done
           curl -fsS --retry 6 --retry-delay 10 --retry-all-errors https://butterflai.fly.dev/health
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      # The agent makes a real (free) Anthropic call at startup and logs the result with
+      # its version. "Healthy" isn't enough: on 2026-10-06 prod was healthy while every
+      # Claude call failed (EACCES on the Fly OIDC socket). Fail the deploy loudly instead.
+      - name: Verify Anthropic auth in the new release
+        run: |
+          for i in $(seq 1 18); do
+            logs=$(flyctl logs --no-tail 2>/dev/null || true)
+            if echo "$logs" | grep -F "ANTHROPIC AUTH FAILED" | grep -qF "version $BUILD_VERSION"; then
+              echo "$logs" | grep -F "ANTHROPIC AUTH FAILED" | tail -1; exit 1
+            fi
+            if echo "$logs" | grep -F "Anthropic auth verified" | grep -qF "version $BUILD_VERSION"; then
+              echo "$logs" | grep -F "Anthropic auth verified" | tail -1; exit 0
+            fi
+            sleep 10
+          done
+          echo "No auth verification line for $BUILD_VERSION after 3 minutes"; exit 1
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
