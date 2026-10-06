@@ -131,3 +131,19 @@ describe('contact ids must be the user\'s own', () => {
     }
   });
 });
+
+// Regression (prod, 2026-10-06): Sean received "Let's go have some fun tonight!" from the
+// shared ButterflAI number with no idea it was Allie.
+describe('texts sent on a user\'s behalf say who they are from', () => {
+  test('send_logistics_sms prefixes "<first name>\'s ButterflAI:" once', async () => {
+    const allie = mkUser('+12025559310', 'Allie McLaine');
+    const seanPhone = '+12025559311';
+    db.writeConsent(seanPhone, 'INVITE_PAGE');
+    const seanId = db.upsertContact({ invited_by_user_id: allie.id, name: 'Sean Gonzalez', phone: seanPhone, tier: 1 });
+    texts.length = 0;
+    await agent.executeTool('send_logistics_sms', { contact_id: seanId, message: "Let's go have some fun tonight!" }, allie.id, allie.phone);
+    await agent.executeTool('send_logistics_sms', { contact_id: seanId, message: "Allie's ButterflAI: wings at 8?" }, allie.id, allie.phone);
+    assert.equal(texts[0].body, "Allie's ButterflAI: Let's go have some fun tonight!");
+    assert.equal(texts[1].body, "Allie's ButterflAI: wings at 8?", 'no double prefix');
+  });
+});

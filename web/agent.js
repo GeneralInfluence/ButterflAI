@@ -217,7 +217,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'send_logistics_sms',
-    description: 'Send a logistics-only SMS to a contact (scheduling info, confirmations). No sentiment. Includes self-identify header if first contact.',
+    description: 'Send a logistics-only SMS to a contact (scheduling info, confirmations). No sentiment. The sender is added automatically ("Allie\'s ButterflAI: …") — write only the message itself. Includes the full self-identify header if first contact.',
     input_schema: {
       type: 'object',
       properties: {
@@ -701,6 +701,16 @@ function ownContact(userId, contactId) {
   return contact;
 }
 
+// "Allie's ButterflAI: <message>". Every text sent on a user's behalf names the user —
+// recipients see only the shared ButterflAI number. Uses the first name (or nickname),
+// and doesn't double up if the agent already wrote the attribution.
+function withSender(user, message) {
+  const who = (user?.nickname || String(user?.name || '').trim().split(/\s+/)[0] || 'A friend').trim();
+  const prefix = `${who}'s ButterflAI: `;
+  const body = String(message || '').trim();
+  return body.toLowerCase().startsWith(prefix.toLowerCase()) ? body : prefix + body;
+}
+
 // Tools that persist what the user says in plain text. Refused while private mode is on.
 const PLAINTEXT_WRITE_TOOLS = ['update_preferences', 'save_agent_note'];
 
@@ -917,6 +927,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
             messageBody
           );
         } else {
+          // Always say who it's from (2026-10-06: Sean got "Let's go have some fun
+          // tonight!" from the ButterflAI number with no idea who sent it). The
+          // first-contact path above already self-identifies.
+          messageBody = withSender(user, messageBody);
           await sms.send(contact.phone, messageBody);
         }
         return {
