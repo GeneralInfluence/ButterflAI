@@ -657,3 +657,14 @@ describe('Chat input clears for good after sending', () => {
     assert.ok(html.includes('inputEl.value.trim() === lastSent'), 'backstop against re-insertion');
   });
 });
+
+describe('Chat shows who messages are from / to', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
+  test('incoming/outgoing cards are styled distinctly and keep their kind on reload', () => {
+    assert.ok(html.includes('.msg.bot.incoming .bubble') && html.includes('.msg.bot.outgoing .bubble'));
+    assert.ok(html.includes('m.created_at, true, m.kind'), 'history keeps card kind');
+  });
+  test('a live card does not clear the "thinking" indicator', () => {
+    assert.match(html, /data\.role === 'assistant' && data\.kind\)[\s\S]{0,300}appendMessage\('bot', data\.text, data\.ts, true, data\.kind\)/);
+  });
+});

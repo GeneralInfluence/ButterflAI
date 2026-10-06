@@ -581,3 +581,11 @@ describe('Sending on request — no needless approvals, no guessed ids, no false
     assertContains('Only say a message was sent if the send tool returned sent: true in THIS turn');
   });
 });
+
+describe('Messages between people go through the agents (owner decision 2026-10-06)', () => {
+  test('agent understands incoming/outgoing cards and replies via send_logistics_sms', () => {
+    assertContains('MESSAGES BETWEEN PEOPLE GO THROUGH THE AGENTS');
+    assertContains('is a message from Allie (her agent sent it)');
+    assertContains('reply to that person with send_logistics_sms');
+  });
+});

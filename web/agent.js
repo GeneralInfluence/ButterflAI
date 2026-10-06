@@ -37,6 +37,7 @@ const desires    = require('./desires');
 const sensitive  = require('./sensitive');
 const avoid      = require('./avoid');
 const trace      = require('./trace');
+const deliver    = require('./deliver');
 const datetime   = require('./datetime');
 const coord      = require('./coordination');
 const sse        = require('./sse');
@@ -217,7 +218,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'send_logistics_sms',
-    description: 'Send a logistics-only SMS to a contact (scheduling info, confirmations). No sentiment. The sender is added automatically ("Allie\'s ButterflAI: …") — write only the message itself. Includes the full self-identify header if first contact.',
+    description: 'Send a message to a contact on the user\'s behalf (logistics, nudges, plans). ButterflAI users get it in the app, texted only if they don\'t open the app in time; everyone else gets a text. The sender is added automatically ("Allie\'s ButterflAI: …") — write only the message itself. Includes the full self-identify header on first contact with a non-user.',
     input_schema: {
       type: 'object',
       properties: {
@@ -701,16 +702,6 @@ function ownContact(userId, contactId) {
   return contact;
 }
 
-// "Allie's ButterflAI: <message>". Every text sent on a user's behalf names the user —
-// recipients see only the shared ButterflAI number. Uses the first name (or nickname),
-// and doesn't double up if the agent already wrote the attribution.
-function withSender(user, message) {
-  const who = (user?.nickname || String(user?.name || '').trim().split(/\s+/)[0] || 'A friend').trim();
-  const prefix = `${who}'s ButterflAI: `;
-  const body = String(message || '').trim();
-  return body.toLowerCase().startsWith(prefix.toLowerCase()) ? body : prefix + body;
-}
-
 // Tools that persist what the user says in plain text. Refused while private mode is on.
 const PLAINTEXT_WRITE_TOOLS = ['update_preferences', 'save_agent_note'];
 
@@ -909,16 +900,19 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const contact = ownContact(userId, toolInput.contact_id);
       if (contact.error) return contact;
       if (!contact.phone) return { error: 'Contact has no phone number on file' };
-      if (db.isOptedOut(contact.phone)) return { error: 'Contact has opted out' };
 
       let messageBody = toolInput.message;
       const user = db.getUser(userId);
+      // ButterflAI users get it in the app (SMS only as a fallback) — an SMS opt-out
+      // doesn't block that. Everyone else can only be reached by text.
+      const recipientIsUser = !!db.getUserByPhone(contact.phone);
+      if (!recipientIsUser && db.isOptedOut(contact.phone)) return { error: 'Contact has opted out' };
 
       try {
         // Mandatory self-identify on first contact (§4.2)
-        // NOTE: both paths go through send(), which enforces the consent gate.
+        // NOTE: SMS paths go through send(), which enforces the consent gate.
         // If the contact has not opted in, ConsentRequired is thrown and caught below.
-        if (toolInput.is_first_contact) {
+        if (toolInput.is_first_contact && !recipientIsUser) {
           await sms.sendContactInvite(
             contact.phone,
             contact.name,
@@ -926,20 +920,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
             'scheduling coordination',
             messageBody
           );
-        } else {
-          // Always say who it's from (2026-10-06: Sean got "Let's go have some fun
-          // tonight!" from the ButterflAI number with no idea who sent it). The
-          // first-contact path above already self-identifies.
-          messageBody = withSender(user, messageBody);
-          await sms.send(contact.phone, messageBody);
+          return { action_status: 'MESSAGE_SENT', sent: true, delivered_via: 'sms', to: contact.phone, contact_name: contact.name };
         }
-        return {
-          action_status: 'MESSAGE_SENT',
-          sent: true,
-          to: contact.phone,
-          contact_name: contact.name,
-          message_preview: messageBody.slice(0, 80),
-        };
+        // In the app for ButterflAI users, by text otherwise — always naming the sender
+        // ("Allie's ButterflAI: …"), with a "📤 To …" card in this user's chat.
+        return await deliver.deliverToContact({ fromUser: user, contact, message: messageBody });
       } catch (err) {
         if (err instanceof ConsentRequired) {
           // Contact has not opted in — return an assisted-compose fallback.
@@ -2088,6 +2073,7 @@ LOGISTICS vs EXPRESSIVE (the send gate):
 - When in doubt, lean logistics. The cost of an extra approval is higher than the cost of sending a slightly imperfect logistics message.
 - Teasing, nudging or hyping a friend toward a plan ("tell him to get off his ass, let's get wings") is LOGISTICS. Compose a friendly version and send it right away — no draft, no clarifying question.
 - A GO-AHEAD AFTER A DRAFT IS APPROVAL: if you showed a draft and the user says anything like "send it", "yes", "do it", "just send something", "I don't want to approve, just send" — send that draft immediately with send_logistics_sms. Never ask for approval twice.
+- MESSAGES BETWEEN PEOPLE GO THROUGH THE AGENTS: "💬 From Allie's ButterflAI: …" in your history is a message from Allie (her agent sent it), and "📤 To Sean: …" is one you sent for this user. If the user answers one ("tell her I'm in", "say 8 works"), reply to that person with send_logistics_sms. ButterflAI users receive it in the app; when the tool says delivered_via "app", tell the user it was sent in ButterflAI.
 - NEVER GUESS A contact_id. Call lookup_contact with the person's name and use the "id" it returns. If a send tool returns CONTACT_NOT_FOUND, look the person up and retry before replying.
 - Only say a message was sent if the send tool returned sent: true in THIS turn. If it failed, tell the user it did NOT go through. (Enforced in code: a false "sent" reply is blocked.)
 

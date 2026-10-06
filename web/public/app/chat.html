@@ -116,6 +116,9 @@
       color: var(--text-me);
       border-bottom-right-radius: 4px;
     }
+    /* Messages between people, sent through their agents (deliver.js) */
+    .msg.bot.incoming .bubble { background: #ede9fe; border: 1.5px solid #6c47ff; color: #1c1c1e; }
+    .msg.bot.outgoing .bubble { background: #fff; border: 1.5px dashed #a78bfa; color: #3a3a3c; }
     .msg.bot .bubble {
       background: var(--bubble-bot);
       color: var(--text-bot);
@@ -355,7 +358,7 @@
         const { messages } = await r.json();
         if (messages.length) {
           emptyEl.remove();
-          messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at));
+          messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind));
           scrollToBottom();
         }
       } catch {}
@@ -387,7 +390,7 @@
           agentStatusEl.textContent = '';
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
-          toRender.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at));
+          toRender.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind));
           scrollToBottom();
         } else if (pendingSince > 0) {
           // We sent a message but no reply yet — keep the typing indicator visible
@@ -414,6 +417,11 @@
           agentStatusEl.textContent = data.text;
           typingEl.classList.add('visible'); // make sure dots are up
           scrollToBottom();
+        } else if (data.role === 'assistant' && data.kind) {
+          // A message card ("💬 From …" / "📤 To …") — not the reply we may be waiting
+          // for, so leave the typing indicator alone.
+          if (emptyEl.parentNode) emptyEl.remove();
+          appendMessage('bot', data.text, data.ts, true, data.kind);
         } else if (data.role === 'assistant') {
           pendingSince = 0;
           agentStatusEl.textContent = '';
@@ -500,7 +508,8 @@
     }
 
     // ── DOM helpers ────────────────────────────────────────────────────────────
-    function appendMessage(role, text, ts, updateTs = true) {
+    // kind: 'incoming' (from another person's ButterflAI) / 'outgoing' (sent for you) cards.
+    function appendMessage(role, text, ts, updateTs = true, kind = null) {
       // Strip and handle {"action":"REQUEST_LOCATION"} anywhere in bot messages
       if (role === 'bot') {
         const locMatch = text.match(/\{"action"\s*:\s*"REQUEST_LOCATION"\}/);
@@ -511,7 +520,7 @@
       }
       if (!text) return; // nothing left to show
       const div  = document.createElement('div');
-      div.className = `msg ${role}`;
+      div.className = `msg ${role}${kind === 'incoming' || kind === 'outgoing' ? ' ' + kind : ''}`;
       const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
       if (role === 'bot') {
         div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="msg-foot"><span class="ts">${time}</span><button class="fb-btn" type="button" title="Flag this reply as wrong" aria-label="Flag this reply">👎</button></div>`;

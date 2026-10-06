@@ -20,7 +20,7 @@ stack:
   chain: base                          # encrypted prefs as NFT metadata; wallet integration via ClawBank
 channels:
   human_to_own_agent: sms              # voice-to-text on phone keyboard covers "talking" to agent
-  agent_to_contact: sms                # invites + non-tier2 coordination
+  agent_to_contact: app_first_sms_fallback   # 2026-10-06: ButterflAI users get it in-app (+push), SMS only if unseen; non-users SMS. See §10
   agent_to_agent: sqlite_message_queue # CORRECTED: inbound_messages, channel=agent_query/agent_reply — NOT mcp. Must not carry private preferences; federation is the target (REARCHITECTURE.md)
 agent_topology:
   model: master_agent_plus_ephemeral_per_user_subagents
@@ -443,6 +443,25 @@ Prod has **no Anthropic API key**. The Fly machine mints a short-lived OIDC toke
 - **SDK:** `@anthropic-ai/sdk` 0.131 (upgraded from 0.26 for this).
 - **Trust-model note:** this removes the stored Anthropic credential (leak risk); it does not change who can read private data (§3.8 / §8 still describe that). The Phase 2 enclave on AWS/GCP should use the same keyless pattern (both are native WIF providers).
 - **Nightly eval (GitHub Actions):** rule `fdrl_011AWBXihUa91RsZqKtRS4dg` (subject `repo:GeneralInfluence/ButterflAI:ref:refs/heads/main`, NO event restriction — scheduled and manual runs must match), service account `svac_01NgzQ2uo7hWjtLD5V4wLTK1`. Repo *variables* (not secrets): `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`, `ANTHROPIC_WORKSPACE_ID` (the workspace ID is required — the exchange 401s without it). Green 24/24 on 2026-10-05. Before that it had never had credentials: the silent RSVP keyword fallback disguised it as "RSVP got unclear" failures; the eval now exits loudly with no credentials and `classifyRsvp` logs failed calls.
+
+## 10. Reaching people: in the app first, SMS as fallback `[LOCKED 2026-10-06]`
+
+Owner decision after the first friends test (Sean got an unattributed text from Allie's agent):
+
+- **Things go through the agents.** Agents message people on their user's behalf. There is
+  no person-to-person chat in ButterflAI; real conversation stays in people's own texting.
+- **People always know who a message is from.** Every message names the sender:
+  "💬 From Allie's ButterflAI: …" in the app, "Allie's ButterflAI: …" by text. The sender
+  sees "📤 To Sean (in ButterflAI / by text): …" in their own chat.
+- **SMS only if the recipient couldn't reasonably have seen it in the app** (cost +
+  noise): delivered in-app with a push; texted if unseen after 30 min (push on) or 2 min
+  (no push); never texted if they're in the app or open it first. Non-users: SMS
+  immediately (only channel). An SMS opt-out doesn't block in-app delivery.
+- Code: `web/deliver.js` (`deliverToContact`, `markSeen`, `tickFallback`), table
+  `deliveries`, `conversation_history.kind`. Tests: `tests/integration/deliver.test.js`.
+- Considered and rejected: becoming a WhatsApp-style messenger (agent would sit in every
+  private conversation; people won't move real chats). Adopted the per-message attribution
+  instead; a per-person history view is a possible later addition.
 
 ---
 *Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*

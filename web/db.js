@@ -504,13 +504,14 @@ module.exports = {
 
   // `privateEnc` ({ ct, iv, tag }) stores a private-mode message encrypted; `text` is
   // then only the placeholder. See agent.js appendHistory.
-  appendConversation(userId, role, text, privateEnc = null) {
+  // `kind`: 'incoming' / 'outgoing' for message cards between users (deliver.js).
+  appendConversation(userId, role, text, privateEnc = null, kind = null) {
     const { v4: uuidv4 } = require('uuid');
     db.prepare(`
-      INSERT INTO conversation_history (id, user_id, role, text, private_ct, private_iv, private_tag)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO conversation_history (id, user_id, role, text, private_ct, private_iv, private_tag, kind)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(uuidv4(), userId, role, text.slice(0, 4000),
-      privateEnc?.ct || null, privateEnc?.iv || null, privateEnc?.tag || null);
+      privateEnc?.ct || null, privateEnc?.iv || null, privateEnc?.tag || null, kind);
   },
 
   scrubInboundMessageText(id, placeholder) {

@@ -31,6 +31,7 @@ const sse      = require('./sse');
 const sensitive = require('./sensitive');
 const avoid = require('./avoid');
 const trace = require('./trace');
+const deliver = require('./deliver');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
@@ -690,8 +691,12 @@ async function handlePendingAction(user, body, pending) {
       }
 
       try {
-        await sms.send(contact.phone, payload.draft_text);
-        return `Sent to ${contactName}. ✅`;
+        // Same path as the agent's sends: in the app for ButterflAI users, by text
+        // otherwise, always naming the sender.
+        const r = await deliver.deliverToContact({ fromUser: user, contact, message: payload.draft_text });
+        return r.delivered_via === 'app'
+          ? `Sent to ${contactName} in ButterflAI. ✅`
+          : `Sent to ${contactName}. ✅`;
       } catch (err) {
         if (err instanceof RecipientOptedOut) {
           return `${contactName} has opted out of ButterflAI, so I can't text them. ` +
@@ -1438,7 +1443,9 @@ app.get('/api/chat/messages', webAuth.requireAuth, (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const since = parseInt(req.query.since) || 0;
   let msgs;
-  const cols = 'role, text, created_at, private_ct, private_iv, private_tag';
+  const cols = 'role, text, created_at, private_ct, private_iv, private_tag, kind';
+  // Opening the chat counts as seeing messages delivered in the app — no SMS fallback.
+  deliver.markSeen(req.user.id);
   if (since > 0) {
     msgs = db._raw().prepare(
       `SELECT ${cols} FROM conversation_history
@@ -1488,6 +1495,7 @@ app.get('/api/chat/stream', (req, res) => {
   }
   req.user = user;
   sse.register(user.id, res);
+  deliver.markSeen(user.id); // live in the app = sees in-app messages
 });
 
 // POST /api/chat/send — inbound message from web UI
@@ -2438,6 +2446,7 @@ if (require.main === module) {
     startAgentLoop();
     startNudgeLoop();
     startCoordLoop({ transport: mcpTransport });
+    deliver.startFallbackLoop();
   });
 }
 
