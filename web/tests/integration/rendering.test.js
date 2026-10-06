@@ -643,3 +643,17 @@ describe('Test-user trace: disclosure + triage view', () => {
     assert.ok(html.includes('data-status="__activity"') && html.includes("fetch('/api/admin/trace"));
   });
 });
+
+// Regression (2026-10-06, Android): sent text kept reappearing in the chat box.
+describe('Chat input clears for good after sending', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
+  test('sending stops the in-app mic and discards its pending transcript', () => {
+    assert.ok(html.includes('window.stopMicForSend'));
+    assert.match(html, /recognition\.onresult = e => \{\s*if \(discard\) return;/);
+    assert.ok(html.includes("if (discard) { discard = false; return; }"), 'onend does not restore sent text');
+  });
+  test('mid-composition keyboard text is ended before clearing; re-inserts are cleared', () => {
+    assert.ok(html.includes("addEventListener('compositionstart'"));
+    assert.ok(html.includes('inputEl.value.trim() === lastSent'), 'backstop against re-insertion');
+  });
+});

@@ -686,6 +686,21 @@ function toolStatusLine(toolName, input) {
   }
 }
 
+// A contact_id must be a real contact of THIS user. The model has invented ids from names
+// ("sean-gonzalez", "aphilos") — the draft tool accepted them and the send failed, and
+// another user's contact id must never be usable. The error tells the model how to recover.
+function ownContact(userId, contactId) {
+  const contact = contactId ? db.getContact(contactId) : null;
+  if (!contact || contact.invited_by_user_id !== userId) {
+    return {
+      error: 'CONTACT_NOT_FOUND',
+      action_status: 'NOT_SENT',
+      message: `No contact with id "${contactId}". Never guess ids — call lookup_contact with the person's name and use the "id" it returns, then retry.`,
+    };
+  }
+  return contact;
+}
+
 // Tools that persist what the user says in plain text. Refused while private mode is on.
 const PLAINTEXT_WRITE_TOOLS = ['update_preferences', 'save_agent_note'];
 
@@ -851,7 +866,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'draft_contact_message': {
-      const contact = db.getContact(toolInput.contact_id);
+      const contact = ownContact(userId, toolInput.contact_id);
+      if (contact.error) return contact;
       if (toolInput.message_type === 'expressive') {
         // Store pending approval so the next SMS from the user resolves it
         const { v4: uuidv4 } = require('uuid');
@@ -880,8 +896,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'send_logistics_sms': {
-      const contact = db.getContact(toolInput.contact_id);
-      if (!contact) return { error: 'Contact not found' };
+      const contact = ownContact(userId, toolInput.contact_id);
+      if (contact.error) return contact;
       if (!contact.phone) return { error: 'Contact has no phone number on file' };
       if (db.isOptedOut(contact.phone)) return { error: 'Contact has opted out' };
 
@@ -2056,6 +2072,10 @@ LOGISTICS vs EXPRESSIVE (the send gate):
 - EXPRESSIVE (needs user approval before sending): messages that speak AS the user with genuine personal feeling — a heartfelt apology, a confession, something that would be embarrassing or harmful if the user hadn't intended it.
 - Use your judgment. "Want to hang after beers?" is obviously logistics. "I've been thinking about you a lot lately" is obviously expressive. Most things are logistics.
 - When in doubt, lean logistics. The cost of an extra approval is higher than the cost of sending a slightly imperfect logistics message.
+- Teasing, nudging or hyping a friend toward a plan ("tell him to get off his ass, let's get wings") is LOGISTICS. Compose a friendly version and send it right away — no draft, no clarifying question.
+- A GO-AHEAD AFTER A DRAFT IS APPROVAL: if you showed a draft and the user says anything like "send it", "yes", "do it", "just send something", "I don't want to approve, just send" — send that draft immediately with send_logistics_sms. Never ask for approval twice.
+- NEVER GUESS A contact_id. Call lookup_contact with the person's name and use the "id" it returns. If a send tool returns CONTACT_NOT_FOUND, look the person up and retry before replying.
+- Only say a message was sent if the send tool returned sent: true in THIS turn. If it failed, tell the user it did NOT go through. (Enforced in code: a false "sent" reply is blocked.)
 
 LEARNING THE USER — build their profile over time:
 - You are their long-term agent. Every conversation teaches you something. Save it.
@@ -2113,6 +2133,46 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
  * _processMessageContinue — the rest of processMessage, extracted so buildSystemPrompt
  * can live as a named, exported function between the two halves.
  */
+// ── "Never claim sent unless a send succeeded" — enforced in code (MEMORY.md hard rule) ──
+// 2026-10-06: the agent told a tester "Sent! Message is on its way to Sean" after its
+// send failed. A prompt rule alone didn't hold, so the loop checks the reply.
+const SENT_CLAIM = /\b(sent|on (its|it's) way|delivered|i(?:'ve| have)? (?:messaged|texted|told)|let (him|her|them) know)\b/i;
+const SENT_NEGATED = /\b(not|n't|never|unable to|couldn't|can't|wasn't|haven't|hasn't|didn't)\b[^.!?\n]{0,25}\b(sent|delivered|send|go through)\b/i;
+
+function claimsSent(text) {
+  return SENT_CLAIM.test(text) && !SENT_NEGATED.test(text);
+}
+
+// True when a tool result shows something actually went out.
+function sendSucceeded(result) {
+  if (!result || typeof result !== 'object' || result.error) return false;
+  return result.sent === true || result.replied === true
+    || result.action_status === 'MESSAGE_SENT' || result.action_status === 'RSVP_CONFIRMED'
+    || (result.invites_sent || 0) > 0;
+}
+
+const NOT_SENT_FALLBACK = "Heads up — that didn't actually go through, so nothing was sent. Want me to try again?";
+
+// Tools that send something to someone else. Only their failures count as failed sends.
+const SEND_TOOLS = new Set([
+  'send_logistics_sms', 'message_agent', 'reply_agent', 'create_social_event',
+  'send_contact_invite', 'confirm_coordination_invite',
+]);
+
+// The user asked (not questioned) for something to be sent in this message.
+function asksToSend(userText) {
+  const t = String(userText || '').trim();
+  return /\b(send|text|message|tell|invite|let \w+ know)\b/i.test(t) && !/\?\s*$/.test(t);
+}
+
+// Only challenge a "sent" claim when this turn gives reason to doubt it: a send was
+// tried and failed, or the user asked for a send and none was even attempted. A
+// truthful reference to an earlier send ("did you send it?" → "yes, earlier") passes.
+function unverifiedSentClaim(replyText, { anySendSucceeded, failedSends, sendAttempted, userText }) {
+  if (!replyText || anySendSucceeded || !claimsSent(replyText)) return false;
+  return failedSends.length > 0 || (!sendAttempted && asksToSend(userText));
+}
+
 // Channels that carry the user's own words (private mode applies to these).
 const USER_CHANNELS = ['sms', 'webchat'];
 const PRIVATE_PLACEHOLDER = '🔒 Private message';
@@ -2162,6 +2222,10 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   // Agentic loop — run until Claude stops calling tools
   let iterations = 0;
   const MAX_ITERATIONS = 10;
+  let anySendSucceeded = false;
+  let sendAttempted = false;
+  const failedSends = [];
+  let sentClaimChallenged = false;
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
@@ -2186,7 +2250,24 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       // Extract text response and send to user.
       // Use sendUnchecked — agent only processes established users who consented at onboarding.
       const textBlocks = response.content.filter(b => b.type === 'text');
-      const replyText = textBlocks.map(b => b.text).join('\n').trim();
+      let replyText = textBlocks.map(b => b.text).join('\n').trim();
+
+      // Guard: a reply that says something was sent, in a turn where nothing was.
+      if (unverifiedSentClaim(replyText, { anySendSucceeded, failedSends, sendAttempted, userText: msg.text })) {
+        if (!sentClaimChallenged) {
+          sentClaimChallenged = true;
+          turnTrace.event('guard', `blocked unverified "sent" claim: ${replyText.slice(0, 200)}`);
+          messages.push({ role: 'user', content:
+            '[System check — not from the user] Your reply says a message was sent, but no send succeeded in this turn'
+            + (failedSends.length ? ` (failed: ${failedSends.join('; ')})` : '')
+            + '. If it should go out, send it now with the right tool — call lookup_contact first if you need the contact id. '
+            + 'Otherwise tell the user plainly that it was NOT sent. Never say something was sent unless a tool confirmed it.' });
+          continue;
+        }
+        turnTrace.event('guard', `replaced repeated unverified "sent" claim: ${replyText.slice(0, 200)}`);
+        replyText = NOT_SENT_FALLBACK;
+      }
+
       if (replyText) {
         // Store reply in conversation history before sending
         appendHistory(userId, 'assistant', replyText, isPrivate);
@@ -2221,6 +2302,11 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
           result = { error: err.message };
         }
         turnTrace.tool(block.name, block.input, result, Date.now() - started);
+        if (SEND_TOOLS.has(block.name)) {
+          sendAttempted = true;
+          if (sendSucceeded(result)) anySendSucceeded = true;
+          else failedSends.push(`${block.name}: ${String(result?.message || result?.error || 'not sent').slice(0, 120)}`);
+        }
 
         toolResults.push({
           type: 'tool_result',
@@ -2310,4 +2396,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver, _unverifiedSentClaim: unverifiedSentClaim, NOT_SENT_FALLBACK };

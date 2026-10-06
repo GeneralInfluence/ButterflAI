@@ -562,3 +562,22 @@ describe('RSVP classifier prompt (multiparty.classifyRsvp)', () => {
     assert.ok(rsvp.includes('UNCLEAR: only when the reply genuinely doesn\'t commit'));
   });
 });
+
+// Regression (prod, 2026-10-06, tester Allie): the agent drafted a teasing nudge as
+// "expressive", asked for approval twice, guessed contact ids, and finally replied
+// "Sent!" when nothing was sent.
+describe('Sending on request — no needless approvals, no guessed ids, no false "sent"', () => {
+  test('teasing/nudging a friend toward a plan is logistics, sent right away', () => {
+    assertContains('Teasing, nudging or hyping a friend toward a plan', 'nudges are logistics');
+  });
+  test('a go-ahead after a draft is approval', () => {
+    assertContains('A GO-AHEAD AFTER A DRAFT IS APPROVAL', 'go-ahead rule');
+    assertContains('Never ask for approval twice');
+  });
+  test('never guess contact ids', () => {
+    assertContains('NEVER GUESS A contact_id', 'lookup first');
+  });
+  test('only claim sent when the tool confirmed it this turn', () => {
+    assertContains('Only say a message was sent if the send tool returned sent: true in THIS turn');
+  });
+});
