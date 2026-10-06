@@ -30,6 +30,7 @@ const { ConsentRequired, RecipientOptedOut } = require('./sms');
 const sse      = require('./sse');
 const sensitive = require('./sensitive');
 const avoid = require('./avoid');
+const trace = require('./trace');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
@@ -1326,7 +1327,21 @@ app.post('/api/feedback', webAuth.requireAuth, express.json(), (req, res) => {
 
 // Admin triage: list feedback and set its status.
 app.get('/api/admin/feedback', requireAdmin, (req, res) => {
-  res.json({ feedback: db.getRecentFeedback(200, req.query.status || null) });
+  // Each flag carries what the agent did in the 15 minutes before it (test users only).
+  const feedback = db.getRecentFeedback(200, req.query.status || null).map((fb) => ({
+    ...fb,
+    trace: trace.listForUser(fb.user_id, { since: fb.created_at - 15 * 60, until: fb.created_at + 5, limit: 100 }),
+  }));
+  res.json({ feedback });
+});
+
+// Admin: recent agent activity across all test users (continuous, not only flagged turns).
+app.get('/api/admin/trace', requireAdmin, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 300, 1000);
+  const rows = db._raw().prepare(`
+    SELECT t.*, u.name AS user_name FROM agent_trace t LEFT JOIN users u ON u.id = t.user_id
+    ORDER BY t.created_at DESC, t.id DESC LIMIT ?`).all(limit);
+  res.json({ trace: rows.reverse(), retention_days: trace.RETENTION_DAYS });
 });
 app.patch('/api/admin/feedback/:id', requireAdmin, express.json(), (req, res) => {
   const status = req.body?.status;

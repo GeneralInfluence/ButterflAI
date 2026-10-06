@@ -624,3 +624,22 @@ describe('PWA update flow — visible updates + manual check', () => {
     }
   });
 });
+
+describe('Test-user trace: disclosure + triage view', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  test('the test-user opt-in says what is recorded, for how long, and what is left out', () => {
+    const html = fs.readFileSync(path.join(__dirname, '../../public/app/settings.html'), 'utf8');
+    assert.ok(html.includes('the steps your\n        agent took') || html.includes('the steps your agent took'), 'discloses step recording');
+    assert.ok(html.includes('kept for 30 days'));
+    assert.ok(html.includes('never what you said'), 'private-mode turns');
+    assert.ok(html.includes('your avoid list are always left out'));
+  });
+
+  test('triage page shows the trace per flag and an Activity tab', () => {
+    const html = fs.readFileSync(path.join(__dirname, '../../views/admin-feedback.html'), 'utf8');
+    assert.ok(html.includes('What the agent did'));
+    assert.ok(html.includes('data-status="__activity"') && html.includes("fetch('/api/admin/trace"));
+  });
+});

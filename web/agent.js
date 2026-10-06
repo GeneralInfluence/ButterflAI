@@ -36,6 +36,7 @@ const multiparty = require('./multiparty');
 const desires    = require('./desires');
 const sensitive  = require('./sensitive');
 const avoid      = require('./avoid');
+const trace      = require('./trace');
 const datetime   = require('./datetime');
 const coord      = require('./coordination');
 const sse        = require('./sse');
@@ -2154,6 +2155,10 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   appendHistory(userId, 'user', msg.text, isPrivate);
   if (isPrivate) db.scrubInboundMessageText(msg.id, PRIVATE_PLACEHOLDER);
 
+  // Test users only: record this turn (message, tool calls, reply) for triage.
+  const turnTrace = trace.startTurn({ userId, msg, model: MODEL, isPrivate });
+  turnTrace.message(msg.text);
+
   // Agentic loop — run until Claude stops calling tools
   let iterations = 0;
   const MAX_ITERATIONS = 10;
@@ -2185,6 +2190,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       if (replyText) {
         // Store reply in conversation history before sending
         appendHistory(userId, 'assistant', replyText, isPrivate);
+        turnTrace.reply(replyText);
         // Push to web UI via SSE if connected
         sse.push(userId, { role: 'assistant', text: replyText, ts: Math.floor(Date.now() / 1000) });
         // Send via SMS only if the message came in via SMS, not web chat
@@ -2207,12 +2213,14 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         if (statusLine) sse.push(userId, { role: 'status', text: statusLine });
 
         let result;
+        const started = Date.now();
         try {
           result = await executeTool(block.name, block.input, userId, userPhone);
         } catch (err) {
           console.error(`[agent] tool error ${block.name}: ${err.message}\n${err.stack || ''}`);
           result = { error: err.message };
         }
+        turnTrace.tool(block.name, block.input, result, Date.now() - started);
 
         toolResults.push({
           type: 'tool_result',
@@ -2232,6 +2240,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
 
   if (iterations >= MAX_ITERATIONS) {
     console.error(`[agent] hit MAX_ITERATIONS for message ${msg.id}`);
+    turnTrace.event('stuck', `hit MAX_ITERATIONS (${MAX_ITERATIONS}) without a final reply`);
     const stuck = `I couldn't wrap that up — mind trying again?`;
     try {
       if (msg.channel === 'webchat' && userId) {
@@ -2261,6 +2270,7 @@ async function tick() {
       } catch (err) {
         // Log full stack so silent failures are visible in Fly logs
         console.error(`[agent] failed to process message ${msg.id}: ${err.message}\n${err.stack}`);
+        trace.startTurn({ userId: msg.from_id, msg, model: MODEL }).event('error', err.message);
         // Surface a visible error on the user's OWN channel — never fail silently.
         // Web → the chat; SMS → a reply text. Agent-to-agent channels stay log-only
         // (a coordination hiccup is not the user's direct message to answer).

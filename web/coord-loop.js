@@ -138,6 +138,13 @@ function tickPurge() {
   } catch (err) {
     console.error('[coord] purge error:', err.message);
   }
+  // Test-user agent traces are kept trace.RETENTION_DAYS, then hard-deleted.
+  try {
+    const traces = require('./trace').purgeOld();
+    if (traces) console.log(`[coord] purged ${traces} agent trace rows past retention`);
+  } catch (err) {
+    console.error('[coord] trace purge error:', err.message);
+  }
 }
 
 /**

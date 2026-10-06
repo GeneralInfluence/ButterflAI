@@ -276,6 +276,24 @@ design works on either store and should not wait for it.
 
 ---
 
+## Test-user agent trace `[LOCKED 2026-10-05]`
+
+For the friends-and-testers program, the agent's work is recorded so problems can be
+understood without pulling server logs (`web/trace.js`, table `agent_trace`).
+
+- **Opt-in only:** recorded only for users with `test_user = 1` (Settings → Help improve
+  ButterflAI). The toggle text discloses what is recorded and for how long.
+- **What:** each turn's incoming message, every tool call (name, input, result, duration),
+  the reply, and errors/stuck turns.
+- **Private-mode turns** record only which tools ran — no message, inputs, results or reply.
+- **Redacted always:** `value` / health / sexual-health / private notes / exclusions fields,
+  decrypted private prefs (`get_private_preferences`), avoid-list names.
+- **Retention:** 30 days, then hard-deleted by the coord-loop purge tick
+  (`trace.purgeOld`). Viewable by the admin only (`/admin/feedback`, Activity tab).
+- **Test:** `web/tests/integration/agent-trace.test.js`.
+
+---
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

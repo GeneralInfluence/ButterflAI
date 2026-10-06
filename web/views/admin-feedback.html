@@ -48,6 +48,12 @@
   .btn:hover { border-color: var(--accent); }
   .btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   .btn.repro { margin-left: auto; background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+  .trace { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .tr { padding: 7px 11px; font-size: 13px; border-top: 1px solid var(--line); }
+  .tr:first-child { border-top: none; }
+  .tr .k { font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--faint); margin-right: 6px; }
+  .tr.tool .k { color: var(--accent-strong); } .tr.error .k, .tr.stuck .k { color: #ef4444; }
+  .tr pre { margin: 4px 0 0; font-size: 11px; white-space: pre-wrap; word-break: break-word; background: #f7f7fb; border-radius: 6px; padding: 6px 8px; max-height: 180px; overflow: auto; }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
     background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .toast.show { opacity: 1; }
@@ -59,12 +65,13 @@
     <h1>🦋 Feedback triage</h1>
     <a class="back" href="/admin">← Admin</a>
   </header>
-  <p class="sub">Testers' flags on agent replies. Read the note, reproduce it in the simulator, fix, then mark fixed.</p>
+  <p class="sub">Testers' flags on agent replies, with what the agent did just before. Read the note, reproduce it in the simulator, fix, then mark fixed. <b>Activity</b> shows every test-user turn as it happens.</p>
   <div class="tabs" id="tabs">
     <button class="tab active" data-status="">All</button>
     <button class="tab" data-status="new">New</button>
     <button class="tab" data-status="triaged">Triaged</button>
     <button class="tab" data-status="fixed">Fixed</button>
+    <button class="tab" data-status="__activity">Activity</button>
   </div>
   <div id="list"><div class="empty">Loading…</div></div>
 </div>
@@ -117,6 +124,59 @@
     catch (_) { toast('Copy failed — select manually'); console.log(text); }
   }
 
+  function pretty(json) {
+    if (json == null) return '';
+    try { return JSON.stringify(JSON.parse(json), null, 1); } catch (_) { return String(json); }
+  }
+
+  // One trace row: message / tool (input → result) / reply / error / stuck.
+  function traceRowHtml(t) {
+    const ms = t.duration_ms != null ? ` <span class="meta">${t.duration_ms}ms</span>` : '';
+    if (t.kind === 'tool') {
+      const io = t.input_json || t.result_json
+        ? `<pre>in:  ${esc(pretty(t.input_json))}\nout: ${esc(pretty(t.result_json))}</pre>`
+        : (t.text ? `<pre>${esc(t.text)}</pre>` : '');
+      return `<div class="tr tool"><span class="k">tool</span><b>${esc(t.tool_name)}</b>${ms}${io}</div>`;
+    }
+    const text = t.text == null ? '<i>(private mode — not recorded)</i>' : esc(t.text);
+    return `<div class="tr ${esc(t.kind)}"><span class="k">${esc(t.kind)}</span>${text}</div>`;
+  }
+
+  function traceHtml(rows) {
+    return rows && rows.length
+      ? '<div class="trace">' + rows.map(traceRowHtml).join('') + '</div>'
+      : '<div class="turn">(no trace — recorded only for test users, kept 30 days)</div>';
+  }
+
+  async function loadActivity() {
+    listEl.innerHTML = '<div class="empty">Loading…</div>';
+    const r = await fetch('/api/admin/trace?limit=400');
+    if (!r.ok) { listEl.innerHTML = '<div class="empty">Not authorized.</div>'; return; }
+    const { trace } = await r.json();
+    if (!trace.length) { listEl.innerHTML = '<div class="empty">No test-user activity yet.</div>'; return; }
+    // Group rows into turns (one incoming message and everything the agent did for it).
+    const turns = [];
+    const byId = new Map();
+    for (const t of trace) {
+      const key = t.turn_id || ('row' + t.id);
+      if (!byId.has(key)) { const turn = { key, rows: [], user: t.user_name || t.user_id, channel: t.channel, at: t.created_at }; byId.set(key, turn); turns.push(turn); }
+      byId.get(key).rows.push(t);
+    }
+    listEl.innerHTML = '';
+    for (const turn of turns.reverse()) {
+      const tools = turn.rows.filter(t => t.kind === 'tool').length;
+      const bad = turn.rows.some(t => t.kind === 'error' || t.kind === 'stuck');
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="card-head">
+          <span class="pill ${bad ? 'triaged' : 'new'}">${bad ? 'problem' : 'turn'}</span>
+          <span class="meta">${esc(turn.user)} · ${esc(turn.channel || '?')} · ${ago(turn.at)} · ${tools} tool call${tools === 1 ? '' : 's'}</span>
+        </div>${traceHtml(turn.rows)}`;
+      listEl.appendChild(card);
+    }
+  }
+
   function render(items) {
     if (!items.length) { listEl.innerHTML = '<div class="empty">Nothing here.</div>'; return; }
     listEl.innerHTML = '';
@@ -137,6 +197,7 @@
         <div class="label">Flagged reply</div>
         <div class="reply">${esc(fb.agent_message) || '(empty)'}</div>
         <details><summary>Conversation context (${turns.length})</summary>${turnsHtml}</details>
+        <details open><summary>What the agent did (${(fb.trace || []).length})</summary>${traceHtml(fb.trace)}</details>
         <div class="actions">
           <button class="btn status ${fb.status === 'new' ? 'on' : ''}" data-status="new">New</button>
           <button class="btn status ${fb.status === 'triaged' ? 'on' : ''}" data-status="triaged">Triaged</button>
@@ -164,7 +225,7 @@
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     e.target.classList.add('active');
     current = e.target.dataset.status;
-    load();
+    if (current === '__activity') loadActivity(); else load();
   });
 
   load();
