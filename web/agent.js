@@ -234,7 +234,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'message_agent',
-    description: 'Send a message to another ButterflAI user\'s agent. Use this to coordinate BEFORE bothering either user. Ask about availability, dietary constraints, RSVP status, or logistics. The other agent will respond autonomously without disturbing their user for factual questions.',
+    description: 'Send a message to another ButterflAI user\'s AGENT (not the person). Use this to coordinate BEFORE bothering either user. Ask about availability, dietary constraints, RSVP status, or logistics. The other agent will respond autonomously without disturbing their user for factual questions. The person never sees it — to ask or tell the person something, use send_logistics_sms instead.',
     input_schema: {
       type: 'object',
       properties: {
@@ -702,6 +702,24 @@ function ownContact(userId, contactId) {
   return contact;
 }
 
+// What the agent needs to know about a contact, computed from the database — not from
+// the contact's `tier`, which goes stale (2026-10-08: Bam Bam had been a ButterflAI user
+// since July but was "Tier 0" in Sean's contacts, so the agent kept saying he hadn't
+// joined and couldn't be messaged).
+function describeContact(c) {
+  const onButterflai = !!(c.phone && db.getUserByPhone(c.phone));
+  const optedOut = !!(c.phone && db.isOptedOut(c.phone));
+  return {
+    id: c.id, name: c.name, nickname: c.nickname || undefined, phone: c.phone,
+    on_butterflai: onButterflai,
+    how_to_reach: onButterflai
+      ? 'On ButterflAI — to ask or tell them anything, use send_logistics_sms (they get it in the app).'
+      : optedOut
+        ? 'Opted out of texts from ButterflAI — cannot be messaged.'
+        : 'Not on ButterflAI — send_logistics_sms texts them (first message: is_first_contact true).',
+  };
+}
+
 // Tools that persist what the user says in plain text. Refused while private mode is on.
 const PLAINTEXT_WRITE_TOOLS = ['update_preferences', 'save_agent_note'];
 
@@ -709,6 +727,23 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
   if (_toolObserver) {
     try { _toolObserver(toolName, toolInput, userId); } catch (_) { /* observer must never break the agent */ }
   }
+  // Every contact id, in every tool, must be one of this user's contacts — checked once,
+  // here. The model has repeatedly invented ids ("bam_bam_contact_id", "aphilos"), and
+  // tools without their own check failed with bare errors or silently skipped them.
+  if (toolInput && toolInput.contact_id !== undefined) {
+    const c = ownContact(userId, toolInput.contact_id);
+    if (c.error) return c;
+  }
+  if (toolInput && Array.isArray(toolInput.contact_ids)) {
+    const bad = toolInput.contact_ids.filter((id) => ownContact(userId, id).error);
+    if (bad.length) {
+      return {
+        error: 'CONTACT_NOT_FOUND', action_status: 'NOT_SENT', invalid_contact_ids: bad,
+        message: `Unknown contact id(s): ${bad.join(', ')}. Never guess ids — call lookup_contact with each person's name and use the "id" it returns, then retry.`,
+      };
+    }
+  }
+
   // Private mode is enforced here, not just in the prompt (PRIVACY.md Invariant 7):
   // while it's on, nothing the user says may be written to a plain-text store.
   if (PLAINTEXT_WRITE_TOOLS.includes(toolName) && sensitive.isSensitiveMode(userId)) {
@@ -833,7 +868,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         .slice(0, 10);
 
       return {
-        contacts: scored,
+        contacts: scored.map(describeContact),
         count: scored.length,
         tip: scored.length === 0
           ? 'No match found. Try a different spelling, full name, or phone number.'
@@ -2075,6 +2110,7 @@ LOGISTICS vs EXPRESSIVE (the send gate):
 - When in doubt, lean logistics. The cost of an extra approval is higher than the cost of sending a slightly imperfect logistics message.
 - Teasing, nudging or hyping a friend toward a plan ("tell him to get off his ass, let's get wings") is LOGISTICS. Compose a friendly version and send it right away — no draft, no clarifying question.
 - A GO-AHEAD AFTER A DRAFT IS APPROVAL: if you showed a draft and the user says anything like "send it", "yes", "do it", "just send something", "I don't want to approve, just send" — send that draft immediately with send_logistics_sms. Never ask for approval twice.
+- TO ASK OR TELL A PERSON SOMETHING ("ask Bam Bam what he's up to"), use send_logistics_sms — the person sees it. message_agent talks only to their AGENT, which answers on its own without showing them; use it only for agent-level coordination (availability, constraints). lookup_contact tells you whether someone is on ButterflAI (on_butterflai) — trust that, not a contact's tier.
 - MESSAGES BETWEEN PEOPLE GO THROUGH THE AGENTS: "💬 From Allie's ButterflAI: …" in your history is a message from Allie (her agent sent it), and "📤 To Sean: …" is one you sent for this user. If the user answers one ("tell her I'm in", "say 8 works"), reply to that person with send_logistics_sms. ButterflAI users receive it in the app; when the tool says delivered_via "app", tell the user it was sent in ButterflAI.
 - NEVER GUESS A contact_id. Call lookup_contact with the person's name and use the "id" it returns. If a send tool returns CONTACT_NOT_FOUND, look the person up and retry before replying.
 - Only say a message was sent if the send tool returned sent: true in THIS turn. If it failed, tell the user it did NOT go through. (Enforced in code: a false "sent" reply is blocked.)
@@ -2138,7 +2174,7 @@ STYLE: Concise, warm, competent. SMS-length replies. No filler words.`;
 // ── "Never claim sent unless a send succeeded" — enforced in code (MEMORY.md hard rule) ──
 // 2026-10-06: the agent told a tester "Sent! Message is on its way to Sean" after its
 // send failed. A prompt rule alone didn't hold, so the loop checks the reply.
-const SENT_CLAIM = /\b(sent|on (its|it's) way|delivered|i(?:'ve| have)? (?:messaged|texted|told)|let (him|her|them) know)\b/i;
+const SENT_CLAIM = /\b(sent|on (its|it's) way|delivered|i(?:'ve| have| just)? (?:messaged|texted|told|asked)|let (him|her|them) know)\b/i;
 const SENT_NEGATED = /\b(not|n't|never|unable to|couldn't|can't|wasn't|haven't|hasn't|didn't)\b[^.!?\n]{0,25}\b(sent|delivered|send|go through)\b/i;
 
 function claimsSent(text) {
@@ -2164,7 +2200,7 @@ const SEND_TOOLS = new Set([
 // The user asked (not questioned) for something to be sent in this message.
 function asksToSend(userText) {
   const t = String(userText || '').trim();
-  return /\b(send|text|message|tell|invite|let \w+ know)\b/i.test(t) && !/\?\s*$/.test(t);
+  return /\b(send|text|message|tell|ask|invite|let \w+ know)\b/i.test(t) && !/\?\s*$/.test(t);
 }
 
 // Only challenge a "sent" claim when this turn gives reason to doubt it: a send was

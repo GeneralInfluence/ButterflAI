@@ -186,6 +186,19 @@ async function sendContactInvite(to, contactName, userName, context, ctaText, po
  * @throws {ConsentRequired} if no consent record exists for `to`
  */
 async function notifyUser(to, text) {
+  // Rule: anything the system tells a user lands in their chat history too, so their
+  // agent knows about it and the app shows it. (2026-10-08: the server texted Sean
+  // "Bam Bam signed up", his agent never saw it, and it argued that Bam Bam hadn't.)
+  try {
+    const db = _getDb();
+    const user = db.getUserByPhone(to);
+    if (user) {
+      db.appendConversation(user.id, 'assistant', text, null, 'notice');
+      require('./sse').push(user.id, { role: 'assistant', kind: 'notice', text, ts: Math.floor(Date.now() / 1000) });
+    }
+  } catch (err) {
+    console.error('[SMS] notifyUser: could not record notice in history:', err.message);
+  }
   // System notifications to known users bypass the consent gate —
   // the user signed up and is actively using the system.
   return sendUnchecked(to, text);

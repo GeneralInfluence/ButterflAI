@@ -117,6 +117,13 @@
       border-bottom-right-radius: 4px;
     }
     /* Messages between people, sent through their agents (deliver.js) */
+    /* Long-press selection didn't work in the installed Android app (2026-10-08):
+       make bubbles explicitly selectable and give every message a Copy button. */
+    .bubble { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+    .copy-btn { background: none; border: none; color: #c7c7cc; font-size: 12px; cursor: pointer; padding: 2px 4px; }
+    .copy-btn.done { color: #34c759; }
+    .msg.me .msg-foot { justify-content: flex-end; }
+    .msg.bot.notice .bubble { background: #f2f2f7; color: #3a3a3c; box-shadow: none; font-size: 14px; }
     .msg.bot.incoming .bubble { background: #ede9fe; border: 1.5px solid #6c47ff; color: #1c1c1e; }
     .msg.bot.outgoing .bubble { background: #fff; border: 1.5px dashed #a78bfa; color: #3a3a3c; }
     .msg.bot .bubble {
@@ -508,7 +515,23 @@
     }
 
     // ── DOM helpers ────────────────────────────────────────────────────────────
-    // kind: 'incoming' (from another person's ButterflAI) / 'outgoing' (sent for you) cards.
+    // Copy a message's text. Clipboard API first; fall back to selecting + execCommand.
+    async function copyText(text, btn) {
+      let ok = false;
+      try { await navigator.clipboard.writeText(text); ok = true; } catch (_) {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { ok = document.execCommand('copy'); } catch (_) {}
+        ta.remove();
+      }
+      btn.textContent = ok ? 'Copied ✓' : 'Copy failed';
+      btn.classList.toggle('done', ok);
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1500);
+    }
+
+    // kind: 'incoming' (from another person's ButterflAI) / 'outgoing' (sent for you) cards,
+    // 'notice' (something the system told you, e.g. "Bam Bam signed up").
     function appendMessage(role, text, ts, updateTs = true, kind = null) {
       // Strip and handle {"action":"REQUEST_LOCATION"} anywhere in bot messages
       if (role === 'bot') {
@@ -520,15 +543,17 @@
       }
       if (!text) return; // nothing left to show
       const div  = document.createElement('div');
-      div.className = `msg ${role}${kind === 'incoming' || kind === 'outgoing' ? ' ' + kind : ''}`;
+      div.className = `msg ${role}${['incoming', 'outgoing', 'notice'].includes(kind) ? ' ' + kind : ''}`;
       const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
       if (role === 'bot') {
-        div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="msg-foot"><span class="ts">${time}</span><button class="fb-btn" type="button" title="Flag this reply as wrong" aria-label="Flag this reply">👎</button></div>`;
+        div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="msg-foot"><span class="ts">${time}</span><button class="copy-btn" type="button" title="Copy" aria-label="Copy message">Copy</button><button class="fb-btn" type="button" title="Flag this reply as wrong" aria-label="Flag this reply">👎</button></div>`;
         const fb = div.querySelector('.fb-btn');
         if (fb) fb.addEventListener('click', () => openFeedback(fb, text));
       } else {
-        div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="ts">${time}</div>`;
+        div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="msg-foot"><button class="copy-btn" type="button" title="Copy" aria-label="Copy message">Copy</button><span class="ts">${time}</span></div>`;
       }
+      const copyBtn = div.querySelector('.copy-btn');
+      if (copyBtn) copyBtn.addEventListener('click', () => copyText(text, copyBtn));
       // Insert before typing indicator so anchor stays last
       messagesEl.insertBefore(div, typingEl);
       // Track latest message timestamp for catch-up polling — only from server-sourced messages,

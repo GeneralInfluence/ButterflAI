@@ -675,3 +675,15 @@ describe('Invite page: existing account goes to login', () => {
     assert.match(html, /err\.existing_account[\s\S]{0,300}location\.href = err\.login_url \|\| '\/app\/login'/);
   });
 });
+
+describe('Chat messages can be copied; notices are shown (2026-10-08)', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
+  test('every message has a Copy button and bubbles are selectable', () => {
+    assert.ok(html.includes('class="copy-btn"'));
+    assert.ok(html.includes('async function copyText('));
+    assert.ok(html.includes('user-select: text'));
+  });
+  test('system notices render as their own kind', () => {
+    assert.ok(html.includes("['incoming', 'outgoing', 'notice'].includes(kind)"));
+  });
+});

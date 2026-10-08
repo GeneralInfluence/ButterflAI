@@ -211,7 +211,12 @@ describe('clearing + scoping (adversarial review follow-ups)', () => {
     sensitive.storePrivateData(owner.id, KEY, 'confidential', 'HEALTH');
     db.upsertPreferences(owner.id, { health_sharing_approved: 1 });
     const r = await executeTool('get_contact_hard_constraints', { contact_id: cid }, asker.id, asker.phone);
-    assert.match(r.error || '', /not in your address book/);
+    // Expectation changed 2026-10-08: executeTool now rejects any contact_id that isn't
+    // the requester's own contact BEFORE the tool runs (central ownContact check), so the
+    // refusal comes back as CONTACT_NOT_FOUND instead of the tool's own "not in your
+    // address book". Same guarantee — refused, and nothing private returned.
+    assert.equal(r.error, 'CONTACT_NOT_FOUND');
+    assert.ok(!JSON.stringify(r).includes('confidential'), 'no private data in the refusal');
   });
 });
 

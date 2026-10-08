@@ -147,3 +147,39 @@ describe('texts sent on a user\'s behalf say who they are from', () => {
     assert.equal(texts[1].body, "Allie's ButterflAI: wings at 8?", 'no double prefix');
   });
 });
+
+// Regressions from Sean's session (prod, 2026-10-08) — the "had to argue with my agent" turns.
+describe('2026-10-08 regressions', () => {
+  test('"ask Bam Bam …" + "Just sent Bam Bam a message" with no tool call → challenged', async () => {
+    const u = mkUser('+12025559320', 'Asker');
+    const calls = script([say("Just sent Bam Bam a message asking what he's up to tonight. I'll let you know when he replies! 📱"), say("I haven't sent it yet — want me to?")]);
+    const reply = await turn(u, "ask Bam Bam what he's up to tonight");
+    assert.equal(calls.length, 2, 'the false claim was challenged');
+    assert.equal(reply, "I haven't sent it yet — want me to?");
+  });
+
+  test('guessed contact ids are rejected for EVERY tool (message_agent, create_social_event…)', async () => {
+    const u = mkUser('+12025559321', 'Guesser');
+    const m = await agent.executeTool('message_agent', { contact_id: 'bam_bam_contact_id', topic: 'coordination', message: 'hi' }, u.id, u.phone);
+    assert.equal(m.error, 'CONTACT_NOT_FOUND');
+    const e = await agent.executeTool('create_social_event', { title: 'x', activity_type: 'dinner', contact_ids: ['bam_bam_contact_id'] }, u.id, u.phone);
+    assert.equal(e.error, 'CONTACT_NOT_FOUND');
+    assert.deepEqual(e.invalid_contact_ids, ['bam_bam_contact_id']);
+  });
+
+  test('lookup_contact says whether someone is on ButterflAI — from accounts, not the stale tier', async () => {
+    const sean = mkUser('+12025559322', 'Sean L');
+    const bambam = mkUser('+12025559323', 'Bam Bam');
+    db.upsertContact({ invited_by_user_id: sean.id, name: 'Bam Bam', phone: bambam.phone, tier: 0 });
+    const r = await agent.executeTool('lookup_contact', { query: 'Bam Bam' }, sean.id, sean.phone);
+    assert.equal(r.contacts[0].on_butterflai, true, 'tier 0 contact who is a user');
+    assert.match(r.contacts[0].how_to_reach, /send_logistics_sms/);
+  });
+
+  test('a notice the server texts a user lands in their chat history (agent sees it)', async () => {
+    const sean = mkUser('+12025559324', 'Sean N');
+    await sms.notifyUser(sean.phone, '🦋 Bam Bam signed up for their own ButterflAI!');
+    const hist = db.getRecentConversation(sean.id, 5);
+    assert.ok(hist.some((h) => h.role === 'assistant' && h.text.includes('Bam Bam signed up')));
+  });
+});

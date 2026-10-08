@@ -589,3 +589,11 @@ describe('Messages between people go through the agents (owner decision 2026-10-
     assertContains('reply to that person with send_logistics_sms');
   });
 });
+
+describe('Asking a person vs asking their agent (2026-10-08)', () => {
+  test('person-facing questions use send_logistics_sms; message_agent is agent-only; trust on_butterflai', () => {
+    assertContains('TO ASK OR TELL A PERSON SOMETHING');
+    assertContains('message_agent talks only to their AGENT');
+    assertContains('trust that, not a contact\'s tier');
+  });
+});
