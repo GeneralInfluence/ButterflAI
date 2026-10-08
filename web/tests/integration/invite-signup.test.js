@@ -89,3 +89,27 @@ describe('send_contact_invite with a guessed contact id', () => {
     assert.match(r.message, /lookup_contact/);
   });
 });
+
+describe('reopening a used invite', () => {
+  test('invite used by someone with an account → redirected into the app (login if signed out)', async () => {
+    const inviter = mkUser('+12025559520', 'Inv');
+    mkUser('+12025559521', 'Has Account');
+    const token = newInvite(inviter);
+    await request.post(`/api/invite/${token}/signup`).send({ name: 'Has Account', phone: '+12025559521' });
+    const r = await request.get(`/invite/${token}`);
+    assert.equal(r.status, 302);
+    assert.equal(r.headers.location, '/app/chat');
+    const next = await request.get('/app/chat');
+    assert.equal(next.status, 302);
+    assert.match(next.headers.location, /\/app\/login/, 'signed-out users land on login');
+  });
+
+  test('invite resolved some other way (opt-out) still shows "Already sorted"', async () => {
+    const inviter = mkUser('+12025559522', 'Inv2');
+    const token = newInvite(inviter);
+    db.resolveInvite(token, 'opted_out', null);
+    const r = await request.get(`/invite/${token}`);
+    assert.equal(r.status, 200);
+    assert.match(r.text, /Already sorted/);
+  });
+});

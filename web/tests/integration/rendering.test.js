@@ -668,3 +668,10 @@ describe('Chat shows who messages are from / to', () => {
     assert.match(html, /data\.role === 'assistant' && data\.kind\)[\s\S]{0,300}appendMessage\('bot', data\.text, data\.ts, true, data\.kind\)/);
   });
 });
+
+describe('Invite page: existing account goes to login', () => {
+  test('signup with an existing number redirects to the login URL', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/invite.html'), 'utf8');
+    assert.match(html, /err\.existing_account[\s\S]{0,300}location\.href = err\.login_url \|\| '\/app\/login'/);
+  });
+});

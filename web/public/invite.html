@@ -401,15 +401,9 @@
       const err = await res.json().catch(() => ({}));
       const errEl = document.getElementById('signup-error');
       if (err.existing_account) {
-        // Already on ButterflAI — you're now connected to whoever invited you; just log in.
-        errEl.textContent = '';
-        const msg = document.createElement('span');
-        msg.textContent = 'This number already has a ButterflAI account — you\'re now connected. ';
-        const link = document.createElement('a');
-        link.href = err.login_url || '/app/login';
-        link.textContent = 'Log in →';
-        link.style.color = '#a78bfa';
-        errEl.append(msg, link);
+        // Already on ButterflAI — now connected to whoever invited them. Straight to login.
+        errEl.textContent = 'You already have a ButterflAI account — taking you to log in…';
+        setTimeout(() => { location.href = err.login_url || '/app/login'; }, 1200);
       } else {
         errEl.textContent = err.error || 'Something went wrong. Please try again.';
         btn.disabled = false;

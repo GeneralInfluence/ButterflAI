@@ -308,6 +308,9 @@ app.get('/share-target', (req, res) => res.redirect('/app/contacts?import=shared
 app.get('/invite/:token', (req, res) => {
   const invite = db.getInvite(req.params.token);
   if (!invite) return res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
+  // Invite used by someone who has an account (they signed up, or already had one):
+  // take them into the app — the /app guard sends them to login if they're signed out.
+  if (invite.status === 'accepted_full') return res.redirect('/app/chat');
   if (invite.status !== 'pending') return res.sendFile(path.join(__dirname, 'public', 'already-resolved.html'));
   res.sendFile(path.join(__dirname, 'public', 'invite.html'));
 });
