@@ -404,62 +404,83 @@ app.post('/api/invite/:token/contact', async (req, res) => {
 // ── Tier 2: Full ButterflAI signup ────────────────────────────────────────────
 
 app.post('/api/invite/:token/signup', async (req, res) => {
-  const invite = db.getInvite(req.params.token);
-  if (!invite || invite.status !== 'pending') {
-    return res.status(400).json({ error: 'Invalid or already resolved invite' });
-  }
+  // Express doesn't catch async errors: an uncaught throw here (a duplicate phone, on
+  // 2026-10-08) left the signup page spinning forever. Always answer.
+  try {
+    const invite = db.getInvite(req.params.token);
+    if (!invite || invite.status !== 'pending') {
+      return res.status(400).json({ error: 'Invalid or already resolved invite' });
+    }
 
-  const { name, phone, availability, neighborhoods, dietary } = req.body;
-  if (!name || !phone) {
-    return res.status(400).json({ error: 'Name and phone number required' });
-  }
+    const { name, phone: rawPhone, availability, neighborhoods, dietary } = req.body || {};
+    if (!name || !rawPhone) {
+      return res.status(400).json({ error: 'Name and phone number required' });
+    }
+    const checked = validatePhone(String(rawPhone));
+    if (!checked.ok) return res.status(400).json({ error: 'Please enter a valid phone number.' });
+    const phone = checked.phone;
 
-  if (db.isOptedOut(phone)) {
-    return res.status(400).json({ error: 'This number has opted out' });
-  }
+    const inviter = db.getUser(invite.created_by_user_id);
 
-  // Create full user account (onboarding_state: complete — they'll receive agent messages)
-  const userId = uuidv4();
-  db.createUser({ id: userId, name, phone, onboarding_state: 'complete' });
+    // This number already has a ButterflAI account: don't create a second one. Connect
+    // the inviter to them and send the person to log in — we can't sign them in from
+    // here without verifying they own the number (login texts them a code).
+    const existing = db.getUserByPhone(phone);
+    if (existing) {
+      const contactId = db.upsertContact({ invited_by_user_id: invite.created_by_user_id, name: existing.name || name, phone, tier: 2 });
+      db.resolveInvite(invite.token, 'accepted_full', contactId);
+      if (inviter?.phone) {
+        await sms.notifyUser(inviter.phone, `🦋 ${existing.name || name} is already on ButterflAI — you're connected.`).catch(() => {});
+      }
+      return res.status(409).json({
+        error: 'This number already has a ButterflAI account. Log in to continue.',
+        existing_account: true,
+        login_url: '/app/login',
+      });
+    }
 
-  db.setContactPreferences({
-    contact_id: userId,
-    availability_notes: availability || null,
-    neighborhoods: neighborhoods || null,
-    dietary: dietary || null,
-    comm_preference: 'sms',
-  });
+    if (db.isOptedOut(phone)) {
+      return res.status(400).json({ error: 'This number has opted out' });
+    }
 
-  // Create a contact record linking back to the inviter
-  const contactId = uuidv4();
-  db.createContact({
-    id: contactId,
-    invited_by_user_id: invite.created_by_user_id,
-    name,
-    phone,
-    tier: 2,
-  });
+    // Create full user account (onboarding_state: complete — they'll receive agent messages)
+    const userId = uuidv4();
+    db.createUser({ id: userId, name, phone, onboarding_state: 'complete' });
 
-  // Record INVITE_PAGE consent: new full user opted in via the invite page
-  db.writeConsent(phone, 'INVITE_PAGE');
-  db.resolveInvite(invite.token, 'accepted_full', contactId);
+    db.setContactPreferences({
+      contact_id: userId,
+      availability_notes: availability || null,
+      neighborhoods: neighborhoods || null,
+      dietary: dietary || null,
+      comm_preference: 'sms',
+    });
 
-  // Notify inviter
-  const inviter = db.getUser(invite.created_by_user_id);
-  if (inviter?.phone) {
-    await sms.notifyUser(inviter.phone,
-      `🦋 ${name} signed up for their own ButterflAI! Our agents can now coordinate automatically.`
+    // Contact record linking back to the inviter (idempotent if they already had one)
+    const contactId = db.upsertContact({ invited_by_user_id: invite.created_by_user_id, name, phone, tier: 2 });
+
+    // Record INVITE_PAGE consent: new full user opted in via the invite page
+    db.writeConsent(phone, 'INVITE_PAGE');
+    db.resolveInvite(invite.token, 'accepted_full', contactId);
+
+    // Notify inviter
+    if (inviter?.phone) {
+      await sms.notifyUser(inviter.phone,
+        `🦋 ${name} signed up for their own ButterflAI! Our agents can now coordinate automatically.`
+      ).catch(() => {});
+    }
+
+    // Welcome the new user via SMS
+    await sms.notifyUser(phone,
+      `Welcome to ButterflAI, ${name}! 🦋\n\n` +
+      `I'm your social agent — I'll keep you connected with people you care about without the scheduling chaos.\n\n` +
+      `You'll hear from me when a friend wants to make plans. Reply STOP anytime to opt out.`
     ).catch(() => {});
+
+    res.json({ ok: true, tier: 2, userId });
+  } catch (err) {
+    console.error(`[invite] signup failed: ${err.message}\n${err.stack || ''}`);
+    res.status(500).json({ error: 'Something went wrong creating your account. Please try again.' });
   }
-
-  // Welcome the new user via SMS
-  await sms.notifyUser(phone,
-    `Welcome to ButterflAI, ${name}! 🦋\n\n` +
-    `I'm your social agent — I'll keep you connected with people you care about without the scheduling chaos.\n\n` +
-    `You'll hear from me when a friend wants to make plans. Reply STOP anytime to opt out.`
-  ).catch(() => {});
-
-  res.json({ ok: true, tier: 2, userId });
 });
 
 // ── Contact self-service portal (§7) — HTML entry point ──────────────────────

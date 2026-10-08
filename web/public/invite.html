@@ -399,8 +399,21 @@
       goTo('step-success-signup');
     } else {
       const err = await res.json().catch(() => ({}));
-      document.getElementById('signup-error').textContent = err.error || 'Something went wrong. Please try again.';
-      btn.disabled = false;
+      const errEl = document.getElementById('signup-error');
+      if (err.existing_account) {
+        // Already on ButterflAI — you're now connected to whoever invited you; just log in.
+        errEl.textContent = '';
+        const msg = document.createElement('span');
+        msg.textContent = 'This number already has a ButterflAI account — you\'re now connected. ';
+        const link = document.createElement('a');
+        link.href = err.login_url || '/app/login';
+        link.textContent = 'Log in →';
+        link.style.color = '#a78bfa';
+        errEl.append(msg, link);
+      } else {
+        errEl.textContent = err.error || 'Something went wrong. Please try again.';
+        btn.disabled = false;
+      }
     }
   });
 

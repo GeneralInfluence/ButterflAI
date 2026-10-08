@@ -1304,6 +1304,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'send_contact_invite': {
+      const contact = ownContact(userId, toolInput.contact_id);
+      if (contact.error) return contact;
       const result = await contactsImport.sendInvite(userId, toolInput.contact_id, toolInput.context);
       return { sent: true, ...result };
     }
