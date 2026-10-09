@@ -830,6 +830,21 @@ describe('Voice input keeps listening until tapped again', () => {
     assert.match(html, /if \(wantOn && silentPasses < MAX_SILENT_PASSES && Date\.now\(\) - startedAt < MAX_LISTEN_MS\) \{\s*try \{ recognition\.start\(\); return; \}/);
     assert.ok(html.includes("if (e.error === 'no-speech') { silentPasses++; return; }"), 'a pause is not an error');
   });
+  // Regression (2026-10-09): restarting a short session at every pause made Android beep
+  // (start + end tone per session) whenever Sean paused. One continuous session instead.
+  test('one continuous session through pauses, not a restart (and beep) at every pause', () => {
+    assert.ok(html.includes('recognition.continuous  = true;'));
+    assert.ok(!html.includes('recognition.continuous  = false;'));
+  });
+  test('Android repeated words are merged, not duplicated', () => {
+    const src = html.match(/function mergeSpeech\(acc, t\) \{[\s\S]*?\n      \}/)[0];
+    const mergeSpeech = new Function(src + '; return mergeSpeech;')();
+    assert.equal(mergeSpeech('hello', 'hello there'), 'hello there');       // Android repeats
+    assert.equal(mergeSpeech('hello', 'there'), 'hello there');             // desktop appends
+    assert.equal(mergeSpeech('hello there', 'there'), 'hello there');
+    assert.equal(mergeSpeech('', 'hi'), 'hi');
+    assert.match(html, /finalSoFar = mergeSpeech\(finalSoFar, e\.results\[i\]\[0\]\.transcript\)/);
+  });
   test('tapping again stops for real', () => {
     assert.match(html, /window\.toggleMic = \(\) => \{\s*if \(wantOn \|\| listening\) \{\s*wantOn = false;/);
   });

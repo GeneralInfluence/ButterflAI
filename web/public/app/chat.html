@@ -741,15 +741,27 @@
       micBtn.style.display = 'flex';
 
       // Keep listening until the user taps the mic again (2026-10-09: it kept cutting off
-      // mid-sentence). Each recognition pass ends at a pause; while the user still wants
-      // to talk we commit what was heard and start another pass, appending to the text.
-      // (Per-pass mode + restart, not `continuous`, which duplicates words on Android.)
+      // mid-sentence). One continuous session stays open through pauses. (The first fix
+      // restarted a short session at every pause, and Android plays a start + end tone per
+      // session — it beeped whenever you paused.) If the browser still ends the session
+      // after a long silence, we commit what was heard and start another, appending.
       const recognition = new SpeechRec();
-      recognition.continuous  = false;
+      recognition.continuous  = true;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
-      const MAX_SILENT_PASSES = 3;            // ~20s of silence → stop
+      // Android Chrome in continuous mode can repeat earlier words in each new result
+      // ("hello", "hello there"). Merge instead of appending blindly.
+      function mergeSpeech(acc, t) {
+        const a = String(acc || '').trim(), b = String(t || '').trim();
+        if (!a) return b;
+        if (!b) return a;
+        if (b.toLowerCase().startsWith(a.toLowerCase())) return b;   // b repeats a, then continues
+        if (a.toLowerCase().endsWith(b.toLowerCase())) return a;     // b already included
+        return a + ' ' + b;
+      }
+
+      const MAX_SILENT_PASSES = 2;            // two silent sessions (~15–20s) → stop
       const MAX_LISTEN_MS = 5 * 60 * 1000;    // hard cap
 
       let listening   = false;   // a recognition pass is running
@@ -788,11 +800,11 @@
         let interim = '';
         finalSoFar  = '';
         for (let i = 0; i < e.results.length; i++) {
-          if (e.results[i].isFinal) finalSoFar += e.results[i][0].transcript;
-          else                       interim    += e.results[i][0].transcript;
+          if (e.results[i].isFinal) finalSoFar = mergeSpeech(finalSoFar, e.results[i][0].transcript);
+          else                       interim    = mergeSpeech(interim, e.results[i][0].transcript);
         }
         const prefix = baseText ? baseText + ' ' : '';
-        inputEl.value = prefix + finalSoFar + interim;
+        inputEl.value = prefix + mergeSpeech(finalSoFar, interim);
         inputEl.style.height = 'auto';
         inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
         sendBtn.disabled = !inputEl.value.trim();
