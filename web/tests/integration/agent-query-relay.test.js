@@ -102,4 +102,39 @@ describe('answering another agent', () => {
     assert.equal(texts.length, 0);
     assert.ok(!history(allie).some((m) => m.text === 'Pat wants to hang'));
   });
+
+  // 2026-10-09: after the question reached them, Allie, Melanie and Bam Bam answered in
+  // their chats; each agent said "I already replied to Sean's agent" — none had (it had
+  // no message_id to reply with). Sean never got the answers.
+  test('the user answers later: the open question is in the state, a false "already replied" is challenged, the answer reaches the asker', async () => {
+    const mel = mkUser('Melanie Noel'); const sean2 = mkUser('Sean Two'); knows(mel, sean2);
+    await seanAsks(sean2, mel);
+    script([toolUse('tell_my_user', { message: 'Sean asks: shiftpod for everyone OK?' }), endText('')]);
+    await agent.tick();
+    const q = db._raw().prepare("SELECT id FROM agent_messages WHERE to_user = ? AND kind = 'query'").get(mel.id);
+
+    const systems = [];
+    let i = 0;
+    const steps = [
+      endText("I've already replied to Sean's agent — he has your answer."),
+      toolUse('reply_agent', { message_id: q.id, body: 'Melanie: shiftpod works if it stays warm.' }),
+      endText('Passed that back to Sean.'),
+    ];
+    agent._setAnthropic({ messages: { create: async (req) => { systems.push(JSON.stringify(req.system)); return { id: 'x' + i, ...steps[Math.min(i++, steps.length - 1)] }; } } });
+    db.storeInboundMessage({ from_phone: mel.phone, from_type: 'user', from_id: mel.id, channel: 'webchat', text: 'Yeah that works if we keep it warm' });
+    await agent.tick();
+
+    assert.ok(systems[0].includes(`message_id=\\"${q.id}\\"`), 'the open question (with its id) is in the state');
+    const reply = db._raw().prepare("SELECT body FROM agent_messages WHERE from_user = ? AND to_user = ? AND kind = 'reply'").get(mel.id, sean2.id);
+    assert.equal(reply?.body, 'Melanie: shiftpod works if it stays warm.');
+    const queued = db._raw().prepare("SELECT 1 FROM inbound_messages WHERE from_id = ? AND channel = 'agent_reply'").get(sean2.id);
+    assert.ok(queued, "Sean's agent gets the answer");
+    assert.equal(history(mel).at(-1).text, 'Passed that back to Sean.');
+  });
+
+  test('once answered, the question leaves the state and "already replied" is no longer challenged', () => {
+    assert.equal(agent._unbackedActionClaim("I've already replied to Sean's agent.", [], { openQuestions: 0 }), null);
+    assert.ok(agent._unbackedActionClaim("I've already replied to Sean's agent.", [], { openQuestions: 1 }));
+    assert.equal(agent._unbackedActionClaim('Melanie replied: she is in.', [], { openQuestions: 1 }), null, 'reporting someone else\'s reply is not a claim');
+  });
 });

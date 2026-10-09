@@ -732,6 +732,19 @@ function toolStatusLine(toolName, input) {
   }
 }
 
+// Unanswered questions other users' agents sent to this user (newest first, last 7 days).
+function openQuestionsFor(userId) {
+  try {
+    return db._raw().prepare(`
+      SELECT am.id, substr(am.body, 1, 300) AS body, u.name AS from_name
+      FROM agent_messages am JOIN users u ON u.id = am.from_user
+      WHERE am.to_user = ? AND am.kind = 'query' AND am.processed = 0
+        AND am.created_at > strftime('%s','now') - 7 * 86400
+      ORDER BY am.created_at DESC LIMIT 5`).all(userId)
+      .map((q) => ({ ...q, from_name: String(q.from_name || 'A friend').split(/\s+/)[0] }));
+  } catch (_) { return []; }
+}
+
 // A contact_id must be a real contact of THIS user. The model has invented ids from names
 // ("sean-gonzalez", "aphilos") — the draft tool accepted them and the send failed, and
 // another user's contact id must never be usable. The error tells the model how to recover.
@@ -1126,7 +1139,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       db.appendConversation(userId, 'assistant', text);
       const online = sse.push(userId, { role: 'assistant', text, ts: Math.floor(Date.now() / 1000) });
       const r = await deliver.notifySelf(db.getUser(userId), text, { online });
-      return { delivered: true, via: r.via, note: 'Your user has it. When they answer, pass it back with message_agent.' };
+      return { delivered: true, via: r.via, note: 'Your user has it. When they answer (in a later message), the question is listed under "Open questions from friends\' ButterflAIs" — reply with reply_agent then.' };
     }
 
     case 'store_private_data': {
@@ -1847,6 +1860,17 @@ async function processMessage(msg) {
     } catch (_) { return ''; }
   })();
 
+  // Questions friends' agents asked this user that haven't been answered. After
+  // tell_my_user passes one on, the user answers in a LATER turn — without this list the
+  // agent had no message_id to reply_agent with, and told Allie, Melanie and Bam Bam "I
+  // already replied to Sean's agent" when nothing went back (2026-10-09).
+  const openQuestions = coordinationOnly ? [] : openQuestionsFor(userId);
+  const openQuestionsSection = openQuestions.length
+    ? `\n## Open questions from friends' ButterflAIs (your user hasn't answered yet)\n`
+      + openQuestions.map((q) => `  - message_id="${q.id}" | from ${q.from_name}'s ButterflAI | "${q.body}"`).join('\n')
+      + `\n- If your user's message answers one, call reply_agent with that message_id — it is the ONLY way the answer gets back. Never say you replied unless reply_agent returned replied: true.`
+    : '';
+
   const agentNotes = user.agent_notes?.trim();
   const inSensitiveMode = sensitive.isSensitiveMode(userId);
   const prefsSection = buildPrefsSection(prefs, { coordinationOnly });
@@ -1868,6 +1892,7 @@ async function processMessage(msg) {
       : `\n## ${user.name}'s preferences\n${prefsSection}`,
     coordinationOnly ? '' : `\n## Open events\n${pendingEvents}`,
     pendingCoordination,
+    openQuestionsSection,
     (agentNotes && !coordinationOnly) ? `\n## Remembered facts (use these — don't ask again)\n${agentNotes}` : '',
   ].filter(Boolean).join('\n');
 
@@ -2257,10 +2282,18 @@ const ACTION_CLAIMS = [
       && (t.result?.added || t.result?.removed || t.result?.created || t.result?.deleted || t.result?.renamed)),
     how: 'manage_contact_group (list_groups to get the group_id, lookup_contact for the contact_id, then add_member / remove_member)',
   },
+  {
+    what: 'a reply to a friend\'s ButterflAI',
+    // "I've already replied to Sean's agent", "Sean's agent has it", "the message went through"
+    claim: /\b(?:I(?:'ve| have)?|already)\s+(?:already\s+)?(?:replied|answered|passed (?:it|that|this|your answer)|relayed)\b|\bagent\s+(?:has|got|should have)\s+(?:it|that|your answer)\b|\bwent through\b/i,
+    // Suspicious only while a friend's question to this user is still unanswered.
+    done: (log, ctx) => !ctx.openQuestions || log.some((t) => ['reply_agent', 'message_agent', 'send_logistics_sms'].includes(t.name) && sendSucceeded(t.result)),
+    how: 'reply_agent with the message_id listed under "Open questions from friends\' ButterflAIs"',
+  },
 ];
 const ACTION_NEGATED = /\b(not|n't|never|unable to|couldn't|can't|wasn't|haven't|hasn't|didn't|want me to|should i|shall i)\b/i;
 
-function unbackedActionClaim(replyText, toolLog) {
+function unbackedActionClaim(replyText, toolLog, ctx = {}) {
   if (!replyText) return null;
   for (const c of ACTION_CLAIMS) {
     const m = c.claim.exec(replyText);
@@ -2268,7 +2301,7 @@ function unbackedActionClaim(replyText, toolLog) {
     // Look at the sentence the claim is in: "I couldn't add…" / "Want me to add…" aren't claims.
     const start = Math.max(replyText.lastIndexOf('.', m.index), replyText.lastIndexOf('\n', m.index), replyText.lastIndexOf('?', m.index)) + 1;
     if (ACTION_NEGATED.test(replyText.slice(start, m.index + m[0].length))) continue;
-    if (!c.done(toolLog)) return c;
+    if (!c.done(toolLog, ctx)) return c;
   }
   return null;
 }
@@ -2474,7 +2507,8 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       }
 
       // Guard: a reply that says something was done (e.g. added to a group) when no tool did it.
-      const unbacked = msg.channel === 'agent_query' ? null : unbackedActionClaim(replyText, toolLog);
+      const unbacked = msg.channel === 'agent_query' ? null
+        : unbackedActionClaim(replyText, toolLog, { openQuestions: openQuestionsFor(userId).length });
       if (unbacked) {
         if (!actionClaimChallenged) {
           actionClaimChallenged = true;
