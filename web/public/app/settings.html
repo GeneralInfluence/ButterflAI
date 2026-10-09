@@ -138,6 +138,7 @@
     .conn-name { font-size: 15px; font-weight: 600; color: #1c1c1e; }
     .conn-status { font-size: 13px; color: #3a3a3c; margin-top: 2px; }
     .conn-row .btn { flex-shrink: 0; }
+    .conn-row .btn.conn-quiet { background: none; border: none; box-shadow: none; color: #8e8e93; font-size: 13px; font-weight: 500; text-decoration: underline; padding: 6px 4px; }
 </style>
 </head>
 <body>
@@ -921,13 +922,20 @@
         const g = c.google || {};
         const parts = [g.calendar ? 'Calendar ✓' : 'Calendar —', g.contacts ? 'Contacts ✓' : 'Contacts —'];
         document.getElementById('google-status').textContent = parts.join(' · ');
+        // Fully connected → no call to action: contacts sync on their own (daily, and when
+        // a name isn't found). "Reconnect" read like something to tap for new contacts.
         const gb = document.getElementById('google-btn');
-        gb.textContent = g.calendar && g.contacts ? 'Reconnect' : g.calendar || g.contacts ? 'Connect the rest' : 'Connect Google';
+        const all = g.calendar && g.contacts;
+        gb.textContent = all ? 'reconnect' : g.calendar || g.contacts ? 'Connect the rest' : 'Connect Google';
+        gb.classList.toggle('conn-quiet', all);
+        gb.title = all ? 'Only needed if Google stops working (e.g. you removed access in your Google account)' : '';
         document.getElementById('contacts-sync-row').hidden = !g.contacts;
-        if (g.contacts) document.getElementById('contacts-sync-status').textContent = 'Contacts stay in sync' + (g.contacts_synced_at ? ` · last synced ${day(g.contacts_synced_at)}` : '');
+        if (g.contacts) document.getElementById('contacts-sync-status').textContent = 'New contacts sync automatically' + (g.contacts_synced_at ? ` · last synced ${day(g.contacts_synced_at)}` : '');
         const a = c.apple || {};
         document.getElementById('apple-status').textContent = a.calendar ? 'Connected ✓' : 'Not connected';
-        document.getElementById('apple-btn').textContent = a.calendar ? 'Reconnect' : 'Connect';
+        const ab = document.getElementById('apple-btn');
+        ab.textContent = a.calendar ? 'reconnect' : 'Connect';
+        ab.classList.toggle('conn-quiet', !!a.calendar);
       } catch (_) {
         document.getElementById('google-status').textContent = 'Couldn’t check — try again later';
       }

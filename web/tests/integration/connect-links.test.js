@@ -161,5 +161,8 @@ describe('one Google connection; Settings shows what is connected', () => {
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/settings.html'), 'utf8');
     assert.ok(html.includes('id="google-status"') && html.includes('href="/auth/google"') && html.includes("fetch('/api/user/connections')"));
     assert.ok(!html.includes('Connect Google Calendar</a>'), 'no more static button');
+    // Fully connected shows a quiet "reconnect" link, not a button that looks required.
+    assert.ok(html.includes("gb.textContent = all ? 'reconnect'") && html.includes("gb.classList.toggle('conn-quiet', all)"));
+    assert.ok(html.includes('New contacts sync automatically'));
   });
 });
