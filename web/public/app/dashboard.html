@@ -199,10 +199,12 @@
            i.waiting_on && i.waiting_on.length ? `waiting on ${names(i.waiting_on.map(esc))}` : '',
            i.out && i.out.length ? `${names(i.out.map(esc))} out` : ''].filter(Boolean).join(' · ') || 'you\'re hosting'
         : 'with ' + esc(i.host);
-      return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="/app/events"><span class="feed-icon">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
+      // Opens that plan's discussion in chat (2026-10-09).
+      return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="/app/chat?event=${esc(i.event_id)}"><span class="feed-icon">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
     }
-    if (i.type === 'question') return `<a class="card feed-item needs-you" href="/app/chat"><span class="feed-icon">❓</span><div><div class="card-title">${esc(i.who)} asked</div><div class="card-sub">${esc(i.text)}</div>${action(i)}</div></a>`;
-    if (i.type === 'waiting') return `<a class="card feed-item" href="/app/chat"><span class="feed-icon">⏳</span><div><div class="card-title">Waiting on ${names(i.who.map(esc))}</div><div class="card-sub">${esc(i.text)}</div></div></a>`;
+    const chatLink = (i) => i.event_id ? `/app/chat?event=${esc(i.event_id)}` : '/app/chat';
+    if (i.type === 'question') return `<a class="card feed-item needs-you" href="${chatLink(i)}"><span class="feed-icon">❓</span><div><div class="card-title">${esc(i.who)} asked</div><div class="card-sub">${esc(i.text)}</div>${action(i)}</div></a>`;
+    if (i.type === 'waiting') return `<a class="card feed-item" href="${chatLink(i)}"><span class="feed-icon">⏳</span><div><div class="card-title">Waiting on ${names(i.who.map(esc))}</div><div class="card-sub">${esc(i.text)}</div></div></a>`;
     if (i.type === 'plan') return `<div class="card feed-item"><span class="feed-icon">🟢</span><div><div class="card-title">${esc(i.who)}: ${esc(i.text)}</div><div class="card-sub">until ${when(i.until)}</div></div></div>`;
     if (i.type === 'interest') return `<div class="card feed-item"><span class="feed-icon">👋</span><div><div class="card-title">${esc(i.who)}'s up for something ${esc(i.about)}</div><div class="card-sub">Share what you're up to above if you're in</div></div></div>`;
     return '';

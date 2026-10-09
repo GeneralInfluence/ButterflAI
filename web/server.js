@@ -32,6 +32,7 @@ const sensitive = require('./sensitive');
 const avoid = require('./avoid');
 const trace = require('./trace');
 const deliver = require('./deliver');
+const topics = require('./topics');
 const plans = require('./plans');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
@@ -1464,14 +1465,26 @@ app.get('/auth/logout',      webAuth.logout);
 // GET /api/chat/messages — last 50 conversation messages, newest-first then reversed
 // Uses DESC + reverse so we get the most recent 50 (not the oldest 50).
 // Optional: ?since=<unix_ts> — only return messages newer than that timestamp (for catch-up polling)
-app.get('/api/chat/messages', webAuth.requireAuth, (req, res) => {
+app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const since = parseInt(req.query.since) || 0;
   let msgs;
   const cols = 'role, text, created_at, private_ct, private_iv, private_tag, kind';
+  // ?event=<id>: only that plan's discussion (2026-10-09). Host or invitee only.
+  let eventInfo = null;
+  const eventId = req.query.event ? String(req.query.event) : null;
+  if (eventId) {
+    if (!topics.canSee(req.user.id, eventId)) return res.status(403).json({ error: 'Not your event' });
+    await topics.backfill(req.user.id, eventId);   // sort older messages in, once
+    eventInfo = db._raw().prepare('SELECT id, title, scheduled_at, tentative FROM social_events WHERE id = ?').get(eventId);
+  }
   // Opening the chat counts as seeing messages delivered in the app — no SMS fallback.
   deliver.markSeen(req.user.id);
-  if (since > 0) {
+  if (eventId) {
+    msgs = db._raw().prepare(
+      `SELECT ${cols} FROM conversation_history WHERE user_id = ? AND event_id = ? AND created_at > ?
+       ORDER BY created_at DESC LIMIT ?`).all(req.user.id, eventId, since, limit).reverse();
+  } else if (since > 0) {
     msgs = db._raw().prepare(
       `SELECT ${cols} FROM conversation_history
        WHERE user_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?`
@@ -1485,6 +1498,7 @@ app.get('/api/chat/messages', webAuth.requireAuth, (req, res) => {
   // Private-mode messages are decrypted only here, for their owner (the query is scoped
   // to req.user.id). Not access-logged per poll: this is the owner reading their own chat.
   res.json({
+    event: eventInfo || undefined,
     messages: msgs.map(({ private_ct, private_iv, private_tag, ...m }) => {
       if (!private_ct) return m;
       try { return { ...m, text: sensitive.decrypt(private_ct, private_iv, private_tag), private: true }; }

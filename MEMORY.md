@@ -518,6 +518,12 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   `record_rsvp accepted` ("Interested") → on their ButterflAI calendar; the host sees who's
   interested / not answered; when all have answered, "lock in the plan" (update_event
   tentative: false).
+- **Chat by discussion (2026-10-09):** chat messages carry the event they're about
+  (`conversation_history.event_id`, migration 036, `web/topics.js`): tagged in code when a
+  turn's tools work on one event, otherwise a small Haiku match against the user's current
+  events; older messages are sorted in once when a discussion is first opened. Home event
+  cards and Events → 💬 Discussion open `/app/chat?event=<id>` (host/invitee only, 403
+  otherwise) with "Show all".
 - **Agent-to-agent:** "what is your user up to" is never answered from memory and never
   triggers a ping; agents answer only from what the user explicitly shared.
 - Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.

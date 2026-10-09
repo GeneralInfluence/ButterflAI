@@ -875,3 +875,18 @@ describe('Home feed + Events show tentative plans and what needs you', () => {
     assert.ok(html.includes("accepted: e.tentative ? '⭐ Interested' : '✅ Going'"));
   });
 });
+
+// 2026-10-09: chat filtered to one plan's discussion, opened from Home / Events.
+describe('Chat: one discussion at a time', () => {
+  const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8');
+  test('chat reads ?event=, shows the topic bar with Show all, falls back on 403', () => {
+    const html = read('chat.html');
+    assert.ok(html.includes("new URLSearchParams(location.search).get('event')"));
+    assert.ok(html.includes('id="topic-bar" hidden') && html.includes('href="/app/chat" class="topic-all">Show all'));
+    assert.ok(html.includes("if (topicEvent && r.status === 403) { location.replace('/app/chat'); return; }"));
+  });
+  test('Home event cards and Events cards link to the discussion', () => {
+    assert.ok(read('dashboard.html').includes('href="/app/chat?event=${esc(i.event_id)}"'));
+    assert.ok(read('events.html').includes('💬 Discussion'));
+  });
+});

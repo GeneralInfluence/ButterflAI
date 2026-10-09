@@ -168,6 +168,10 @@
     .fb-send:disabled { opacity: .55; cursor: default; }
     .fb-cancel { background: #f2f2f7; color: #3a3a3c; border: none; }
     .fb-thanks { font-size: 13px; color: #8a7fb0; }
+    #topic-bar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: #ede9fe; border-bottom: 1px solid #ddd6fe; font-size: 13px; color: #3a3a3c; }
+    #topic-bar[hidden] { display: none; }
+    #topic-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .topic-all { flex-shrink: 0; height: 30px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 999px; background: #fff; border: 1px solid #c4b5fd; color: #6c47ff; font-weight: 600; text-decoration: none; }
 
     /* Typing indicator */
     .typing { display: none; align-self: flex-start; }
@@ -288,6 +292,12 @@
     </div>
   </header>
 
+  <!-- One plan's discussion only (opened from Home / Events with ?event=<id>) -->
+  <div id="topic-bar" hidden>
+    <span id="topic-title"></span>
+    <a href="/app/chat" class="topic-all">Show all</a>
+  </div>
+
   <div id="messages">
     <div class="empty" id="empty-state">
       <div class="emoji">🦋</div>
@@ -390,11 +400,21 @@
     });
 
     // ── Load history ───────────────────────────────────────────────────────────
+    // ?event=<id> → show only that plan's discussion (2026-10-09). New messages still
+    // appear live while you talk; "Show all" goes back to the whole chat.
+    const topicEvent = new URLSearchParams(location.search).get('event');
+
     async function loadHistory() {
       try {
-        const r = await fetch('/api/chat/messages');
+        let r = await fetch('/api/chat/messages' + (topicEvent ? '?limit=200&event=' + encodeURIComponent(topicEvent) : ''));
+        if (topicEvent && r.status === 403) { location.replace('/app/chat'); return; }
         if (!r.ok) { if (r.status === 401) location.href = '/app/login'; return; }
-        const { messages } = await r.json();
+        const { messages, event } = await r.json();
+        if (topicEvent && event) {
+          document.getElementById('topic-title').textContent = '🗓️ ' + event.title + ' — just this discussion';
+          document.getElementById('topic-bar').hidden = false;
+          if (!messages.length) emptyEl.querySelector('p').textContent = 'Nothing about this plan in your chat yet.';
+        }
         if (messages.length) {
           emptyEl.remove();
           messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind));

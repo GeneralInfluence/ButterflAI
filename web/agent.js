@@ -36,6 +36,7 @@ const multiparty = require('./multiparty');
 const desires    = require('./desires');
 const sensitive  = require('./sensitive');
 const avoid      = require('./avoid');
+const topics     = require('./topics');
 const { toE164 } = require('./phoneUtils');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
@@ -1158,7 +1159,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       db.appendConversation(userId, 'assistant', text);
       const online = sse.push(userId, { role: 'assistant', text, ts: Math.floor(Date.now() / 1000) });
       const r = await deliver.notifySelf(db.getUser(userId), text, { online });
-      return { delivered: true, via: r.via, note: 'Your user has it. When they answer (in a later message), the question is listed under "Open questions from friends\' ButterflAIs" — reply with reply_agent then.' };
+      return { delivered: true, via: r.via, event_id: turn.threadEvent || undefined, note: 'Your user has it. When they answer (in a later message), the question is listed under "Open questions from friends\' ButterflAIs" — reply with reply_agent then.' };
     }
 
     case 'store_private_data': {
@@ -2466,11 +2467,16 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   // words (and this turn's replies) are kept only encrypted, and the queued copy of
   // the message is scrubbed, so no plain-text copy is left at rest.
   const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
+  const turnStart = Math.floor(Date.now() / 1000);   // chat rows from here on belong to this turn (topics.js)
   currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms' };
   if (msg.channel === 'agent_query') {
     // Who's asking (for tell_my_user's avoid-list check), from the queued "thread=<id>".
     const thread = /\bthread=([\w-]+)/.exec(msg.text || '')?.[1];
-    currentTurn.askerId = thread ? db._raw().prepare('SELECT from_user FROM agent_messages WHERE id = ?').get(thread)?.from_user : null;
+    const q = thread ? db._raw().prepare('SELECT from_user, thread_id FROM agent_messages WHERE id = ?').get(thread) : null;
+    currentTurn.askerId = q?.from_user || null;
+    // Coordination questions are about an event (thread_id = event id) — used to file the
+    // passed-on message under that discussion in the user's chat.
+    currentTurn.threadEvent = q?.thread_id && db._raw().prepare('SELECT 1 FROM social_events WHERE id = ?').get(q.thread_id) ? q.thread_id : null;
   } else {
     // An agent_query is NOT kept in the user's chat: it showed up there as if they'd typed
     // "[Agent query from Sean Gonzalez's agent | thread=…]" (2026-10-09). What the user
@@ -2492,7 +2498,8 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   let sentClaimChallenged = false;
   let agentQueryChallenged = false;
   let actionClaimChallenged = false;
-  const toolLog = [];   // { name, result } for every tool run this turn
+  const toolLog = [];   // { name, input, result } for every tool run this turn
+  let lastReplyText = '';
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
@@ -2569,6 +2576,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         break;
       }
 
+      lastReplyText = replyText || '';
       if (replyText) {
         // Store reply in conversation history before sending
         appendHistory(userId, 'assistant', replyText, isPrivate);
@@ -2608,7 +2616,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
           result = { error: err.message };
         }
         turnTrace.tool(block.name, block.input, result, Date.now() - started);
-        toolLog.push({ name: block.name, result });
+        toolLog.push({ name: block.name, input: block.input, result });
         if (SEND_TOOLS.has(block.name)) {
           sendAttempted = true;
           if (sendSucceeded(result)) anySendSucceeded = true;
@@ -2649,6 +2657,10 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       }
     } catch (_) { /* best effort */ }
   }
+
+  // Which discussion (event) this turn belongs to, so the chat can be filtered by it.
+  await topics.tagTurn({ userId, sinceTs: turnStart, toolLog, isPrivate,
+    userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', replyText: lastReplyText });
 }
 
 // ── Queue processor ───────────────────────────────────────────────────────────

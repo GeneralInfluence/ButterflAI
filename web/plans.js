@@ -177,6 +177,9 @@ function interestFor(userId) {
 // on Oct 23 was invisible from Oct 9 with the old 14-day window).
 const FEED_DAYS = 60;
 
+// A coordination thread is named after its event (agent.js message_agent).
+const eventIdOf = (threadId) => threadId && db._raw().prepare('SELECT 1 FROM social_events WHERE id = ?').get(threadId) ? threadId : undefined;
+
 /**
  * The Home feed, ranked by what needs YOU to move things forward, then by how soon
  * (owner, 2026-10-09). Item types:
@@ -235,13 +238,13 @@ function feedFor(userId) {
 
   // Questions friends' ButterflAIs asked you that you haven't answered.
   const asked = db._raw().prepare(`
-    SELECT am.id, am.body, am.created_at, u.name, u.phone FROM agent_messages am JOIN users u ON u.id = am.from_user
+    SELECT am.id, am.body, am.created_at, am.thread_id, u.name, u.phone FROM agent_messages am JOIN users u ON u.id = am.from_user
     WHERE am.to_user = ? AND am.kind = 'query' AND am.processed = 0 AND am.created_at > ?
     ORDER BY am.created_at DESC LIMIT 5`).all(userId, t - 7 * 86400);
   for (const q of asked) {
     if (avoid.findByPhone(myAvoid, q.phone)) continue;
     items.push({ type: 'question', who: firstName(q), text: String(q.body).slice(0, 200), created_at: q.created_at,
-      action: 'Answer in chat' });
+      event_id: eventIdOf(q.thread_id), action: 'Answer in chat' });
   }
 
   // Questions you sent that haven't been answered — one item per thread. Ones about an
@@ -254,7 +257,7 @@ function feedFor(userId) {
   for (const m of sent) {
     if (m.thread_id && shownEventIds.has(m.thread_id)) continue;
     const key = m.thread_id || m.body;
-    const th = threads.get(key) || { type: 'waiting', who: [], text: String(m.body).slice(0, 200), created_at: m.created_at };
+    const th = threads.get(key) || { type: 'waiting', who: [], text: String(m.body).slice(0, 200), created_at: m.created_at, event_id: eventIdOf(m.thread_id) };
     const name = firstName(m);
     if (!th.who.includes(name)) th.who.push(name);
     threads.set(key, th);

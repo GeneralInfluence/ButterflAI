@@ -52,10 +52,10 @@ describe('a trip being planned', () => {
 
   test('created tentative; shows on everyone\'s Home 23 days out', () => {
     assert.equal(db._raw().prepare('SELECT tentative FROM social_events WHERE id = ?').get(eventId).tentative, 1);
-    const host = plans.feedFor(sean.id).items.find((i) => i.event_id === eventId);
+    const host = plans.feedFor(sean.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
     assert.equal(host.tentative, true);
     assert.deepEqual(host.waiting_on.sort(), ['Allie', 'Melanie']);
-    const guest = plans.feedFor(allie.id).items.find((i) => i.event_id === eventId);
+    const guest = plans.feedFor(allie.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
     assert.equal(guest.type, 'invite');
     assert.match(guest.action, /Interested/);
   });
@@ -74,10 +74,10 @@ describe('a trip being planned', () => {
   test('clearly in → recorded as interested; it\'s on their calendar and the host sees it', async () => {
     const r = await agent.executeTool('record_rsvp', { event_id: eventId, contact_phone: allie.phone, status: 'accepted', source: "her ButterflAI's reply" }, sean.id, sean.phone);
     assert.equal(r.action_status, 'RSVP_RECORDED');
-    const guest = plans.feedFor(allie.id).items.find((i) => i.event_id === eventId);
+    const guest = plans.feedFor(allie.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
     assert.equal(guest.type, 'event');
     assert.equal(guest.tentative, true);
-    const host = plans.feedFor(sean.id).items.find((i) => i.event_id === eventId);
+    const host = plans.feedFor(sean.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
     assert.deepEqual(host.interested, ['Allie']);
     assert.deepEqual(host.waiting_on, ['Melanie']);
     assert.equal(host.action, null, 'still waiting on Melanie');
@@ -86,15 +86,15 @@ describe('a trip being planned', () => {
   test('everyone answered and still tentative → "lock in" is the host\'s next step, at the top', async () => {
     await agent.executeTool('record_rsvp', { event_id: eventId, contact_phone: mel.phone, status: 'accepted' }, sean.id, sean.phone);
     const feed = plans.feedFor(sean.id).items;
-    const host = feed.find((i) => i.event_id === eventId);
+    const host = feed.find((i) => i.event_id === eventId && i.type === 'event');
     assert.match(host.action, /Lock in/);
     // Above everything that doesn't need Sean (an unanswered question from Allie, from the
     // earlier step, also needs him and may come first).
-    const idx = feed.findIndex((i) => i.event_id === eventId);
+    const idx = feed.findIndex((i) => i.event_id === eventId && i.type === 'event');
     assert.ok(feed.slice(0, idx).every((i) => i.type === 'question' || i.type === 'invite' || i.action), JSON.stringify(feed.slice(0, idx)));
     const u = await agent.executeTool('update_event', { event_id: eventId, tentative: false }, sean.id, sean.phone);
     assert.deepEqual(u.updated, ['tentative']);
-    assert.equal(plans.feedFor(sean.id).items.find((i) => i.event_id === eventId).action, null);
+    assert.equal(plans.feedFor(sean.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type)).action, null);
   });
 
   test("record_rsvp only works on your own event", async () => {
