@@ -2334,7 +2334,10 @@ app.get('/auth/google/callback', async (req, res) => {
         process.env.GOOGLE_REDIRECT_URI || `${process.env.BASE_URL}/auth/google/callback`
       );
       const { tokens } = await client.getToken(code);
+      // Keep the grant (encrypted) so contacts stay in sync from now on (2026-10-09).
+      await contactsImport.saveGoogleTokens(userId, tokens);
       const result = await contactsImport.importFromGoogle(userId, tokens);
+      db._raw().prepare("UPDATE contact_sync_tokens SET last_sync_at = strftime('%s','now') WHERE user_id = ?").run(userId);
 
       // Notify user via SMS
       if (user.phone) {
@@ -2604,6 +2607,7 @@ if (require.main === module) {
     startNudgeLoop();
     startCoordLoop({ transport: mcpTransport });
     deliver.startFallbackLoop();
+    contactsImport.startSyncLoop();
   });
 }
 

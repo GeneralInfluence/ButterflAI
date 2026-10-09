@@ -22,11 +22,38 @@ const deliver = require('./deliver');
 const now = () => Math.floor(Date.now() / 1000);
 const first = (u) => String(u?.nickname || u?.name || '').trim().split(/\s+/)[0] || 'A friend';
 
-/** Upcoming plans the owner made for this group. */
-function upcomingPlans(ownerId, groupId) {
-  return db._raw().prepare(`
-    SELECT * FROM social_events WHERE host_user_id = ? AND group_id = ? AND COALESCE(status, 'open') != 'cancelled'
-      AND (scheduled_at > ? OR flexible_time = 1) ORDER BY scheduled_at`).all(ownerId, groupId, now() - 3 * 3600);
+const UPCOMING = `host_user_id = ? AND COALESCE(status, 'open') != 'cancelled' AND (scheduled_at > ? OR flexible_time = 1)`;
+
+/**
+ * The group a set of invitees amounts to: the one group (2+ members) whose members are
+ * all invited. Owner, 2026-10-09: "you should infer that it is a group plan — I don't
+ * want to have to say so." null if none (or ambiguous).
+ */
+function groupCoveredBy(ownerId, contactIds, { exclude = null } = {}) {
+  const invited = new Set(contactIds);
+  const fits = db.getContactGroups(ownerId)
+    .map((g) => ({ g, members: g.members.map((m) => m.id).filter((id) => id !== exclude) }))
+    .filter(({ members }) => members.length >= 2 && members.every((id) => invited.has(id)))
+    .sort((a, b) => b.members.length - a.members.length);
+  if (!fits.length || (fits[1] && fits[1].members.length === fits[0].members.length)) return null;
+  return fits[0].g;
+}
+
+/**
+ * Upcoming plans the owner made for this group — linked ones, plus unlinked plans whose
+ * invitees include all the group's other members (those get linked now).
+ */
+function upcomingPlans(ownerId, groupId, { exclude = null } = {}) {
+  const since = now() - 3 * 3600;
+  const linked = db._raw().prepare(`SELECT * FROM social_events WHERE ${UPCOMING} AND group_id = ?`).all(ownerId, since, groupId);
+  for (const e of db._raw().prepare(`SELECT * FROM social_events WHERE ${UPCOMING} AND group_id IS NULL`).all(ownerId, since)) {
+    const invitees = db._raw().prepare('SELECT contact_id FROM event_invitations WHERE event_id = ?').all(e.id).map((r) => r.contact_id);
+    if (groupCoveredBy(ownerId, invitees, { exclude })?.id === groupId) {
+      db._raw().prepare('UPDATE social_events SET group_id = ? WHERE id = ?').run(groupId, e.id);
+      linked.push({ ...e, group_id: groupId });
+    }
+  }
+  return linked.sort((a, b) => a.scheduled_at - b.scheduled_at);
 }
 
 // "Fri, Oct 23 – Sun, Oct 25" for multi-day plans; date only while tentative.
@@ -61,7 +88,7 @@ async function onMemberAdded(ownerId, groupId, contactId) {
   if (!owner || !group || !contact || contact.invited_by_user_id !== ownerId || !contact.phone) return { caught_up: 0 };
 
   const plans = [];
-  for (const e of upcomingPlans(ownerId, groupId)) {
+  for (const e of upcomingPlans(ownerId, groupId, { exclude: contactId })) {
     const r = await multiparty.inviteContacts(e.id, [contactId], { quiet: true });
     if ((r.invited || []).includes(contactId)) plans.push(e);
   }
@@ -99,4 +126,4 @@ function tagLatest(userIds, eventId) {
   }
 }
 
-module.exports = { onMemberAdded, upcomingPlans };
+module.exports = { onMemberAdded, upcomingPlans, groupCoveredBy };

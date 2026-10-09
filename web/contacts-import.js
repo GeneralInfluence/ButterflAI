@@ -110,9 +110,10 @@ function makeGooglePeopleClient() {
  * @param {object} googleTokens  - OAuth tokens from callback
  * @returns {{ imported: number, skipped: number }}
  */
-async function importFromGoogle(userId, googleTokens) {
+async function importFromGoogle(userId, googleTokens, { onTokens } = {}) {
   const client = makeGooglePeopleClient();
   client.setCredentials(googleTokens);
+  if (onTokens) client.on('tokens', onTokens);   // refreshed access token → keep it
 
   const people = google.people({ version: 'v1', auth: client });
 
@@ -132,7 +133,18 @@ async function importFromGoogle(userId, googleTokens) {
       const name = person.names?.[0]?.displayName;
       const phones = person.phoneNumbers || [];
 
-      if (!name || phones.length === 0) { skipped++; continue; }
+      if (!name) { skipped++; continue; }
+      // No phone number: still keep the name, so the agent can find them and ask for
+      // the number (it used to drop them — 2026-10-09). One row per name.
+      if (phones.length === 0) {
+        const have = db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND lower(name) = lower(?)').get(userId, name);
+        if (have) { skipped++; continue; }
+        const id = uuidv4();
+        db.createContact({ id, invited_by_user_id: userId, name, phone: null, tier: 0 });
+        db._raw().prepare(`UPDATE contacts SET imported_from='google_contacts', import_source='google' WHERE id = ?`).run(id);
+        imported++;
+        continue;
+      }
 
       for (const phoneObj of phones) {
         const phone = normalisePhone(phoneObj.value);
@@ -159,6 +171,64 @@ async function importFromGoogle(userId, googleTokens) {
 
   console.log(`[contacts-import] user=${userId} imported=${imported} skipped=${skipped}`);
   return { imported, skipped };
+}
+
+// ── Ongoing sync ─────────────────────────────────────────────────────────────
+// The Google grant is kept (encrypted, every read audited — crypto.js) so contacts added
+// later show up: daily, and right away when a lookup finds no match (2026-10-09: Sean's
+// friend Alex wasn't found; his contacts were last imported in June, once).
+
+const crypto = require('./crypto');
+const SYNC_MIN_GAP = 10 * 60;   // on-demand syncs at most every 10 minutes
+
+async function saveGoogleTokens(userId, tokens) {
+  const old = await loadGoogleTokens(userId).catch(() => null);
+  const merged = { ...(old || {}), ...tokens };
+  if (!tokens.refresh_token && old?.refresh_token) merged.refresh_token = old.refresh_token;
+  const e = await crypto.encryptRecord(merged);
+  db._raw().prepare(`
+    INSERT INTO contact_sync_tokens (user_id, provider, ciphertext, iv, tag, wrapped_key)
+    VALUES (?, 'google', ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv, tag = excluded.tag,
+      wrapped_key = excluded.wrapped_key, updated_at = strftime('%s','now')
+  `).run(userId, e.ciphertext, e.iv, e.tag, e.wrapped_key);
+}
+
+async function loadGoogleTokens(userId) {
+  const row = db._raw().prepare('SELECT * FROM contact_sync_tokens WHERE user_id = ?').get(userId);
+  if (!row) return null;
+  return crypto.decryptRecord(row, userId, 'agent_reasoning', 'contacts_sync', 'contact_sync_tokens', db);
+}
+
+function syncStatus(userId) {
+  const row = db._raw().prepare('SELECT last_sync_at FROM contact_sync_tokens WHERE user_id = ?').get(userId);
+  const lastImport = db._raw().prepare("SELECT max(created_at) t FROM contacts WHERE invited_by_user_id = ? AND import_source = 'google'").get(userId)?.t;
+  return { connected: !!row, last_sync_at: row?.last_sync_at || null, last_import_at: lastImport || null };
+}
+
+/** Re-import from Google. `force` skips the 10-minute gap. Never throws. */
+async function syncGoogle(userId, { force = false } = {}) {
+  try {
+    const row = db._raw().prepare('SELECT last_sync_at FROM contact_sync_tokens WHERE user_id = ?').get(userId);
+    if (!row) return { synced: false, reason: 'not_connected' };
+    if (!force && row.last_sync_at && row.last_sync_at > Math.floor(Date.now() / 1000) - SYNC_MIN_GAP) return { synced: false, reason: 'recent' };
+    const tokens = await loadGoogleTokens(userId);
+    const result = await importFromGoogle(userId, tokens, { onTokens: (t) => saveGoogleTokens(userId, t).catch(() => {}) });
+    db._raw().prepare("UPDATE contact_sync_tokens SET last_sync_at = strftime('%s','now') WHERE user_id = ?").run(userId);
+    return { synced: true, imported: result.imported };
+  } catch (err) {
+    console.error(`[contacts-import] sync failed user=${userId}:`, err.message);
+    return { synced: false, reason: 'error', error: err.message };
+  }
+}
+
+/** Daily sync for everyone connected (staggered; runs every 6h, syncs if >24h old). */
+function startSyncLoop(intervalMs = 6 * 3600 * 1000) {
+  const run = async () => {
+    const due = db._raw().prepare("SELECT user_id FROM contact_sync_tokens WHERE COALESCE(last_sync_at, 0) < strftime('%s','now') - 86400").all();
+    for (const { user_id } of due) await syncGoogle(user_id, { force: true });
+  };
+  return setInterval(() => run().catch((err) => console.error('[contacts-import] sync loop:', err.message)), intervalMs);
 }
 
 // ── Invite gate ───────────────────────────────────────────────────────────────
@@ -270,6 +340,10 @@ module.exports = {
   addManualContact,
   getGoogleContactsAuthUrl,
   importFromGoogle,
+  saveGoogleTokens,
+  syncGoogle,
+  syncStatus,
+  startSyncLoop,
   sendInvite,
   getImportableContacts,
   getActiveContacts,

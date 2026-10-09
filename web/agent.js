@@ -976,18 +976,32 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         return 0;
       }
 
-      const scored = allContacts
+      const rank = (list) => list
         .map(c => ({ ...c, _score: score(c) }))
         .filter(c => c._score > 0)
         .sort((a, b) => b._score - a._score)
         .slice(0, 10);
-
+      let scored = rank(allContacts);
+      // No strong match (exact name, phone, or prefix)? Their Google contacts may have
+      // changed since the last sync — sync now and look again (2026-10-09: "Alex Spargo"
+      // wasn't found; contacts were last imported in June, once).
+      let synced = null;
+      if (!scored.length || scored[0]._score < 80) {
+        synced = await contactsImport.syncGoogle(userId);
+        if (synced.synced) scored = rank(db.getContactsByUser(userId));
+      }
+      const strong = scored.length && scored[0]._score >= 80;
+      const status = contactsImport.syncStatus(userId);
+      const lastImport = status.last_sync_at || status.last_import_at;
       return {
         contacts: scored.map(describeContact),
         count: scored.length,
-        tip: scored.length === 0
-          ? 'No match found. Try a different spelling, full name, or phone number.'
-          : 'Results ranked by match quality. If the right person isn\'t here, try their full name.',
+        exact_match: !!strong,
+        synced_google_contacts: synced?.synced ? `just now (${synced.imported} new)` : undefined,
+        tip: strong
+          ? 'Results ranked by match quality.'
+          : `No exact match for "${toolInput.query}"${scored.length ? ' — these are only partial matches; do NOT assume one of them is the person. Ask your user, or for their number.' : '.'}`
+            + (status.connected ? '' : ` Their Google contacts aren't kept in sync${lastImport ? ` (last imported ${new Date(lastImport * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})` : ''} — offer the contacts import link (get_contact_import_url) to turn on syncing, or ask for the person's number.`),
       };
     }
 
@@ -1587,6 +1601,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         if (!g) return { error: 'GROUP_NOT_FOUND', message: `No group called "${group}". Groups: ${all.map((x) => x.name).join(', ') || 'none yet'}.` };
         eventData.group_id = g.id;
         contact_ids = [...new Set([...(givenIds || []), ...g.members.map((m) => m.id || m.contact_id).filter(Boolean)])];
+      } else if (contact_ids?.length) {
+        // Inviting everyone in one of the user's groups makes it that group's plan —
+        // inferred in code; the user shouldn't have to say "group plan" (2026-10-09).
+        const g = groupPlans.groupCoveredBy(userId, contact_ids);
+        if (g) eventData.group_id = g.id;
       }
       // Deterministic date resolution: when the model passes the user's day+time
       // phrase, resolve it server-side in the user's timezone (Haiku is unreliable at
@@ -1652,6 +1671,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         // the user) and offer to remove them from the list if this was intentional.
         avoided_not_invited: inviteResult.avoided,
         tentative: !!eventData.tentative || undefined,
+        group: eventData.group_id ? db.getContactGroups(userId).find((g) => g.id === eventData.group_id)?.name : undefined,
         note: inviteResult.sent > 0
           ? `Invite(s) sent. Contacts can reply YES/NO and their response will be tracked automatically.`
           : `Event created but no invites sent (check contact_ids are valid and contacts aren't opted out).`,
@@ -2184,7 +2204,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
      - "host_location_unknown" → tell user to set their location in Settings; meanwhile ask if they want flexible or a specific time
   3. NEVER skip step 1. Do not assume distance. Do not ask "what time?" when check_invitee_locations says flexible.
 - For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
-- GROUP PLANS: a plan with one of your user's groups ("camping with my favorite mamas") → create_social_event with group set, so all members are invited. Adding someone to that group later (manage_contact_group add_member) automatically invites them to its upcoming plans and sends them one catch-up — tell your user who was caught up on what (caught_up_on).
+- GROUP PLANS: a plan with one of your user's groups → create_social_event with group set, so all members are invited. Your user won't say "group plan" — infer it: they named the group earlier, or the plan is with that group's people (a plan inviting everyone in a group is linked to it automatically). Adding someone to that group later (manage_contact_group add_member) automatically invites them to its upcoming plans and sends them one catch-up — tell your user who was caught up on what (caught_up_on).
 - DEFERRING ON A PLAN: if your user, about a plan they're invited to, says they don't want to weigh in and will go with what certain people decide ("whatever Melanie wants", "it's her birthday, not mine", "you guys figure it out"), call defer_on_plan with those names. That's for THIS plan only. Never pass along their reasons. If a friend's ButterflAI says someone deferred, don't ask that person about the plan — ask the people they defer to.
 - TRIPS AND PLANS STILL BEING FIGURED OUT: when your user is planning something with people (a trip, a weekend, a party) — even with dates or details unsettled — create it with create_social_event (tentative: true, best-known dates, contact_ids = everyone involved) BEFORE messaging anyone about it. That puts it on everyone's Home and calendars. When a friend (or their ButterflAI's reply) is clearly in, record_rsvp accepted (shown as interested); when someone is out, declined. When dates and details are settled, update_event tentative: false. message_agent with topic "coordination" requires the event_id.
 - CREATE THE EVENT BEFORE MESSAGING AGENTS: when your user says they're going somewhere and wants to invite people, ALWAYS call create_social_event first (use flexible_time: true for "come whenever" invites). Then message_agent each invitee. This creates the invite card and calendar entry on their end. If you only call message_agent without creating the event, there is no invite card, no calendar entry, and no RSVP tracking — which breaks the whole flow.

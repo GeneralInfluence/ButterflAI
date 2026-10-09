@@ -525,6 +525,16 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   place, the host's "plan so far" notes, who's in — never the group's discussion. Users get it
   in-app (usual delivery rules); non-users get one first-contact text with self-ID + STOP.
   Invites go through `inviteContacts` (quiet), so opt-outs and avoid lists apply.
+  **Inferred, not declared** (owner: "I don't want to have to say make this a group plan"):
+  a plan whose invitees include every member of one group is that group's plan (in code,
+  `groups.groupCoveredBy`), including plans made before — they're linked when someone joins.
+- **Contacts stay in sync with Google (2026-10-09 — "Alex is already in my contacts"):** the
+  first import was one-time and kept nothing; contacts added later were invisible, and
+  Google contacts without a phone were dropped. Now the Google grant is stored encrypted
+  (`contact_sync_tokens`, migration 039, crypto.js), contacts re-sync daily and whenever
+  `lookup_contact` has no exact match (≤ every 10 min), name-only contacts are kept, and
+  partial matches are flagged so the agent asks instead of picking the wrong "Alex".
+  Users connected before this must reconnect Google Contacts once.
 - **Deferring on a plan (owner, 2026-10-09 — Allie: "it's Melanie's birthday, not mine"):**
   an invitee can say they'll go with whatever certain people decide (`defer_on_plan`,
   migration 037, `web/defer.js`). **Plan only.** They're in; questions about that plan are
