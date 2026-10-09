@@ -36,6 +36,7 @@ const topics = require('./topics');
 const defer = require('./defer');
 const linktoken = require('./linktoken');
 const groupPlans = require('./groups');
+const names = require('./names');
 const plans = require('./plans');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
@@ -1586,12 +1587,9 @@ app.get('/api/contacts/list', webAuth.requireAuth, (req, res) => {
   let contacts = db.getContactsByUser(req.user.id);
 
   if (q) {
-    contacts = contacts.filter(c =>
-      (c.name       || '').toLowerCase().includes(q) ||
-      (c.nickname   || '').toLowerCase().includes(q) ||
-      (c.also_known_as || '').toLowerCase().includes(q) ||
-      (c.phone      || '').includes(q)
-    );
+    // Word by word (names.js): "Alex Spargo" finds "Alexandria Spargo"; best matches first.
+    contacts = contacts.map((c) => ({ c, s: names.matchScore(c, q) })).filter((x) => x.s >= 50)
+      .sort((a, b) => b.s - a.s).map((x) => x.c);
   }
 
   const total = contacts.length;

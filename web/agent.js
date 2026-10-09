@@ -40,6 +40,7 @@ const topics     = require('./topics');
 const defer      = require('./defer');
 const linktoken  = require('./linktoken');
 const groupPlans = require('./groups');
+const names      = require('./names');
 const { toE164 } = require('./phoneUtils');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
@@ -955,26 +956,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const q = (toolInput.query || '').toLowerCase().trim();
       const allContacts = db.getContactsByUser(userId);
 
-      // Score each contact — higher = better match
-      function score(c) {
-        const name = (c.name || '').toLowerCase();
-        const nick = (c.nickname || '').toLowerCase();
-        const aka  = (c.also_known_as || '').toLowerCase();
-        const phone = (c.phone || '');
-        if (name === q || nick === q) return 100;            // exact name/nick
-        if (phone.includes(q)) return 90;                    // phone match
-        if (name.startsWith(q) || nick.startsWith(q)) return 80; // prefix
-        if (aka.split(/[,;]+/).map(s=>s.trim()).some(a => a === q || a.startsWith(q))) return 75; // aka match
-        // Word-level prefix: "Allie" matches "Allison" because alli- prefix
-        const prefix4 = q.slice(0, 4);
-        const words = name.split(/\s+/);
-        if (prefix4.length >= 3 && words.some(w => w.startsWith(prefix4))) return 60;
-        // Substring anywhere
-        if (name.includes(q) || nick.includes(q) || aka.includes(q)) return 50;
-        // Query contains the contact name token (e.g. searching "allison" matches "allie")
-        if (q.includes(name.split(' ')[0]) || name.split(' ')[0].includes(q.slice(0,4))) return 30;
-        return 0;
-      }
+      // Score each contact (names.js) — "Alex Spargo" matches "Alexandria Spargo".
+      const score = (c) => names.matchScore(c, q);
 
       const rank = (list) => list
         .map(c => ({ ...c, _score: score(c) }))

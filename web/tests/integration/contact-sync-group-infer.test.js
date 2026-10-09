@@ -75,6 +75,15 @@ describe('contacts stay in sync with Google', () => {
     assert.equal(r.contacts[0].phone, '+15305550142');
   });
 
+  // Regression (2026-10-09): "Alex Spargo" didn't find "Alexandria Spargo".
+  test('"Alex Spargo" finds Alexandria Spargo (agent lookup and People search)', async () => {
+    db.upsertContact({ invited_by_user_id: sean.id, name: 'Alexandria Spargo', phone: '+15305550199', tier: 0 });
+    const r = await agent.executeTool('lookup_contact', { query: 'Alex Spargo' }, sean.id, sean.phone);
+    assert.equal(r.exact_match, true);
+    assert.ok(r.contacts.slice(0, 2).some((c) => c.name === 'Alexandria Spargo'));
+    assert.ok(!r.contacts.slice(0, 2).some((c) => c.name === 'Alexander Priest'), 'not ranked above her');
+  });
+
   test('a Google contact with no phone is kept (so the agent can ask for the number)', async () => {
     googleContacts.push(person('Robin NoPhone', null));
     await contactsImport.syncGoogle(sean.id, { force: true });
