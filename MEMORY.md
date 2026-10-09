@@ -454,16 +454,23 @@ Owner decision after the first friends test (Sean got an unattributed text from 
   "💬 From Allie's ButterflAI: …" in the app, "Allie's ButterflAI: …" by text. The sender
   sees "📤 To Sean (in ButterflAI / by text): …" in their own chat.
 - **SMS only if the recipient couldn't reasonably have seen it in the app** (cost +
-  noise): delivered in-app with a push; texted if unseen after 30 min (push on) or 2 min
-  (no push); never texted if they're in the app or open it first. Non-users: SMS
-  immediately (only channel). An SMS opt-out doesn't block in-app delivery.
+  noise): delivered in-app with a push; texted if unseen after 30 min; never texted if
+  they're in the app or open it first. Non-users: SMS immediately (only channel). An SMS
+  opt-out doesn't block in-app delivery.
 - **Texted right away instead (rules in code, 2026-10-09 — Melanie hadn't opened the app
   since June):** when the user asks for a text ("text her now", "send him a text", "by
-  SMS" — matched on their own words) or when the recipient hasn't used the app in 14 days
-  and can't get push. Several unseen messages from one sender go out as ONE fallback text.
+  SMS" — matched on their own words) or when the recipient **doesn't have ButterflAI
+  notifications on** and isn't in the app right now (owner rule 2026-10-09 — replaced the
+  earlier "inactive 14 days" test). Several unseen messages from one sender go out as ONE
+  fallback text.
+- **The app asks people to turn notifications on** (`web/public/notify-prompt.js`, on
+  Chat/Home/Events/People): shown when this browser isn't subscribed for the logged-in
+  account; one tap to enable; iPhone not on the Home Screen gets Add-to-Home-Screen steps;
+  blocked permission gets how-to-allow steps; "Not now" hides it 3 days on that device.
 - **The user's own agent** (acting on its own: RSVPs, other agents' replies) follows the
-  same rule: in their chat if they're there; push + SMS fallback otherwise — never an
-  automatic text while they're looking at the app (feedback #6).
+  same rule: in their chat if they're there; push + 30-min SMS fallback if notifications
+  are on; texted right away if not — never an automatic text while they're looking at the
+  app (feedback #6).
 - **Links:** the agent may only use the real app links (`web/links.js`). Messages to
   others with a made-up ButterflAI address or a "[…]" placeholder are refused before
   sending; wrong addresses in replies to the user are corrected.

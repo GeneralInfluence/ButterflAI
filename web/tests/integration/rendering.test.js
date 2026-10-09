@@ -358,6 +358,7 @@ describe('Static PWA assets — all required files served', () => {
     { path: '/sw.js',                      type: 'application/javascript', desc: 'Service worker' },
     { path: '/update-check.js',            type: 'application/javascript', desc: 'Update detection script' },
     { path: '/install-prompt.js',          type: 'application/javascript', desc: 'Install prompt script' },
+    { path: '/notify-prompt.js',           type: 'application/javascript', desc: 'Turn-on-notifications prompt' },
   ];
 
   for (const { path, desc } of assets) {
@@ -404,6 +405,49 @@ describe('install-prompt.js — install button logic', () => {
       src.includes('appinstalled'),
       'must listen for appinstalled event to hide the install card after install'
     );
+  });
+});
+
+// ── notify-prompt.js (owner rule 2026-10-09) ──────────────────────────────────
+// People without notifications are texted right away, so the app asks them to turn
+// notifications on when they open it.
+
+describe('notify-prompt.js — ask to turn on notifications', () => {
+  let src, cookie;
+
+  before(async () => {
+    const res = await request.get('/notify-prompt.js');
+    assert.equal(res.status, 200);
+    src = res.text;
+    cookie = await getAuthedCookie();
+  });
+
+  for (const path of ['/app/chat', '/app/dashboard', '/app/events', '/app/contacts']) {
+    test(`${path} includes notify-prompt.js`, async () => {
+      const res = await request.get(path).set('Cookie', cookie);
+      assert.ok(res.text.includes('<script src="/notify-prompt.js"></script>'));
+    });
+  }
+
+  test('only prompts when this browser is not subscribed for this account', () => {
+    assert.ok(src.includes('/api/push/status') && src.includes('st.mine'));
+    assert.ok(src.includes('getSubscription()'));
+  });
+
+  test('one tap subscribes with the VAPID key and saves it', () => {
+    assert.ok(src.includes('Notification.requestPermission()'));
+    assert.ok(src.includes('/api/push/vapid-key') && src.includes('/api/push/subscribe'));
+  });
+
+  test('iPhone not on the Home Screen gets Add to Home Screen guidance', () => {
+    assert.ok(src.includes('isIOS && !isStandalone'));
+    assert.ok(src.includes('Add to Home Screen'));
+  });
+
+  test('blocked permission explains how to allow it; Not now snoozes 3 days (storage wrapped)', () => {
+    assert.ok(src.includes("Notification.permission === 'denied'") && src.includes('blockedHelp()'));
+    assert.ok(src.includes('3 * 24 * 3600 * 1000'));
+    assert.ok(/try \{ localStorage\.setItem/.test(src) && /try \{ return Number\(localStorage\.getItem/.test(src));
   });
 });
 

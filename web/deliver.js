@@ -6,11 +6,11 @@
  * (it costs money) is used only when the recipient couldn't reasonably have seen the
  * message in the app.
  *
- * To a ButterflAI user:
- *   - a labelled card in their chat ("💬 From Allie's ButterflAI: …") + a push
+ * To a ButterflAI user (owner rule 2026-10-09):
+ *   - a labelled card in their chat ("💬 From Allie's ButterflAI: …") always
  *   - in the app right now (live chat connection) → seen, never texted
- *   - otherwise texted if still unseen after SMS_FALLBACK_PUSH_SECS (they can get
- *     push notifications) or SMS_FALLBACK_NO_PUSH_SECS (they can't)
+ *   - notifications ON → a push; texted only if still unseen after SMS_FALLBACK_PUSH_SECS
+ *   - notifications OFF → texted right away (the app asks them to turn notifications on)
  *   - opening the chat marks everything delivered to them as seen
  * To anyone else: texted straight away (the only channel to them).
  * The sender always gets a "📤 To Sean: …" card showing what went out and how.
@@ -25,7 +25,6 @@ const sse = require('./sse');
 const push = require('./push');
 
 const SMS_FALLBACK_PUSH_SECS = 30 * 60;
-const SMS_FALLBACK_NO_PUSH_SECS = 2 * 60;
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -57,11 +56,6 @@ function senderCard(fromUser, contact, body, via) {
   addCard(fromUser.id, 'outgoing', `📤 To ${contact.nickname || contact.name} (${how}): ${body}`);
 }
 
-// Someone "uses the app" if they opened it in the last ACTIVE_DAYS days.
-const ACTIVE_DAYS = 14;
-function isActive(user) {
-  return !!user?.last_active_at && user.last_active_at >= now() - ACTIVE_DAYS * 86400;
-}
 function canPushTo(userId) {
   try { return (db.getPushSubscriptions(userId) || []).length > 0; } catch (_) { return false; }
 }
@@ -79,10 +73,9 @@ function recordDelivery({ fromId, toUser, body, status, smsDueAt = null, seenAt 
  * Deliver `message` from `fromUser` to their contact. Throws sms errors
  * (ConsentRequired, RecipientOptedOut) only for the SMS-only path, as before.
  *
- * Texted RIGHT AWAY (rules, not judgment — 2026-10-09, Melanie hadn't opened the app
- * since June and "text her now" still went in-app with a 2-minute wait):
+ * Texted RIGHT AWAY (rules, not judgment — owner, 2026-10-09):
  *  - forceText: the user asked for a text
- *  - the recipient can't see it in the app: not active in ACTIVE_DAYS and no push
+ *  - the recipient doesn't have notifications on and isn't in the app right now
  * The recipient still gets the card in their chat either way.
  */
 async function deliverToContact({ fromUser, contact, message, forceText = false }) {
@@ -92,7 +85,7 @@ async function deliverToContact({ fromUser, contact, message, forceText = false 
   if (recipient && recipient.id !== fromUser.id) {
     const online = addCard(recipient.id, 'incoming', `💬 From ${firstName(fromUser)}'s ButterflAI: ${body}`);
     const canPush = canPushTo(recipient.id);
-    const textNow = forceText || (!online && !isActive(recipient) && !canPush);
+    const textNow = forceText || (!online && !canPush);
 
     if (textNow) {
       try {
@@ -101,7 +94,7 @@ async function deliverToContact({ fromUser, contact, message, forceText = false 
         senderCard(fromUser, contact, body, 'sms');
         return {
           action_status: 'MESSAGE_SENT', sent: true, delivered_via: 'sms', delivery_id: id, contact_name: contact.name,
-          note: forceText ? `Texted to ${contact.name} now, as asked.` : `Texted to ${contact.name} now — they haven't been using the app, so they wouldn't see it there.`,
+          note: forceText ? `Texted to ${contact.name} now, as asked.` : `Texted to ${contact.name} now — they don't have ButterflAI notifications on. It's in their app too.`,
         };
       } catch (err) {
         // Opted out of texts / no consent: fall back to in-app only.
@@ -122,11 +115,11 @@ async function deliverToContact({ fromUser, contact, message, forceText = false 
     const id = recordDelivery({
       fromId: fromUser.id, toUser: recipient, body,
       status: online ? 'seen' : 'pending',
-      smsDueAt: online ? null : now() + (canPush ? SMS_FALLBACK_PUSH_SECS : SMS_FALLBACK_NO_PUSH_SECS),
+      smsDueAt: online ? null : now() + SMS_FALLBACK_PUSH_SECS,
       seenAt: online ? now() : null,
     });
     senderCard(fromUser, contact, body, 'app');
-    const wait = canPush ? '30 minutes' : '2 minutes';
+    const wait = '30 minutes';
     return {
       action_status: 'MESSAGE_SENT', sent: true, delivered_via: 'app', delivery_id: id,
       contact_name: contact.name, recipient_online: online,
@@ -150,7 +143,7 @@ async function deliverToContact({ fromUser, contact, message, forceText = false 
 async function notifySelf(user, text, { online = false } = {}) {
   if (online || !user?.phone) return { via: 'app' };
   const canPush = canPushTo(user.id);
-  if (!isActive(user) && !canPush) {
+  if (!canPush) {                                   // no notifications → text now
     try {
       await sms.send(user.phone, text);
       recordDelivery({ fromId: user.id, toUser: user, body: text, status: 'texted', smsSentAt: now() });
@@ -162,7 +155,7 @@ async function notifySelf(user, text, { online = false } = {}) {
   }
   try { await push.notifyUser(db, user.id, { title: 'ButterflAI', body: text, url: '/app/chat' }); } catch (_) {}
   recordDelivery({ fromId: user.id, toUser: user, body: text, status: 'pending',
-    smsDueAt: now() + (canPush ? SMS_FALLBACK_PUSH_SECS : SMS_FALLBACK_NO_PUSH_SECS) });
+    smsDueAt: now() + SMS_FALLBACK_PUSH_SECS });
   return { via: 'app' };
 }
 
@@ -214,6 +207,6 @@ function startFallbackLoop(intervalMs = 60 * 1000) {
 }
 
 module.exports = {
-  SMS_FALLBACK_PUSH_SECS, SMS_FALLBACK_NO_PUSH_SECS, ACTIVE_DAYS,
+  SMS_FALLBACK_PUSH_SECS,
   withSender, deliverToContact, notifySelf, markSeen, tickFallback, startFallbackLoop,
 };

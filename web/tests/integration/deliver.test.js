@@ -39,6 +39,8 @@ function mkUser(phone, name) {
 const contactOf = (owner, p) => db.upsertContact({ invited_by_user_id: owner.id, name: p.name, phone: p.phone, tier: 1 });
 const history = (u) => db._raw().prepare('SELECT role, text, kind FROM conversation_history WHERE user_id = ? ORDER BY rowid').all(u.id);
 const delivery = (id) => db._raw().prepare('SELECT * FROM deliveries WHERE id = ?').get(id);
+const pushOn = (u) => db._raw().prepare(`INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?)`)
+  .run(uuidv4(), u.id, `https://push.example/${u.id}`, 'p', 'a');
 const ago = (secs) => (id) => db._raw().prepare('UPDATE deliveries SET sms_due_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000) - secs, id);
 
 async function cookieFor(phone) {
@@ -53,10 +55,9 @@ describe('message to a ButterflAI user', () => {
     allie = mkUser('+12025559401', 'Allie McLaine');
     sean = mkUser('+12025559402', 'Sean Gonzalez');
     seanAtAllie = contactOf(allie, sean);
-    // Sean uses the app (opened it today). Since 2026-10-09, someone who hasn't used the
-    // app in 14 days and can't get push is texted right away instead — tested below.
-    db._raw().prepare('UPDATE users SET last_active_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000), sean.id);
-    sean = db.getUser(sean.id);
+    // Sean has notifications on. Since 2026-10-09 (owner rule) someone WITHOUT
+    // notifications who isn't in the app is texted right away — tested below.
+    pushOn(sean);
   });
 
   test('arrives in the app as a labelled card, not a text; sender gets a "To" card', async () => {
@@ -70,28 +71,35 @@ describe('message to a ButterflAI user', () => {
     assert.equal(delivery(r.delivery_id).status, 'pending');
   });
 
-  test('no push subscription: texted (with sender) if unseen after the short wait', async () => {
+  // Was "no push → texted after a 2-minute wait". Owner rule 2026-10-09: no
+  // notifications → texted right away (next test); with notifications the 30-minute
+  // wait applies, and pending messages from one sender go out as ONE text.
+  test('with push notifications: texted (with sender) only if unseen after the long wait; combined', async () => {
     texts.length = 0;
     const r = await deliver.deliverToContact({ fromUser: allie, contact: db.getContact(seanAtAllie), message: 'Wings at 8?' });
     const d = delivery(r.delivery_id);
-    assert.ok(d.sms_due_at - d.created_at <= deliver.SMS_FALLBACK_NO_PUSH_SECS + 1);
+    assert.equal(r.delivered_via, 'app');
+    assert.ok(d.sms_due_at - d.created_at >= deliver.SMS_FALLBACK_PUSH_SECS - 1);
     assert.equal(await deliver.tickFallback(), 0, 'not due yet → nothing texted');
     ago(1)(r.delivery_id);
     await deliver.tickFallback();
-    // Since 2026-10-09 pending messages from the same sender go out as ONE text, so the
-    // earlier unseen message (previous test) is combined into this one.
+    // The earlier unseen message (first test) is combined into this one.
     const toSean = texts.filter((t) => t.to === sean.phone);
     assert.equal(toSean.length, 1, 'one combined text');
     assert.ok(toSean[0].body.startsWith("Allie's ButterflAI: ") && toSean[0].body.endsWith('Wings at 8?'));
+    assert.match(toSean[0].body, /Let's go have some fun tonight!/);
     assert.equal(delivery(r.delivery_id).status, 'texted');
   });
 
-  test('with push notifications: waits the long window', async () => {
-    db._raw().prepare(`INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?)`)
-      .run(uuidv4(), sean.id, 'https://push.example/x', 'p', 'a');
-    const r = await deliver.deliverToContact({ fromUser: allie, contact: db.getContact(seanAtAllie), message: 'Still on?' });
-    const d = delivery(r.delivery_id);
-    assert.ok(d.sms_due_at - d.created_at >= deliver.SMS_FALLBACK_PUSH_SECS - 1);
+  test('no push notifications and not in the app: texted right away, card still in their chat', async () => {
+    const kim = mkUser('+12025559403', 'Kim NoPush');
+    db._raw().prepare('UPDATE users SET last_active_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000), kim.id);
+    texts.length = 0;
+    const r = await deliver.deliverToContact({ fromUser: allie, contact: db.getContact(contactOf(allie, kim)), message: 'Still on?' });
+    assert.equal(r.delivered_via, 'sms', 'even though Kim used the app today');
+    assert.match(r.note, /notifications/);
+    assert.deepEqual(texts.map((t) => [t.to, t.body]), [[kim.phone, "Allie's ButterflAI: Still on?"]]);
+    assert.equal(history(kim).at(-1).kind, 'incoming');
   });
 
   test('opening the chat marks it seen — never texted', async () => {
@@ -179,18 +187,25 @@ describe('texting rules (2026-10-09)', () => {
     assert.ok(texts.some((t) => t.to === her.phone && t.body.includes('/app/login')), 'texted, not in-app-with-wait');
   });
 
-  test("the agent's own updates: no text while you're in the app; pending fallback otherwise", async () => {
+  test("the agent's own updates: no text while you're in the app; with notifications a pending fallback", async () => {
     const u = mkUser('+12025559426', 'Selfy');
-    setActive(u, 60);
+    pushOn(u);
     texts.length = 0;
     assert.deepEqual(await deliver.notifySelf(u, 'Allie is in!', { online: true }), { via: 'app' });
     assert.equal(texts.length, 0);
     await deliver.notifySelf(db.getUser(u.id), 'Allie is in!', { online: false });
-    assert.equal(texts.length, 0, 'active user → wait in the app, not an immediate text');
+    assert.equal(texts.length, 0, 'notifications on → wait in the app, not an immediate text');
     const pending = db._raw().prepare(`SELECT * FROM deliveries WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`).get(u.id, u.id);
     assert.ok(pending, 'fallback scheduled');
     db._raw().prepare('UPDATE deliveries SET sms_due_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000) - 1, pending.id);
     await deliver.tickFallback();
     assert.deepEqual(texts.map((t) => t.body), ['Allie is in!'], 'own updates have no "X\'s ButterflAI" prefix');
+  });
+
+  test("the agent's own updates with notifications off → texted right away (owner rule 2026-10-09)", async () => {
+    const u = mkUser('+12025559427', 'NoPushSelf');
+    texts.length = 0;
+    assert.deepEqual(await deliver.notifySelf(u, 'Bam Bam is in!', { online: false }), { via: 'sms' });
+    assert.deepEqual(texts.map((t) => t.body), ['Bam Bam is in!']);
   });
 });
