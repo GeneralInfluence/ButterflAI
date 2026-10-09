@@ -601,9 +601,12 @@ describe('Asking a person vs asking their agent (2026-10-08)', () => {
 // Regression (prod, 2026-10-08, Bam Bam feedback #5): his agent answered "what's Bam Bam
 // up to tonight?" itself, with a July plan, and told Sean's agent where he'd be.
 describe('Questions about where your user is / their plans', () => {
-  test('never answered by the agent itself; ask the user, relay only what they say', () => {
+  // Owner correction 2026-10-08: don't ping the person to answer an individual either —
+  // that's what WhatsApp is for. Answer only from what they've explicitly shared.
+  test('never answered from memory, never pings the user; only explicitly shared plans', () => {
     assertContains('WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS');
     assertContains('NEVER answer this yourself');
-    assertContains('relay only what they say via reply_agent');
+    assertContains('Do NOT ping your user to answer it either');
+    assertContains('only what your user has explicitly shared for that time');
   });
 });
