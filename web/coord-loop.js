@@ -138,6 +138,13 @@ function tickPurge() {
   } catch (err) {
     console.error('[coord] purge error:', err.message);
   }
+  // Shared plans and interest signals are deleted once they expire.
+  try {
+    const n = require('./plans').purgeExpired();
+    if (n) console.log(`[coord] purged ${n} expired plans/interest signals`);
+  } catch (err) {
+    console.error('[coord] plans purge error:', err.message);
+  }
   // Test-user agent traces are kept trace.RETENTION_DAYS, then hard-deleted.
   try {
     const traces = require('./trace').purgeOld();

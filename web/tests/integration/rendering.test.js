@@ -713,3 +713,16 @@ describe('2026-10-08 webapp fixes (notifications, update banner, dates, mic)', (
     assert.ok(html.includes("'network': '🎤 Voice input isn"));
   });
 });
+
+describe('Home: feed replaces overdue check-ins / coming up / invite a friend (2026-10-08)', () => {
+  const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8');
+  test('home has the feed and plan sharing, not the old sections', () => {
+    const html = read('dashboard.html');
+    assert.ok(html.includes('id="feed"') && html.includes("fetch('/api/feed')"));
+    assert.ok(html.includes('What are you up to?') && html.includes("quickShare('Free tonight', 'tonight')"));
+    for (const gone of ['Overdue check-ins', 'Coming up', 'Invite a friend']) assert.ok(!html.includes(gone), gone);
+  });
+  test('invite a friend lives in settings', () => {
+    assert.ok(read('settings.html').includes('Invite a friend'));
+  });
+});

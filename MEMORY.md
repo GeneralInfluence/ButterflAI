@@ -463,5 +463,32 @@ Owner decision after the first friends test (Sean got an unattributed text from 
   private conversation; people won't move real chats). Adopted the per-message attribution
   instead; a per-person history view is a possible later addition.
 
+## 11. Shared plans, quiet interest, and the Home feed `[LOCKED 2026-10-08]`
+
+Owner decisions after Bam Bam's feedback (his agent revealed a stale July plan when Sean's
+agent asked what he was up to — and my fix then had it ping him, which the owner rejected):
+
+- **ButterflAI is not a messenger.** It never pushes people to respond to individuals —
+  that's what WhatsApp/texting is for. A per-friend opt-in for direct pings may come later
+  (not built; default off).
+- **People share plans when they want to, not when asked** — by telling their agent
+  (`share_plan`) or one tap on Home ("Free tonight", "Free this weekend", "Laying low
+  tonight", or free text). How long a plan holds comes from their wording ("tonight",
+  "this weekend", "until friday", "for 3 days"); the agent passes the phrase and
+  `datetime.resolveUntil` does the math (default end of tonight = 4am; cap 30 days).
+- **"What're my boys up to tonight?"** (`check_friends_plans`, group-aware) answers ONLY
+  from what each friend shared with the asker; nobody is pinged. Asking leaves a **quiet
+  interest signal** ("Sean's up for something tonight") in each friend's Home feed.
+- **Visibility (pull-not-push):** a plan is visible only to the sharer's own contacts, or
+  one named contact group; never to anyone on the sharer's avoid list. No interest signal
+  reaches someone who avoids the asker. Expired plans/signals are hard-deleted.
+- **Home tab = the feed**, ranked: invites waiting on you → your events in the next 24h →
+  friends' plans → friends up for something → later events; your own active plans on top.
+  Removed: overdue check-ins, coming up. "Invite a friend" lives in Settings.
+- **Agent-to-agent:** "what is your user up to" is never answered from memory and never
+  triggers a ping; agents answer only from what the user explicitly shared.
+- Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.
+  Tests: `tests/integration/plans-feed.test.js`.
+
 ---
 *Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*

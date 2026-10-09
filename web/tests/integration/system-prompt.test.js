@@ -610,3 +610,16 @@ describe('Questions about where your user is / their plans', () => {
     assertContains('only what your user has explicitly shared for that time');
   });
 });
+
+// Owner rule 2026-10-08: ButterflAI is not a messenger — friends' plans are pulled from
+// what they shared; nobody is pinged to answer.
+describe('What friends are up to / sharing plans (MEMORY.md §11)', () => {
+  test('"what\'re my boys up to" uses check_friends_plans, never pings', () => {
+    assertContains('WHAT FRIENDS ARE UP TO');
+    assertContains('check_friends_plans');
+    assertContains("NEVER message_agent or send_logistics_sms people to ask what they're up to");
+  });
+  test('the user\'s own plans are shared with share_plan, expiry from their words', () => {
+    assertContains('share_plan with their words for how long (until)');
+  });
+});

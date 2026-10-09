@@ -38,6 +38,7 @@ const sensitive  = require('./sensitive');
 const avoid      = require('./avoid');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
+const plans      = require('./plans');
 const datetime   = require('./datetime');
 const coord      = require('./coordination');
 const sse        = require('./sse');
@@ -269,6 +270,35 @@ const TOOL_DEFINITIONS = [
         category:  { type: 'string', enum: ['HEALTH', 'SEXUAL', 'FINANCIAL', 'LEGAL', 'MENTAL_HEALTH', 'RELATIONSHIP', 'OTHER'], description: 'Category for access control' },
       },
       required: ['data_key', 'value', 'category'],
+    },
+  },
+  {
+    name: 'share_plan',
+    description: 'Share what the user is up to with their friends, when the user offers it ("I\'m at Sully\'s tonight, the boys can come", "free all weekend", "laying low this week"). Friends see it in their Home feed; nobody is pinged. Pass the user\'s own words for how long it holds as `until` ("tonight", "this weekend", "until friday", "all week") — the server works out the date; never compute it yourself. Use `group` only if the user named one ("the boys").',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text:  { type: 'string', description: 'The plan as friends should see it, e.g. "At Sully\'s from 9 — come by"' },
+        until: { type: 'string', description: 'The user\'s wording for how long it holds: "tonight", "this weekend", "until friday", "for 3 days"' },
+        group: { type: 'string', description: 'Optional contact group that can see it (default: all their contacts on ButterflAI)' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'clear_my_plans',
+    description: 'Remove the plans the user shared (plans changed, or "I\'m not doing that anymore").',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'check_friends_plans',
+    description: 'Answer "what are my friends / my boys up to tonight?" from what those friends have SHARED with this user. Nobody is pinged; each friend asked sees a quiet "<user>\'s up for something" in their Home feed. Pass `group` if the user named one ("my boys"), and `when` in the user\'s words ("tonight", "this weekend"). Report only what comes back — never guess what someone is doing.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        group: { type: 'string', description: 'Contact group name the user mentioned, e.g. "boys"' },
+        when:  { type: 'string', description: 'The user\'s wording: "tonight", "this weekend"' },
+      },
     },
   },
   {
@@ -662,6 +692,9 @@ function toolStatusLine(toolName, input) {
     case 'get_private_preferences':return `Checking private notes…`;
     case 'update_preferences':     return `Saving your preferences…`;
     case 'manage_avoid_list':      return `Updating your private settings…`;
+    case 'share_plan':             return `Sharing your plans…`;
+    case 'clear_my_plans':         return `Clearing your plans…`;
+    case 'check_friends_plans':    return `Checking what your friends have shared…`;
     case 'manage_contact_group':   return `Managing contact group…`;
     case 'create_invite':          return `Sending invite…`;
     case 'draft_contact_message':  return `Drafting message…`;
@@ -753,6 +786,15 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     };
   }
   switch (toolName) {
+
+    case 'share_plan':
+      return plans.sharePlan(userId, toolInput);
+
+    case 'clear_my_plans':
+      return plans.clearPlan(userId);
+
+    case 'check_friends_plans':
+      return plans.checkFriendsPlans(userId, toolInput);
 
     case 'manage_avoid_list': {
       const { action, contact_id, on_invite } = toolInput;
@@ -2119,7 +2161,9 @@ LOGISTICS vs EXPRESSIVE (the send gate):
 - When in doubt, lean logistics. The cost of an extra approval is higher than the cost of sending a slightly imperfect logistics message.
 - Teasing, nudging or hyping a friend toward a plan ("tell him to get off his ass, let's get wings") is LOGISTICS. Compose a friendly version and send it right away — no draft, no clarifying question.
 - A GO-AHEAD AFTER A DRAFT IS APPROVAL: if you showed a draft and the user says anything like "send it", "yes", "do it", "just send something", "I don't want to approve, just send" — send that draft immediately with send_logistics_sms. Never ask for approval twice.
-- TO ASK OR TELL A PERSON SOMETHING ("ask Bam Bam what he's up to"), use send_logistics_sms — the person sees it. message_agent talks only to their AGENT, which answers on its own without showing them; use it only for agent-level coordination (availability, constraints). lookup_contact tells you whether someone is on ButterflAI (on_butterflai) — trust that, not a contact's tier.
+- WHAT FRIENDS ARE UP TO (owner rule — ButterflAI is not a messenger): "what're my boys up to tonight?" → check_friends_plans (group "boys", when "tonight"). Report ONLY what friends shared; for the rest say they haven't shared anything. NEVER message_agent or send_logistics_sms people to ask what they're up to, and never guess. Mention that they'll see you're up for something — nobody gets pinged.
+- When the user offers their own plans for friends ("I'm at Sully's tonight, the boys can come", "free this weekend") → share_plan with their words for how long (until). If plans change → clear_my_plans.
+- TO ASK OR TELL A PERSON SOMETHING SPECIFIC ("tell Allie I'm running late", "ask Bam Bam if he wants wings at 8"), use send_logistics_sms — the person sees it. (What someone is up to is NOT asked this way — use check_friends_plans.) message_agent talks only to their AGENT, which answers on its own without showing them; use it only for agent-level coordination (availability, constraints). lookup_contact tells you whether someone is on ButterflAI (on_butterflai) — trust that, not a contact's tier.
 - MESSAGES BETWEEN PEOPLE GO THROUGH THE AGENTS: "💬 From Allie's ButterflAI: …" in your history is a message from Allie (her agent sent it), and "📤 To Sean: …" is one you sent for this user. If the user answers one ("tell her I'm in", "say 8 works"), reply to that person with send_logistics_sms. ButterflAI users receive it in the app; when the tool says delivered_via "app", tell the user it was sent in ButterflAI.
 - NEVER GUESS A contact_id. Call lookup_contact with the person's name and use the "id" it returns. If a send tool returns CONTACT_NOT_FOUND, look the person up and retry before replying.
 - Only say a message was sent if the send tool returned sent: true in THIS turn. If it failed, tell the user it did NOT go through. (Enforced in code: a false "sent" reply is blocked.)

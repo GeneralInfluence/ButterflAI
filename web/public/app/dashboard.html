@@ -89,36 +89,19 @@
     .card-title { font-size: 15px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
     .card-sub { font-size: 13px; color: #888; }
     .empty-state { font-size: 14px; color: #aaa; text-align: center; padding: 24px 0; }
-    .referral-box {
-      background: #fff;
-      border-radius: 14px;
-      padding: 20px 18px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-    }
-    .referral-url {
-      font-size: 13px;
-      color: #555;
-      background: #f5f5f7;
-      border-radius: 8px;
-      padding: 10px 12px;
-      margin: 12px 0;
-      word-break: break-all;
-      font-family: monospace;
-    }
-    .copy-btn {
-      background: var(--purple);
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      padding: 10px 20px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.15s;
-    }
-    .copy-btn:hover { opacity: 0.85; }
-    .referral-sub { font-size: 13px; color: #888; margin-top: 10px; }
-    .joined-count { font-size: 13px; color: #555; margin-top: 6px; }
+    .share-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .chip-btn { background: #fff; border: 1.5px solid #e5e5e5; border-radius: 999px; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+    .chip-btn:hover { border-color: var(--purple); }
+    .share-other { display: flex; gap: 8px; }
+    .share-other input { flex: 1; border: 1.5px solid #e5e5e5; border-radius: 12px; padding: 10px 12px; font-size: 14px; min-width: 0; }
+    .share-other button { background: var(--purple); color: #fff; border: none; border-radius: 12px; padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .mine { display: flex; align-items: center; gap: 8px; background: #ede9fe; border-radius: 12px; padding: 10px 12px; margin-top: 8px; font-size: 14px; }
+    .mine span { flex: 1; }
+    .mine button { background: none; border: none; color: #8e8e93; font-size: 16px; cursor: pointer; }
+    .feed-item { display: flex; gap: 12px; align-items: flex-start; text-decoration: none; color: inherit; }
+    .feed-icon { font-size: 20px; line-height: 1.3; }
+    .feed-item .card-sub { margin-top: 2px; }
+    .hint { font-size: 13px; color: #888; margin-top: 8px; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -142,28 +125,26 @@
     <a href="/app/onboarding">Finish setup →</a>
   </div>
 
-  <!-- Overdue check-ins -->
+  <!-- What are you up to? (share plans — friends see them in their feed; nobody is pinged) -->
   <section>
-    <h2>Overdue check-ins</h2>
-    <div id="overdue-list"><div class="empty-state">Loading…</div></div>
-  </section>
-
-  <!-- Coming up -->
-  <section>
-    <h2>Coming up</h2>
-    <div id="upcoming-list"><div class="empty-state">Loading…</div></div>
-  </section>
-
-  <!-- Invite a friend -->
-  <section>
-    <h2>Invite a friend</h2>
-    <div class="referral-box">
-      <p style="font-size:14px;color:#333;">Share your link to bring someone onboard.</p>
-      <div class="referral-url" id="referral-url">Loading…</div>
-      <button class="copy-btn" id="copy-btn">Copy invite link</button>
-      <p class="referral-sub">When they join, your agent works harder.</p>
-      <p class="joined-count" id="joined-count"></p>
+    <h2>What are you up to?</h2>
+    <div class="share-row">
+      <button class="chip-btn" onclick="quickShare('Free tonight', 'tonight')">🟢 Free tonight</button>
+      <button class="chip-btn" onclick="quickShare('Free this weekend', 'this weekend')">📅 Free this weekend</button>
+      <button class="chip-btn" onclick="quickShare('Laying low tonight', 'tonight')">🛋️ Laying low tonight</button>
     </div>
+    <form class="share-other" onsubmit="event.preventDefault(); shareOther();">
+      <input id="share-text" placeholder="Something else… e.g. At Sully's from 9 this weekend" maxlength="200">
+      <button type="submit">Share</button>
+    </form>
+    <div id="my-plans"></div>
+    <p class="hint">Your contacts on ButterflAI see this in their feed until it ends — nobody gets pinged. You can also just tell your agent.</p>
+  </section>
+
+  <!-- Feed: ranked by what matters soonest -->
+  <section>
+    <h2>Your feed</h2>
+    <div id="feed"><div class="empty-state">Loading…</div></div>
   </section>
 </main>
 
@@ -182,6 +163,62 @@
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+  // "Today 7:00 PM" / "Tomorrow 7:00 PM" / "Sat 7:00 PM" / "Oct 20, 7:00 PM"
+  function when(ts) {
+    if (!ts) return '';
+    const d = new Date(ts * 1000), now = new Date();
+    const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const days = Math.round((startOf(d) - startOf(now)) / 86400000);
+    if (days === 0) return `Today ${t}`;
+    if (days === 1) return `Tomorrow ${t}`;
+    if (days > 1 && days < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${t}`;
+    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${t}`;
+  }
+
+  function feedItemHtml(i) {
+    if (i.type === 'invite') return `<a class="card feed-item" href="/app/events?invite=${esc(i.event_id)}"><span class="feed-icon">📩</span><div><div class="card-title">${esc(i.host)} invited you: ${esc(i.title)}</div><div class="card-sub">${when(i.at)}${i.venue ? ' · ' + esc(i.venue) : ''} · tap to respond</div></div></a>`;
+    if (i.type === 'event') return `<a class="card feed-item" href="/app/events"><span class="feed-icon">📅</span><div><div class="card-title">${esc(i.title)}</div><div class="card-sub">${when(i.at)}${i.venue ? ' · ' + esc(i.venue) : ''}${i.role === 'host' ? ' · you\'re hosting' : ' · with ' + esc(i.host)}</div></div></a>`;
+    if (i.type === 'plan') return `<div class="card feed-item"><span class="feed-icon">🟢</span><div><div class="card-title">${esc(i.who)}: ${esc(i.text)}</div><div class="card-sub">until ${when(i.until)}</div></div></div>`;
+    if (i.type === 'interest') return `<div class="card feed-item"><span class="feed-icon">👋</span><div><div class="card-title">${esc(i.who)}'s up for something ${esc(i.about)}</div><div class="card-sub">Share what you're up to above if you're in</div></div></div>`;
+    return '';
+  }
+
+  async function loadFeed() {
+    const el = document.getElementById('feed');
+    try {
+      const { items, my_plans } = await fetch('/api/feed').then(r => r.json());
+      document.getElementById('my-plans').innerHTML = (my_plans || []).map(p =>
+        `<div class="mine"><span>You: ${esc(p.text)} · until ${when(p.until)}</span><button title="Remove" onclick="removePlan('${esc(p.plan_id)}')">✕</button></div>`).join('');
+      el.innerHTML = items && items.length
+        ? items.map(feedItemHtml).join('')
+        : '<div class="empty-state">Nothing yet. Share what you\'re up to, or ask your agent "what are my friends up to tonight?"</div>';
+    } catch (_) {
+      el.innerHTML = '<div class="empty-state">Could not load.</div>';
+    }
+  }
+
+  async function sharePlan(text, until) {
+    const r = await fetch('/api/plans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, until }) });
+    if (!r.ok) { alert('Could not share. Try again.'); return; }
+    await loadFeed();
+  }
+  function quickShare(text, until) { return sharePlan(text, until); }
+  function shareOther() {
+    const input = document.getElementById('share-text');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    // How long it holds comes from the wording itself ("this weekend", "until friday").
+    return sharePlan(text, text);
+  }
+  async function removePlan(id) {
+    await fetch('/api/plans/' + id, { method: 'DELETE' });
+    await loadFeed();
+  }
+
   async function load() {
     // Check onboarding state
     try {
@@ -190,59 +227,7 @@
         document.getElementById('onboarding-banner').style.display = 'flex';
       }
     } catch (_) {}
-
-    // Overdue
-    try {
-      const { overdue } = await fetch('/api/dashboard/overdue').then(r => r.json());
-      const el = document.getElementById('overdue-list');
-      if (!overdue || overdue.length === 0) {
-        el.innerHTML = '<div class="empty-state">All caught up! No overdue check-ins.</div>';
-      } else {
-        el.innerHTML = overdue.map(c => `
-          <div class="card">
-            <div class="card-title">${c.contact_name || 'Someone'}</div>
-            <div class="card-sub">${c.frequency || ''} ${c.activity_type || ''} · due ${fmtDate(c.next_target_at)}</div>
-          </div>
-        `).join('');
-      }
-    } catch (_) {
-      document.getElementById('overdue-list').innerHTML = '<div class="empty-state">Could not load.</div>';
-    }
-
-    // Upcoming
-    try {
-      const { upcoming } = await fetch('/api/dashboard/upcoming').then(r => r.json());
-      const el = document.getElementById('upcoming-list');
-      if (!upcoming || upcoming.length === 0) {
-        el.innerHTML = '<div class="empty-state">Nothing on the calendar yet.</div>';
-      } else {
-        el.innerHTML = upcoming.map(a => `
-          <div class="card">
-            <div class="card-title">${a.activity_type || 'Event'}</div>
-            <div class="card-sub">${a.venue_name || ''} · ${fmtDate(a.scheduled_at)} · ${a.status || ''}</div>
-          </div>
-        `).join('');
-      }
-    } catch (_) {
-      document.getElementById('upcoming-list').innerHTML = '<div class="empty-state">Could not load.</div>';
-    }
-
-    // Referral
-    try {
-      const { url, joined } = await fetch('/api/user/referral').then(r => r.json());
-      document.getElementById('referral-url').textContent = url || '';
-      if (joined > 0) {
-        document.getElementById('joined-count').textContent = `${joined} friend${joined === 1 ? '' : 's'} joined via your link.`;
-      }
-      document.getElementById('copy-btn').addEventListener('click', () => {
-        navigator.clipboard.writeText(url).then(() => {
-          document.getElementById('copy-btn').textContent = 'Copied!';
-          setTimeout(() => { document.getElementById('copy-btn').textContent = 'Copy invite link'; }, 2000);
-        });
-      });
-    } catch (_) {
-      document.getElementById('referral-url').textContent = 'Could not load link.';
-    }
+    await loadFeed();
   }
 
   load();

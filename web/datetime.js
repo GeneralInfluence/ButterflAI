@@ -99,4 +99,58 @@ function resolveEventDateTime(whenText, timezone, now = new Date()) {
   };
 }
 
-module.exports = { resolveEventDateTime, parseTime, parseDate, zonedWallTimeToUTC };
+// The night "ends" at 4am, so "tonight" covers a late night out.
+const NIGHT_END_HOUR = 4;
+const MAX_PLAN_DAYS = 30;
+
+/**
+ * How long a shared plan holds, from the user's own wording ("tonight", "this weekend",
+ * "all week", "until friday", "for 3 days", "next week"). The agent passes the phrase;
+ * this code does the date math (the model is unreliable at it). Returns the expiry
+ * instant { ts, label }. Unrecognized wording → the end of tonight. Capped at 30 days.
+ */
+function resolveUntil(phrase, timezone, now = new Date()) {
+  const tz = timezone || 'America/Los_Angeles';
+  const s = String(phrase || '').toLowerCase();
+  const { y, m, d } = todayYMDInTz(now, tz);
+  const todayNoon = Date.UTC(y, m - 1, d, 12);
+  const todayIdx = new Date(todayNoon).getUTCDay();
+  // 4am on the morning after (today + n days)
+  const nightEnd = (n) => {
+    const dt = new Date(todayNoon + (n + 1) * 86400000);
+    return zonedWallTimeToUTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate(), NIGHT_END_HOUR, 0, tz);
+  };
+
+  let end = null;
+  const forN = s.match(/\bfor (?:the next )?(\d{1,2}|a|an|one|two|three) (hour|hours|day|days|week|weeks)\b/);
+  const words = { a: 1, an: 1, one: 1, two: 2, three: 3 };
+  if (forN) {
+    const n = words[forN[1]] || +forN[1];
+    const unit = forN[2].startsWith('hour') ? 3600e3 : forN[2].startsWith('day') ? 86400e3 : 7 * 86400e3;
+    end = new Date(now.getTime() + n * unit);
+  } else if (/\bnext week\b/.test(s)) {
+    end = nightEnd((((1 - todayIdx + 7) % 7) || 7) + 6);        // next Monday + 6 = through next Sunday
+  } else if (/\b(this week|all week|the week|rest of the week)\b/.test(s)) {
+    end = nightEnd((7 - todayIdx) % 7);                          // through this Sunday
+  } else if (/\b(this month|all month|rest of the month)\b/.test(s)) {
+    const nm = new Date(Date.UTC(y, m, 1, 12));                   // 1st of next month
+    end = zonedWallTimeToUTC(nm.getUTCFullYear(), nm.getUTCMonth() + 1, 1, NIGHT_END_HOUR, 0, tz);
+  } else if (/\bweekend\b/.test(s)) {
+    end = nightEnd((7 - todayIdx) % 7);                          // through Sunday night
+  } else {
+    const date = parseDate(s, tz, now);                           // today/tomorrow/weekday/ISO
+    if (date) {
+      const diff = Math.round((Date.UTC(date.y, date.m - 1, date.d, 12) - todayNoon) / 86400000);
+      end = nightEnd(Math.max(0, diff));
+    }
+  }
+  if (!end || end.getTime() <= now.getTime()) end = nightEnd(0); // default: end of tonight
+  const cap = now.getTime() + MAX_PLAN_DAYS * 86400e3;
+  if (end.getTime() > cap) end = new Date(cap);
+  return {
+    ts: Math.floor(end.getTime() / 1000),
+    label: end.toLocaleString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+  };
+}
+
+module.exports = { resolveEventDateTime, resolveUntil, parseTime, parseDate, zonedWallTimeToUTC };

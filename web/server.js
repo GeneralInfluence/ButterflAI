@@ -32,6 +32,7 @@ const sensitive = require('./sensitive');
 const avoid = require('./avoid');
 const trace = require('./trace');
 const deliver = require('./deliver');
+const plans = require('./plans');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
@@ -1738,6 +1739,23 @@ app.post('/api/chat/sensitive-mode', webAuth.requireAuth, express.json(), (req, 
   if (typeof on !== 'boolean') return res.status(400).json({ error: 'on must be boolean' });
   sensitive.setSensitiveMode(req.user.id, on);
   res.json({ ok: true, sensitive_mode: on });
+});
+
+// ── Home feed + shared plans (MEMORY.md §11) ── owner-only, scoped to req.user.id
+app.get('/api/feed', webAuth.requireAuth, (req, res) => {
+  res.json(plans.feedFor(req.user.id));
+});
+
+// One-tap "Free tonight" / "Laying low tonight" etc. from the Home feed.
+app.post('/api/plans', webAuth.requireAuth, express.json(), (req, res) => {
+  const { text, until, group } = req.body || {};
+  const r = plans.sharePlan(req.user.id, { text, until, group });
+  if (r.error) return res.status(400).json(r);
+  res.json(r);
+});
+
+app.delete('/api/plans/:id', webAuth.requireAuth, (req, res) => {
+  res.json(plans.clearPlan(req.user.id, req.params.id));
 });
 
 // GET /api/chat/sensitive-mode — the persisted state, so the chat page shows the truth on load
