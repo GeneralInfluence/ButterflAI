@@ -27,8 +27,10 @@ const now = () => Math.floor(Date.now() / 1000);
 const firstName = (u) => (u?.nickname || String(u?.name || '').trim().split(/\s+/)[0] || 'A friend');
 
 // "my boys", "the Boys", "boys" all match a group named "The Boys" / "boys".
+// "my favorite mamas" ↔ "Favorite Mama's", "my boys" ↔ "The Boys" (punctuation ignored).
 function normGroup(name) {
-  return String(name || '').toLowerCase().trim().replace(/^(my|the)\s+/, '').replace(/^(my|the)\s+/, '').replace(/s$/, '');
+  return String(name || '').toLowerCase().replace(/[^a-z0-9 ]+/g, '').replace(/\s+/g, ' ').trim()
+    .replace(/^(my|the)\s+/, '').replace(/^(my|the)\s+/, '').replace(/s$/, '');
 }
 
 function findGroup(userId, name) {
@@ -310,4 +312,4 @@ function purgeExpired() {
   return p + s;
 }
 
-module.exports = { sharePlan, myPlans, clearPlan, checkFriendsPlans, plansVisibleTo, interestFor, feedFor, canSee, purgeExpired };
+module.exports = { findGroup, sharePlan, myPlans, clearPlan, checkFriendsPlans, plansVisibleTo, interestFor, feedFor, canSee, purgeExpired };

@@ -518,6 +518,13 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   `record_rsvp accepted` ("Interested") → on their ButterflAI calendar; the host sees who's
   interested / not answered; when all have answered, "lock in the plan" (update_event
   tentative: false).
+- **Group plans (owner, 2026-10-09 — adding Alex to the Favorite Mama's):** a plan can
+  belong to a contact group (`social_events.group_id`, migration 038; `create_social_event`
+  `group`). Adding someone to the group — in chat or the app — **always** invites them to the
+  group's upcoming plans (tentative too) and sends **one** catch-up (`web/groups.js`): dates,
+  place, the host's "plan so far" notes, who's in — never the group's discussion. Users get it
+  in-app (usual delivery rules); non-users get one first-contact text with self-ID + STOP.
+  Invites go through `inviteContacts` (quiet), so opt-outs and avoid lists apply.
 - **Deferring on a plan (owner, 2026-10-09 — Allie: "it's Melanie's birthday, not mine"):**
   an invitee can say they'll go with whatever certain people decide (`defer_on_plan`,
   migration 037, `web/defer.js`). **Plan only.** They're in; questions about that plan are

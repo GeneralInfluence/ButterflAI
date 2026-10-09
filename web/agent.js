@@ -39,6 +39,7 @@ const avoid      = require('./avoid');
 const topics     = require('./topics');
 const defer      = require('./defer');
 const linktoken  = require('./linktoken');
+const groupPlans = require('./groups');
 const { toE164 } = require('./phoneUtils');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
@@ -594,6 +595,7 @@ const TOOL_DEFINITIONS = [
         when:          { type: 'string', description: 'PREFERRED. The user\'s day + time phrase exactly as they said it — "friday 7pm", "saturday evening", "tomorrow at 8pm", "tonight at 9". The server resolves the exact date in the user\'s timezone, so you do NOT compute or verify any date. Always use this instead of scheduled_at when the user gave a day/time in words. Include both a day and a time.' },
         scheduled_at:  { type: 'string', description: 'Only for an explicit calendar date the user gave as a date (e.g. "September 30 at 7pm"). ISO 8601 with offset. Prefer "when" for weekday/relative phrasing. OMIT both if the user said no fixed time ("open invite", "whenever").' },
         flexible_time: { type: 'boolean', description: 'Set true when the user explicitly says no fixed time — "come when you\'re ready", "open invite", "whenever works". Omit or false when a specific time is set.' },
+        group:         { type: 'string', description: 'The contact group this plan is for ("my favorite mamas"). Its members are invited, and anyone added to the group later is caught up on it automatically.' },
         tentative:     { type: 'boolean', description: 'true while the group is still working out details (dates, where to stay, who\'s in) — e.g. a trip being planned. Use the best-known dates. Set false with update_event once it\'s settled.' },
         duration_mins: { type: 'number', description: 'Length in minutes. A weekend trip Fri–Sun is about 2880.' },
         notes:         { type: 'string' },
@@ -925,9 +927,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         // Verify contact belongs to this user
         const contact = db.getContactsByUser(userId).find(c => c.id === toolInput.contact_id);
         if (!contact) return { error: 'Contact not found' };
+        const already = db._raw().prepare('SELECT 1 FROM contact_group_members WHERE group_id = ? AND contact_id = ?').get(toolInput.group_id, toolInput.contact_id);
         db.addContactToGroup(toolInput.group_id, toolInput.contact_id);
         const contactName = contact.nickname || contact.name;
-        return { added: true, contact_name: contactName, group_name: group.name };
+        // Joining a group = joining its upcoming plans, with one catch-up (groups.js).
+        const catchUp = already ? { caught_up: 0 } : await groupPlans.onMemberAdded(userId, group.id, contact.id);
+        return { added: true, contact_name: contactName, group_name: group.name, already_member: !!already || undefined,
+          caught_up_on: catchUp.plans, catch_up_via: catchUp.via, note: catchUp.note };
       }
 
       if (action === 'remove_member') {
@@ -1573,7 +1579,15 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'create_social_event': {
-      const { contact_ids, when, ...eventData } = toolInput;
+      const { contact_ids: givenIds, when, group, ...eventData } = toolInput;
+      let contact_ids = givenIds;
+      // A plan for a group: link it and invite every member (plus anyone named).
+      if (group) {
+        const { group: g, groups: all } = plans.findGroup(userId, group);
+        if (!g) return { error: 'GROUP_NOT_FOUND', message: `No group called "${group}". Groups: ${all.map((x) => x.name).join(', ') || 'none yet'}.` };
+        eventData.group_id = g.id;
+        contact_ids = [...new Set([...(givenIds || []), ...g.members.map((m) => m.id || m.contact_id).filter(Boolean)])];
+      }
       // Deterministic date resolution: when the model passes the user's day+time
       // phrase, resolve it server-side in the user's timezone (Haiku is unreliable at
       // date math). This OVERRIDES any scheduled_at the model may have computed.
@@ -2170,6 +2184,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
      - "host_location_unknown" → tell user to set their location in Settings; meanwhile ask if they want flexible or a specific time
   3. NEVER skip step 1. Do not assume distance. Do not ask "what time?" when check_invitee_locations says flexible.
 - For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
+- GROUP PLANS: a plan with one of your user's groups ("camping with my favorite mamas") → create_social_event with group set, so all members are invited. Adding someone to that group later (manage_contact_group add_member) automatically invites them to its upcoming plans and sends them one catch-up — tell your user who was caught up on what (caught_up_on).
 - DEFERRING ON A PLAN: if your user, about a plan they're invited to, says they don't want to weigh in and will go with what certain people decide ("whatever Melanie wants", "it's her birthday, not mine", "you guys figure it out"), call defer_on_plan with those names. That's for THIS plan only. Never pass along their reasons. If a friend's ButterflAI says someone deferred, don't ask that person about the plan — ask the people they defer to.
 - TRIPS AND PLANS STILL BEING FIGURED OUT: when your user is planning something with people (a trip, a weekend, a party) — even with dates or details unsettled — create it with create_social_event (tentative: true, best-known dates, contact_ids = everyone involved) BEFORE messaging anyone about it. That puts it on everyone's Home and calendars. When a friend (or their ButterflAI's reply) is clearly in, record_rsvp accepted (shown as interested); when someone is out, declined. When dates and details are settled, update_event tentative: false. message_agent with topic "coordination" requires the event_id.
 - CREATE THE EVENT BEFORE MESSAGING AGENTS: when your user says they're going somewhere and wants to invite people, ALWAYS call create_social_event first (use flexible_time: true for "come whenever" invites). Then message_agent each invitee. This creates the invite card and calendar entry on their end. If you only call message_agent without creating the event, there is no invite card, no calendar entry, and no RSVP tracking — which breaks the whole flow.

@@ -92,6 +92,7 @@ function ensureEventTables() {
       flexible_time  INTEGER DEFAULT 0,   -- 1 = no fixed time ("come when you're ready"), migration 022
       host_attending INTEGER DEFAULT 1,   -- 0 = host bailed but event continues, migration 024
       tentative      INTEGER NOT NULL DEFAULT 0, -- 1 = details still being worked out, migration 035
+      group_id       TEXT,                -- contact group this plan is for, migration 038
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 
@@ -127,7 +128,7 @@ function ensureEventTables() {
  *   scheduled_at (ISO string or unix ts), duration_mins, notes
  * @returns {string} eventId
  */
-function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative }) {
+function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative, group_id }) {
   // flexible_time=true → no fixed time ("come when you're ready"); use now as placeholder timestamp
   const isFlexible = !scheduled_at || flexible_time;
   const ts = isFlexible
@@ -156,10 +157,10 @@ function createEvent(hostUserId, { title, activity_type, venue_name, venue_addre
 
   const id = uuidv4();
   db._raw().prepare(`
-    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative, group_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, hostUserId, title, activity_type, venue_name || null, venue_address || null,
-         ts, duration_mins || 120, notes || null, type, isFlexible ? 1 : 0, tentative ? 1 : 0);
+         ts, duration_mins || 120, notes || null, type, isFlexible ? 1 : 0, tentative ? 1 : 0, group_id || null);
 
   return id;
 }
@@ -247,7 +248,7 @@ function reviewExistingInvitees(event, newContact, newInvId, whenFor) {
   }
 }
 
-async function inviteContacts(eventId, contactIds) {
+async function inviteContacts(eventId, contactIds, { quiet = false } = {}) {
   // Guard: refuse to send invites for events that have already passed
   const eventCheck = db._raw().prepare('SELECT scheduled_at, flexible_time FROM social_events WHERE id = ?').get(eventId);
   if (eventCheck && !eventCheck.flexible_time && eventCheck.scheduled_at && eventCheck.scheduled_at < Math.floor(Date.now() / 1000)) {
@@ -272,6 +273,7 @@ async function inviteContacts(eventId, contactIds) {
   let sent = 0;
   let skipped = 0;
   const avoided = [];
+  const invitedIds = [];   // contacts left with a live invitation (quiet mode)
 
   for (const contactId of contactIds) {
     const contact = db.getContact(contactId);
@@ -335,6 +337,9 @@ async function inviteContacts(eventId, contactIds) {
           : `${host.name} invited the user to "${event.title}" (${whenFor(inviteeUser)}). Someone on the user's avoid list is also invited.`);
       }
 
+      // Quiet (groups.js sends one catch-up). Someone asked privately because of their
+      // avoid list isn't in the catch-up — their own agent already asked them.
+      if (quiet) { sent++; if (!(hostEntry || groupEntry)) invitedIds.push(contactId); continue; }
       const whenStr = event.flexible_time
         ? 'open invite — come whenever'
         : formatEventDate(event.scheduled_at, inviteeUser.timezone || hostTimezone);
@@ -352,6 +357,7 @@ async function inviteContacts(eventId, contactIds) {
       continue;
     }
 
+    if (quiet) { sent++; invitedIds.push(contactId); continue; }
     // Non-user contact → SMS. Use sendUnchecked because the invite message includes a
     // mandatory STOP opt-out — this IS the first-touch consent mechanism. sms.send()
     // would block on ConsentRequired for new contacts, preventing the invite going out.
@@ -369,7 +375,8 @@ async function inviteContacts(eventId, contactIds) {
     }
   }
 
-  return avoided.length ? { sent, skipped, avoided } : { sent, skipped };
+  const out = avoided.length ? { sent, skipped, avoided } : { sent, skipped };
+  return quiet ? { ...out, invited: invitedIds } : out;
 }
 
 /**
@@ -666,6 +673,7 @@ function dismissInvitation(invitationId, userPhone) {
 module.exports = {
   createEvent,
   inviteContacts,
+  formatEventDate,
   queueHostRsvpNotice,
   handleRsvpReply,
   // Exposed for eval harness only

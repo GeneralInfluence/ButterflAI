@@ -1040,6 +1040,9 @@
     async function addMember(groupId, contactId) {
       const r = await fetch(`/api/contacts/groups/${groupId}/members`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: contactId }) });
       if (!r.ok) { showToast('Could not add them'); return; }
+      // They're caught up on the group's plans automatically (2026-10-09).
+      const { caught_up_on } = await r.json().catch(() => ({}));
+      if (caught_up_on && caught_up_on.length) showToast('Added — caught them up on ' + caught_up_on.join(', '), 4000);
       openGroups.add(groupId);
       await loadGroups();
     }

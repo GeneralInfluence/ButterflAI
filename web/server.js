@@ -35,6 +35,7 @@ const deliver = require('./deliver');
 const topics = require('./topics');
 const defer = require('./defer');
 const linktoken = require('./linktoken');
+const groupPlans = require('./groups');
 const plans = require('./plans');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
@@ -1636,13 +1637,16 @@ app.patch('/api/contacts/groups/:groupId', webAuth.requireAuth, express.json(), 
 });
 
 // POST /api/contacts/groups/:groupId/members — add one of YOUR contacts to YOUR group
-app.post('/api/contacts/groups/:groupId/members', webAuth.requireAuth, express.json(), (req, res) => {
+app.post('/api/contacts/groups/:groupId/members', webAuth.requireAuth, express.json(), async (req, res) => {
   const group = db.getContactGroups(req.user.id).find((g) => g.id === req.params.groupId);
   if (!group) return res.status(404).json({ error: 'Group not found' });
   const contact = db.getContact(req.body?.contact_id);
   if (!contact || contact.invited_by_user_id !== req.user.id) return res.status(404).json({ error: 'Contact not found' });
+  const already = db._raw().prepare('SELECT 1 FROM contact_group_members WHERE group_id = ? AND contact_id = ?').get(group.id, contact.id);
   db.addContactToGroup(group.id, contact.id);
-  res.json({ ok: true });
+  // Joining a group = joining its upcoming plans, with one catch-up (owner, 2026-10-09).
+  const catchUp = already ? { caught_up: 0 } : await groupPlans.onMemberAdded(req.user.id, group.id, contact.id);
+  res.json({ ok: true, caught_up_on: catchUp.plans || [] });
 });
 
 // DELETE /api/contacts/groups/:groupId — delete a group (user must own it)

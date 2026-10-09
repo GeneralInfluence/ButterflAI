@@ -470,6 +470,13 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-09: adding Alex to the Favorite Mama's should catch her up on the group's plans.
+  test('group plans are created with the group; new members are caught up', () => {
+    assertContains('GROUP PLANS', 'group plans rule');
+    assertContains('create_social_event with group set', 'event linked to group');
+    assertContains('caught_up_on', 'report catch-up');
+  });
+
   // 2026-10-09: Allie deferred the Grover details to Melanie and Sean but kept being asked.
   test('deferring on a plan: recorded with defer_on_plan, plan only, no reasons passed on', () => {
     assertContains('DEFERRING ON A PLAN', 'deferral rule');
