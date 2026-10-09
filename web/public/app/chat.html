@@ -740,18 +740,35 @@
       const micBtn = document.getElementById('mic-btn');
       micBtn.style.display = 'flex';
 
+      // Keep listening until the user taps the mic again (2026-10-09: it kept cutting off
+      // mid-sentence). Each recognition pass ends at a pause; while the user still wants
+      // to talk we commit what was heard and start another pass, appending to the text.
+      // (Per-pass mode + restart, not `continuous`, which duplicates words on Android.)
       const recognition = new SpeechRec();
       recognition.continuous  = false;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
-      let listening   = false;
+      const MAX_SILENT_PASSES = 3;            // ~20s of silence → stop
+      const MAX_LISTEN_MS = 5 * 60 * 1000;    // hard cap
+
+      let listening   = false;   // a recognition pass is running
+      let wantOn      = false;   // the user wants to keep talking (tap again to stop)
       let discard     = false;   // message was sent mid-recording: ignore late results
-      let baseText    = '';      // text already in the box before recording started
-      let finalSoFar  = '';      // accumulated final segments this session
+      let silentPasses = 0;
+      let startedAt   = 0;
+      let baseText    = '';      // text already in the box before this pass started
+      let finalSoFar  = '';      // final segments heard this pass
+
+      function setMicUi(on) {
+        micBtn.classList.toggle('listening', on);
+        document.getElementById('mic-label').textContent = on ? 'Listening… tap to stop' : 'Voice';
+        micBtn.title = on ? 'Tap to stop' : 'Speak to ButterflAI';
+      }
 
       // Called by send(): stop listening and don't write the transcript back.
       window.stopMicForSend = () => {
+        wantOn = false;
         if (!listening) return;
         discard = true;
         try { recognition.abort(); } catch (_) {}
@@ -762,13 +779,12 @@
         discard     = false;
         baseText    = inputEl.value.trimEnd();
         finalSoFar  = '';
-        micBtn.classList.add('listening');
-        micBtn.title = 'Tap to stop';
-        document.getElementById('mic-label').textContent = 'Listening…';
+        setMicUi(true);
       };
 
       recognition.onresult = e => {
         if (discard) return;
+        silentPasses = 0;
         let interim = '';
         finalSoFar  = '';
         for (let i = 0; i < e.results.length; i++) {
@@ -778,38 +794,39 @@
         const prefix = baseText ? baseText + ' ' : '';
         inputEl.value = prefix + finalSoFar + interim;
         inputEl.style.height = 'auto';
-        inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
+        inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
         sendBtn.disabled = !inputEl.value.trim();
       };
 
       recognition.onend = () => {
         listening = false;
-        micBtn.classList.remove('listening');
-        document.getElementById('mic-label').textContent = 'Voice';
-        micBtn.title = 'Speak to ButterflAI';
-        if (discard) { discard = false; return; } // already sent — don't restore it
-        // Commit: trim trailing whitespace from the final value
+        if (discard) { discard = false; wantOn = false; setMicUi(false); return; } // already sent
+        // Commit this pass (drop any unfinished interim words).
         const prefix = baseText ? baseText + ' ' : '';
         const committed = (prefix + finalSoFar.trim()).trim();
         if (committed) {
           inputEl.value = committed;
           sendBtn.disabled = false;
         }
+        // Still talking? Start the next pass right away.
+        if (wantOn && silentPasses < MAX_SILENT_PASSES && Date.now() - startedAt < MAX_LISTEN_MS) {
+          try { recognition.start(); return; } catch (_) { /* fall through to stop */ }
+        }
+        wantOn = false;
+        setMicUi(false);
         inputEl.focus();
       };
 
       recognition.onerror = e => {
-        listening = false;
-        micBtn.classList.remove('listening');
-        document.getElementById('mic-label').textContent = 'Voice';
-        micBtn.title = 'Speak to ButterflAI';
+        if (e.error === 'no-speech') { silentPasses++; return; }   // a pause — onend decides
+        if (e.error === 'aborted') return;
+        wantOn = false;                                             // real failure: stop
         // Say why it failed — it used to fail silently for anything but a denied mic.
         const why = {
           'not-allowed': '🎤 Mic access denied — check browser settings',
           'service-not-allowed': '🎤 Voice input is turned off in this browser',
           'network': '🎤 Voice input isn\'t available in this browser — use your keyboard\'s mic',
           'audio-capture': '🎤 No microphone found',
-          'no-speech': '🎤 Didn\'t catch that — tap the mic and try again',
         }[e.error];
         if (why && !discard) {
           document.getElementById('status-text').textContent = why;
@@ -818,8 +835,15 @@
       };
 
       window.toggleMic = () => {
-        if (listening) recognition.stop();
-        else           recognition.start();
+        if (wantOn || listening) {
+          wantOn = false;                       // tap again → stop for real
+          try { recognition.stop(); } catch (_) {}
+          return;
+        }
+        wantOn = true;
+        silentPasses = 0;
+        startedAt = Date.now();
+        try { recognition.start(); } catch (_) { wantOn = false; }
       };
     })();
 

@@ -650,7 +650,9 @@ describe('Chat input clears for good after sending', () => {
   test('sending stops the in-app mic and discards its pending transcript', () => {
     assert.ok(html.includes('window.stopMicForSend'));
     assert.match(html, /recognition\.onresult = e => \{\s*if \(discard\) return;/);
-    assert.ok(html.includes("if (discard) { discard = false; return; }"), 'onend does not restore sent text');
+    // Expectation updated 2026-10-09 (keep-listening rewrite): onend also stops the
+    // listen loop when the message was sent — still never restores sent text.
+    assert.ok(html.includes("if (discard) { discard = false; wantOn = false; setMicUi(false); return; }"), 'onend does not restore sent text');
   });
   test('mid-composition keyboard text is ended before clearing; re-inserts are cleared', () => {
     assert.ok(html.includes("addEventListener('compositionstart'"));
@@ -773,5 +775,18 @@ describe('Groups: rename by tapping the name of an open group (2026-10-09)', () 
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/contacts.html'), 'utf8');
     assert.ok(html.includes("onclick=\"renameGroup(event,'${esc(g.id)}')\""));
     assert.ok(html.includes('function renameGroup(e, groupId)') && html.includes("method: 'PATCH'"));
+  });
+});
+
+// Regression (2026-10-09): voice input kept cutting off mid-sentence at the first pause.
+describe('Voice input keeps listening until tapped again', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
+  test('each pass that ends at a pause starts the next one while the user wants to talk', () => {
+    assert.ok(html.includes('let wantOn      = false;'));
+    assert.match(html, /if \(wantOn && silentPasses < MAX_SILENT_PASSES && Date\.now\(\) - startedAt < MAX_LISTEN_MS\) \{\s*try \{ recognition\.start\(\); return; \}/);
+    assert.ok(html.includes("if (e.error === 'no-speech') { silentPasses++; return; }"), 'a pause is not an error');
+  });
+  test('tapping again stops for real', () => {
+    assert.match(html, /window\.toggleMic = \(\) => \{\s*if \(wantOn \|\| listening\) \{\s*wantOn = false;/);
   });
 });
