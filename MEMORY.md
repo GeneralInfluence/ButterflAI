@@ -541,7 +541,13 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   word ("Alex Spargo" → Alexandria Spargo); a built-in nickname list (Liz → Elizabeth) is a
   *likely* match — the agent confirms once; when the user then acts on someone found by a
   non-exact name, that name is saved as the contact's alias (`also_known_as`, in code) and
-  is an exact match from then on — beating a namesake (the two "Allie"s).
+  is an exact match from then on.
+  **Context decides between people with the same name** (owner: "Al" is Allie around Grover
+  and the Mama's — someday a different Al from work): each time the user acts on someone,
+  the name used + context (plan, activity, place, group, what the conversation was about)
+  is recorded (`contact_mentions`, migration 040, `web/mentions.js`, owner-only, 45-day
+  half-life). `lookup_contact` takes `context`; when an alias and a real name both fit, the
+  one whose past context matches wins; otherwise the agent asks and says why each fits.
 - **One Google connection (2026-10-09, owner: "everything Google should all be one"):**
   `/auth/google` asks for Calendar + Contacts in one consent (old calendar/contacts entry
   points lead there too); the callback stores whatever was granted and syncs contacts.

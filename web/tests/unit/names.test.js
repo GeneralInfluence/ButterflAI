@@ -29,7 +29,7 @@ test('existing behaviour kept: exact, nickname, Allie→Allison, phone, punctuat
   // 70 since the nickname list (Allie is a known nickname for Allison); was 60 (first 4 letters).
   assert.equal(matchScore({ name: 'Allison McLaine' }, 'Allie'), 70);
   assert.equal(matchScore(alexandria, '0142'), 90);
-  assert.equal(matchScore({ name: "Mama's Crew" }, 'mamas'), 85);
+  assert.equal(matchScore({ name: "Mama's Crew" }, 'mamas'), 95);   // a whole name word (95 since 2026-10-09; was 85)
   assert.equal(matchScore({ name: 'José Núñez' }, 'jose nunez'), 100);
   assert.equal(matchScore(alexandria, 'xyz'), 0);
 });
@@ -48,12 +48,13 @@ test('common nicknames are a likely (not certain) match', () => {
   assert.ok(matchScore({ name: 'Elizabeth Taylor' }, 'Liz') < 80, 'the agent confirms the first time');
 });
 
-test('a learned alias is an exact match and beats a namesake', () => {
-  const picked = { name: 'Allie', also_known_as: 'Al, allie' };
-  const namesake = { name: 'Allie' };
-  assert.equal(matchScore(picked, 'Allie'), 101);
-  assert.equal(matchScore(namesake, 'Allie'), 100);
-  assert.equal(matchScore({ name: 'Elizabeth Taylor', also_known_as: 'Liz' }, 'liz'), 101);
+// Was 101 (always beat a namesake). Since 2026-10-09 a learned alias ties with a real
+// name and the conversation's context decides (mentions.js) — owner: a future friend
+// actually named Al must not lose to Allie just because Sean calls Allie "Al".
+test('a learned alias is an exact match, equal to a real name', () => {
+  assert.equal(matchScore({ name: 'Allie', also_known_as: 'Al' }, 'Al'), 100);
+  assert.equal(matchScore({ name: 'Al' }, 'Al'), 100);
+  assert.equal(matchScore({ name: 'Elizabeth Taylor', also_known_as: 'Liz' }, 'liz'), 100);
 });
 
 test('learnedAlias: only real names, only if not already exact', () => {

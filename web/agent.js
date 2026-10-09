@@ -41,6 +41,7 @@ const defer      = require('./defer');
 const linktoken  = require('./linktoken');
 const groupPlans = require('./groups');
 const names      = require('./names');
+const mentions   = require('./mentions');
 const { toE164 } = require('./phoneUtils');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
@@ -132,7 +133,8 @@ const TOOL_DEFINITIONS = [
     input_schema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Name or phone number to search for' },
+        query:   { type: 'string', description: 'Name or phone number to search for — exactly as your user said it ("Al", "Liz")' },
+        context: { type: 'string', description: 'What the conversation is about: the plan, activity, place or group (e.g. "Grover camping trip", "climbing", "work"). Used to tell apart people the user calls the same name.' },
       },
       required: ['query'],
     },
@@ -780,24 +782,28 @@ const recentLookups = new Map();   // userId → [{ query, ids, at }]
 const ACTS_ON_CONTACT = new Set(['send_logistics_sms', 'draft_contact_message', 'message_agent', 'manage_contact_group',
   'create_social_event', 'send_contact_invite', 'check_contact_consent']);
 
-function rememberLookup(userId, query, scored) {
-  const weak = scored.filter((c) => c._score < 100).map((c) => c.id);
-  if (!weak.length) return;
+function rememberLookup(userId, query, scored, context = '') {
+  if (!scored.length) return;
+  const weak = scored.filter((c) => c._score < 100).map((c) => c.id);   // name not yet known for them → learn it
   const now = Math.floor(Date.now() / 1000);
   const list = (recentLookups.get(userId) || []).filter((l) => l.at > now - LOOKUP_MEMORY_SECS);
-  list.push({ query, ids: weak, at: now });
+  list.push({ query, context, ids: weak, all: scored.map((c) => c.id), at: now });
   recentLookups.set(userId, list.slice(-10));
 }
 
-/** After a tool acted on contacts: learn the names the user used for them. */
-function learnAliases(userId, contactIds) {
+/**
+ * After a tool acted on contacts: learn the name the user used, and remember the context
+ * it came up in (plan / activity / place / group) for telling namesakes apart later.
+ */
+function noteActedOn(userId, contactIds, { eventId = null, groupId = null } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const list = (recentLookups.get(userId) || []).filter((l) => l.at > now - LOOKUP_MEMORY_SECS);
   for (const id of contactIds) {
-    const hit = [...list].reverse().find((l) => l.ids.includes(id));
-    if (!hit) continue;
     const c = db.getContact(id);
-    const alias = c && c.invited_by_user_id === userId && names.learnedAlias(c, hit.query);
+    if (!c || c.invited_by_user_id !== userId) continue;
+    const hit = [...list].reverse().find((l) => l.all.includes(id));
+    try { mentions.record(userId, id, { nameUsed: hit?.query || null, eventId, groupId, context: hit?.context }); } catch (_) { /* never block the action */ }
+    const alias = hit && hit.ids.includes(id) && names.learnedAlias(c, hit.query);
     if (!alias) continue;
     const akas = String(c.also_known_as || '').split(/[,;]+/).map((a) => a.trim()).filter(Boolean);
     if (!akas.some((a) => names.norm(a) === names.norm(alias))) {
@@ -1012,16 +1018,36 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         synced = await contactsImport.syncGoogle(userId);
         if (synced.synced) scored = rank(db.getContactsByUser(userId));
       }
-      const strong = scored.length && scored[0]._score >= 80;
-      if (currentTurn && USER_CHANNELS.includes(currentTurn.channel)) rememberLookup(userId, toolInput.query, scored);
+      // Several people fit the name (e.g. Allie, whom the user calls "Al", and a friend
+      // actually named Al): the conversation's context decides; if it doesn't clearly,
+      // the agent asks — and says why each might be the one (mentions.js).
+      let ambiguous = null;
+      if (scored.length) {
+        const top = scored[0]._score;
+        // Exact names/aliases (100) only compete with people actually called that (95+):
+        // "Al" → Allie (alias) vs Al Rivera, not vs everyone whose name starts with "Al".
+        const contenders = scored.filter((c) => c._score >= (top >= 100 ? 95 : Math.max(80, top - 15)));
+        if (contenders.length > 1) {
+          for (const c of contenders) c._fit = mentions.fit(userId, c, toolInput.query, toolInput.context);
+          contenders.sort((a, b) => (b._fit.contextHits - a._fit.contextHits) || (b._fit.nameUses - a._fit.nameUses) || (b._score - a._score));
+          const [a, b] = contenders;
+          const clear = a._fit.contextHits > 0 && a._fit.contextHits >= b._fit.contextHits + 1;
+          if (!clear) ambiguous = contenders;
+          scored = [...contenders, ...scored.filter((c) => !contenders.includes(c))];
+        }
+      }
+      const strong = scored.length && scored[0]._score >= 80 && !ambiguous;
+      if (currentTurn && USER_CHANNELS.includes(currentTurn.channel)) rememberLookup(userId, toolInput.query, scored, toolInput.context);
       const status = contactsImport.syncStatus(userId);
       const lastImport = status.last_sync_at || status.last_import_at;
       return {
-        contacts: scored.map(describeContact),
+        contacts: scored.map((c) => ({ ...describeContact(c), why: c._fit?.why })),
         count: scored.length,
         exact_match: !!strong,
         synced_google_contacts: synced?.synced ? `just now (${synced.imported} new)` : undefined,
-        tip: strong
+        tip: ambiguous
+          ? `More than one person fits "${toolInput.query}"${toolInput.context ? ` for "${toolInput.context}"` : ''}. Ask your user which one — name each with what tells them apart (the "why" field, their full name). Don't pick one yourself.`
+          : strong
           ? 'Results ranked by match quality.'
           : `No exact match for "${toolInput.query}"${scored.length ? ' — these are only partial matches; do NOT assume one of them is the person. Ask your user, or for their number.' : '.'}`
             + (status.connected ? '' : ` Their Google contacts aren't kept in sync${lastImport ? ` (last imported ${new Date(lastImport * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})` : ''} — offer the contacts import link (get_contact_import_url) to turn on syncing, or ask for the person's number.`),
@@ -2339,7 +2365,7 @@ LOGISTICS vs EXPRESSIVE (the send gate):
 - When the user offers their own plans for friends ("I'm at Sully's tonight, the boys can come", "free this weekend") → share_plan with their words for how long (until). If plans change → clear_my_plans.
 - TO ASK OR TELL A PERSON SOMETHING SPECIFIC ("tell Allie I'm running late", "ask Bam Bam if he wants wings at 8"), use send_logistics_sms — the person sees it. (What someone is up to is NOT asked this way — use check_friends_plans.) message_agent talks only to their AGENT, which answers on its own without showing them; use it only for agent-level coordination (availability, constraints). lookup_contact tells you whether someone is on ButterflAI (on_butterflai) — trust that, not a contact's tier.
 - MESSAGES BETWEEN PEOPLE GO THROUGH THE AGENTS: "💬 From Allie's ButterflAI: …" in your history is a message from Allie (her agent sent it), and "📤 To Sean: …" is one you sent for this user. If the user answers one ("tell her I'm in", "say 8 works"), reply to that person with send_logistics_sms. ButterflAI users receive it in the app; when the tool says delivered_via "app", tell the user it was sent in ButterflAI.
-- NEVER GUESS A contact_id. Call lookup_contact with the person's name and use the "id" it returns. If a send tool returns CONTACT_NOT_FOUND, look the person up and retry before replying.
+- NEVER GUESS A contact_id. Call lookup_contact with the person's name — exactly as your user said it — and with context (what the conversation is about: the plan, activity, place or group), and use the "id" it returns. If it says more than one person fits, ask your user which one, naming what tells them apart. If a send tool returns CONTACT_NOT_FOUND, look the person up and retry before replying.
 - Only say a message was sent if the send tool returned sent: true in THIS turn. If it failed, tell the user it did NOT go through. (Enforced in code: a false "sent" reply is blocked.)
 
 LEARNING THE USER — build their profile over time:
@@ -2734,7 +2760,11 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         toolLog.push({ name: block.name, input: block.input, result });
         // The user acted on someone found by a non-exact name → remember that name.
         if (ACTS_ON_CONTACT.has(block.name) && result && !result.error && USER_CHANNELS.includes(msg.channel)) {
-          learnAliases(userId, [block.input?.contact_id, ...(block.input?.contact_ids || [])].filter(Boolean));
+          const touched = topics.eventsTouched(userId, toolLog);
+          noteActedOn(userId, [block.input?.contact_id, ...(block.input?.contact_ids || [])].filter(Boolean), {
+            eventId: block.input?.event_id || result.eventId || (touched.length === 1 ? touched[0] : null),
+            groupId: block.name === 'manage_contact_group' ? block.input?.group_id : null,
+          });
         }
         if (SEND_TOOLS.has(block.name)) {
           sendAttempted = true;

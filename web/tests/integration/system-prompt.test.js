@@ -470,6 +470,12 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-09: "Al" can mean Allie (what Sean calls her) or a friend actually named Al.
+  test('lookups pass the conversation context; if several people fit, ask', () => {
+    assertContains('exactly as your user said it — and with context', 'lookup with context');
+    assertContains('If it says more than one person fits, ask your user which one', 'ask when ambiguous');
+  });
+
   // 2026-10-09: adding Alex to the Favorite Mama's should catch her up on the group's plans.
   test('group plans are created with the group; new members are caught up', () => {
     assertContains('GROUP PLANS', 'group plans rule');

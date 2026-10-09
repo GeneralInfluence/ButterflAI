@@ -42,13 +42,13 @@ function nicknameMatch(queryWords, target) {
   return !rest.length || allWordsStart(rest, others.join(' '));
 }
 
-// Every query word starts a different word of `target`.
-function allWordsStart(queryWords, target) {
+// Every query word starts (or, with `exact`, equals) a different word of `target`.
+function allWordsStart(queryWords, target, exact = false) {
   const pool = words(target);
   if (!queryWords.length || !pool.length) return false;
   const used = new Set();
   return queryWords.every((q) => {
-    const i = pool.findIndex((w, idx) => !used.has(idx) && w.startsWith(q));
+    const i = pool.findIndex((w, idx) => !used.has(idx) && (exact ? w === q : w.startsWith(q)));
     if (i < 0) return false;
     used.add(i);
     return true;
@@ -57,8 +57,9 @@ function allWordsStart(queryWords, target) {
 
 /**
  * Match quality, 0 = no match. 80+ = a strong match the agent may act on.
- *  101 a name the user has used for them before (learned alias — beats a namesake) ·
- *  100 exact name/nickname · 90 phone · 85 every word starts a name word · 80 prefix ·
+ *  100 exact name/nickname, or a name the user has used for them before (learned alias —
+ *      when a namesake also fits, context decides: mentions.js) · 95 every word IS a name
+ *  word ("Al" → Al Rivera, "Spargo" → Alexandria Spargo) · 90 phone · 85 every word starts a name word · 80 prefix ·
  *  75 alias prefix · 70 common nickname ("Liz" → Elizabeth) · 60 first four letters ·
  *  50 substring.
  */
@@ -68,8 +69,8 @@ function matchScore(c, query) {
   const qw = q.split(' ');
   const name = norm(c.name), nick = norm(c.nickname), akas = String(c.also_known_as || '').split(/[,;]+/).map(norm).filter(Boolean);
   const digits = String(query).replace(/\D/g, '');
-  if (akas.includes(q)) return 101;
-  if (name === q || nick === q) return 100;
+  if (name === q || nick === q || akas.includes(q)) return 100;
+  if (allWordsStart(qw, c.name, true) || allWordsStart(qw, c.nickname, true)) return 95;
   if (digits.length >= 4 && String(c.phone || '').replace(/\D/g, '').includes(digits)) return 90;
   if (allWordsStart(qw, c.name) || allWordsStart(qw, c.nickname)) return 85;
   if (name.startsWith(q) || nick.startsWith(q)) return 80;

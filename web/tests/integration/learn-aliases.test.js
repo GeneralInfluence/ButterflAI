@@ -83,3 +83,51 @@ describe('learning what the user calls people', () => {
     assert.equal(db.getContact(allieA).also_known_as, before);
   });
 });
+
+// Owner, 2026-10-09: "I've been calling Allie 'Al' … One day I may find a friend named Al,
+// an entirely different person, and the context of the activities should make that clear."
+describe('the same name for two people: context decides, otherwise ask', () => {
+  let sean, allie, alR, gid, grover, work;
+  before(async () => {
+    sean = mkUser('+12025559510', 'Sean Ctx');
+    allie = db.upsertContact({ invited_by_user_id: sean.id, name: 'Allie McLaine', phone: '+12025559511', tier: 1 });
+    gid = db.upsertContactGroup(sean.id, "Favorite Mama's");
+    grover = (await agent.executeTool('create_social_event', { title: 'Grover Hot Springs', activity_type: 'camping trip', tentative: true,
+      scheduled_at: new Date(Date.now() + 14 * 86400e3).toISOString() }, sean.id, sean.phone)).eventId;
+    // Weeks of calling Allie "Al" around the Grover trip and the Mama's group.
+    script([use('lookup_contact', { query: 'Al', context: 'Grover camping' }),
+      use('manage_contact_group', { action: 'add_member', group_id: gid, contact_id: allie }), say('Added Al.')]);
+    await turn(sean, 'add Al to my favorite mamas for Grover');
+    script([use('lookup_contact', { query: 'Al', context: 'Grover camping' }),
+      use('message_agent', { contact_id: allie, topic: 'availability', message: 'Free the 23rd?' }), say('Asked.')]);
+    await turn(sean, 'ask Al if she is free for Grover');
+    assert.match(db.getContact(allie).also_known_as, /\bAl\b/);
+    // Later: a new friend actually named Al, met through work.
+    alR = db.upsertContact({ invited_by_user_id: sean.id, name: 'Al Rivera', phone: '+12025559512', tier: 1 });
+    work = (await agent.executeTool('create_social_event', { title: 'Work happy hour', activity_type: 'drinks with coworkers',
+      scheduled_at: new Date(Date.now() + 3 * 86400e3).toISOString(), contact_ids: [alR] }, sean.id, sean.phone)).eventId;
+  });
+
+  test('"Al" about Grover → Allie, and says why', async () => {
+    const r = await agent.executeTool('lookup_contact', { query: 'Al', context: 'Grover hot springs camping' }, sean.id, sean.phone);
+    assert.equal(r.exact_match, true);
+    assert.equal(r.contacts[0].id, allie);
+    assert.match(r.contacts[0].why, /called them "Al" before/);
+  });
+
+  test('"Al" about the work happy hour → Al Rivera', async () => {
+    const r = await agent.executeTool('lookup_contact', { query: 'Al', context: 'work happy hour drinks' }, sean.id, sean.phone);
+    assert.equal(r.exact_match, true);
+    assert.equal(r.contacts[0].id, alR);
+  });
+
+  test('"Al" with no telling context → ask which one, with what tells them apart', async () => {
+    const r = await agent.executeTool('lookup_contact', { query: 'Al', context: 'lunch' }, sean.id, sean.phone);
+    assert.equal(r.exact_match, false);
+    assert.match(r.tip, /More than one person fits "Al"/);
+    const ids = r.contacts.slice(0, 2).map((c) => c.id).sort();
+    assert.deepEqual(ids, [allie, alR].sort());
+    assert.ok(grover && work);
+  });
+});
+
