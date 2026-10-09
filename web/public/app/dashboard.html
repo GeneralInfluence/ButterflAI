@@ -197,7 +197,8 @@
       const who = i.role === 'host'
         ? [i.interested && i.interested.length ? `${names(i.interested.map(esc))} ${i.tentative ? 'interested' : 'in'}` : '',
            i.waiting_on && i.waiting_on.length ? `waiting on ${names(i.waiting_on.map(esc))}` : '',
-           i.out && i.out.length ? `${names(i.out.map(esc))} out` : ''].filter(Boolean).join(' · ') || 'you\'re hosting'
+           i.out && i.out.length ? `${names(i.out.map(esc))} out` : '',
+           ...(i.deferring || []).map((d) => `${esc(d.who)}: whatever ${names(d.to.map(esc))} decide${d.to.length === 1 && d.to[0] !== 'you' ? 's' : ''}`)].filter(Boolean).join(' · ') || 'you\'re hosting'
         : 'with ' + esc(i.host);
       // Opens that plan's discussion in chat (2026-10-09).
       return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="/app/chat?event=${esc(i.event_id)}"><span class="feed-icon">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;

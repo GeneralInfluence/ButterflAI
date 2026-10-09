@@ -470,6 +470,13 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-09: Allie deferred the Grover details to Melanie and Sean but kept being asked.
+  test('deferring on a plan: recorded with defer_on_plan, plan only, no reasons passed on', () => {
+    assertContains('DEFERRING ON A PLAN', 'deferral rule');
+    assertContains('call defer_on_plan', 'deferral tool');
+    assertContains('Never pass along their reasons', 'no reasons');
+  });
+
   // 2026-10-09: the Grover trip was coordinated but never created, so it wasn't on Home.
   test('trips still being figured out are created tentative first; clear interest is recorded', () => {
     assertContains('TRIPS AND PLANS STILL BEING FIGURED OUT', 'tentative trips rule');

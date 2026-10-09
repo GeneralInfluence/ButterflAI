@@ -33,6 +33,7 @@ const avoid = require('./avoid');
 const trace = require('./trace');
 const deliver = require('./deliver');
 const topics = require('./topics');
+const defer = require('./defer');
 const plans = require('./plans');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
@@ -2149,6 +2150,9 @@ app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => 
   if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nothing to update' });
   const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
   db._raw().prepare(`UPDATE social_events SET ${sets} WHERE id = ?`).run(...Object.values(updates), event.id);
+  // People who deferred on this plan get an FYI on big changes (defer.js).
+  if (updates.status === 'cancelled' && event.status !== 'cancelled') defer.notifyDeferred(event.id, "it's cancelled");
+  else if (updates.venue_name && updates.venue_name !== event.venue_name) defer.notifyDeferred(event.id, `it's now at ${updates.venue_name}`);
   res.json({ ok: true });
 });
 

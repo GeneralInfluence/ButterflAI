@@ -205,16 +205,22 @@ function feedFor(userId) {
   const shownEventIds = new Set();
   for (const e of hosted) {
     const inv = db._raw().prepare(`
-      SELECT ei.status, COALESCE(c.nickname, c.name) AS name FROM event_invitations ei
+      SELECT ei.status, ei.defers_to, COALESCE(c.nickname, c.name) AS name FROM event_invitations ei
       JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ?`).all(e.id);
-    const names = (st) => inv.filter((i) => i.status === st).map((i) => firstName({ name: i.name }));
+    const names = (st) => inv.filter((i) => i.status === st && !i.defers_to).map((i) => firstName({ name: i.name }));
     const interested = names('accepted'), waiting = names('invited'), out = names('declined');
+    // In, going with whatever others decide (defer.js) — never "waiting on" them.
+    const meName = firstName(user);
+    const deferring = inv.filter((i) => i.defers_to).map((i) => ({
+      who: firstName({ name: i.name }),
+      to: (() => { try { return JSON.parse(i.defers_to); } catch (_) { return []; } })().map((n) => (n === meName ? 'you' : n)),
+    }));
     shownEventIds.add(e.id);
     items.push({
       type: 'event', role: 'host', event_id: e.id, title: e.title, venue: e.venue_name, at: e.scheduled_at,
-      tentative: !!e.tentative, interested, waiting_on: waiting, out,
+      tentative: !!e.tentative, interested, waiting_on: waiting, out, deferring,
       // Everyone has answered and it's still tentative → the next step is yours.
-      action: e.tentative && inv.length && !waiting.length && interested.length ? 'Lock in the plan — tell your agent the final details' : null,
+      action: e.tentative && inv.length && !waiting.length && (interested.length || deferring.length) ? 'Lock in the plan — tell your agent the final details' : null,
     });
   }
 

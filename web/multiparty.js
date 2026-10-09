@@ -107,6 +107,8 @@ function ensureEventTables() {
       response_note TEXT,
       dismissed_at INTEGER,              -- set when user hides this invite (migration 021)
       needs_owner_decision INTEGER NOT NULL DEFAULT 0, -- invitee must decide before their agent responds (migration 030)
+      defers_to    TEXT,                 -- JSON array of names the invitee defers to (migration 037)
+      deferred_at  INTEGER,              -- when they deferred (migration 037)
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_event_invites_event   ON event_invitations(event_id);

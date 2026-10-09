@@ -518,6 +518,14 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   `record_rsvp accepted` ("Interested") → on their ButterflAI calendar; the host sees who's
   interested / not answered; when all have answered, "lock in the plan" (update_event
   tentative: false).
+- **Deferring on a plan (owner, 2026-10-09 — Allie: "it's Melanie's birthday, not mine"):**
+  an invitee can say they'll go with whatever certain people decide (`defer_on_plan`,
+  migration 037, `web/defer.js`). **Plan only.** They're in; questions about that plan are
+  answered in code with a fixed line ("Allie's happy with whatever Melanie and Sean decide")
+  — no model call, nothing shown to them, never their reasons; `message_agent` to them
+  about it returns that answer without messaging their agent. They get an **FYI (not a
+  question)** when the date, place, lock-in or cancellation changes. Host's card shows
+  "Allie: whatever you & Melanie decide", never "waiting on". `undo` to be asked again.
 - **Chat by discussion (2026-10-09):** chat messages carry the event they're about
   (`conversation_history.event_id`, migration 036, `web/topics.js`): tagged in code when a
   turn's tools work on one event, otherwise a small Haiku match against the user's current

@@ -37,6 +37,7 @@ const desires    = require('./desires');
 const sensitive  = require('./sensitive');
 const avoid      = require('./avoid');
 const topics     = require('./topics');
+const defer      = require('./defer');
 const { toE164 } = require('./phoneUtils');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
@@ -418,6 +419,19 @@ const TOOL_DEFINITIONS = [
         source: { type: 'string', description: 'How they confirmed, e.g. "in person", "phone call"' },
       },
       required: ['event_id', 'contact_phone', 'status'],
+    },
+  },
+  {
+    name: 'defer_on_plan',
+    description: 'Your user is invited to a plan and says they don\'t want to weigh in — they\'ll go with whatever certain people decide ("whatever Melanie wants", "you and Sean figure it out", "I don\'t care, it\'s her birthday"). Records that they\'re in and who decides, for THIS plan only. From then on questions about it are answered for them (no reasons given) and they only get an FYI on big changes. undo: true if they want to be asked again.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        invitation_id: { type: 'string', description: 'inv_id from "You have been invited to" in your state' },
+        defer_to:      { type: 'array', items: { type: 'string' }, description: 'First names of who decides, e.g. ["Melanie", "Sean"]' },
+        undo:          { type: 'boolean', description: 'true = they want to be asked about this plan again' },
+      },
+      required: ['invitation_id'],
     },
   },
   {
@@ -1100,6 +1114,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (!contact?.phone) return { error: 'Contact not found' };
       const targetUser = db.getUserByPhone(contact.phone);
       if (!targetUser) return { error: 'Contact is not a ButterflAI user — they need to sign up first', contact_name: contact.name };
+      // They deferred on this plan: don't bother them — here's their answer (defer.js).
+      const deferred = event_id && defer.deferralFor(event_id, targetUser.id);
+      if (deferred) {
+        return { action_status: 'NOT_SENT_DEFERRED', sent: false, answer: deferred.answer,
+          note: `${contact.name} deferred on this plan — that is their answer. Don't ask them about it; ask the people they defer to.` };
+      }
       const msgId = db.sendAgentMessage({
         fromUserId: userId, toUserId: targetUser.id,
         threadId: thread_id || event_id, kind: 'query', topic, body: agentMsg,
@@ -1160,6 +1180,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const online = sse.push(userId, { role: 'assistant', text, ts: Math.floor(Date.now() / 1000) });
       const r = await deliver.notifySelf(db.getUser(userId), text, { online });
       return { delivered: true, via: r.via, event_id: turn.threadEvent || undefined, note: 'Your user has it. When they answer (in a later message), the question is listed under "Open questions from friends\' ButterflAIs" — reply with reply_agent then.' };
+    }
+
+    case 'defer_on_plan': {
+      return defer.deferOnPlan(userId, toolInput);
     }
 
     case 'store_private_data': {
@@ -1637,10 +1661,20 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (title) updates.title = String(title).slice(0, 200);
       if (duration_mins !== undefined && Number(duration_mins) > 0) updates.duration_mins = Math.round(Number(duration_mins));
       if (!Object.keys(updates).length) return { ok: true, note: 'No fields to update' };
+      const before = db._raw().prepare('SELECT scheduled_at, venue_name, tentative FROM social_events WHERE id = ?').get(event_id);
       const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
       db._raw().prepare(`UPDATE social_events SET ${sets} WHERE id = ?`)
         .run(...Object.values(updates), event_id);
-      return { ok: true, event_id, updated: Object.keys(updates) };
+      // People who deferred on this plan get an FYI (not a question) on big changes.
+      const tz = db.getUser(userId)?.timezone || 'America/Los_Angeles';
+      const changes = [];
+      if (updates.scheduled_at && updates.scheduled_at !== before.scheduled_at) {
+        changes.push(`the date is now ${new Date(updates.scheduled_at * 1000).toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' })}`);
+      }
+      if (updates.venue_name && updates.venue_name !== before.venue_name) changes.push(`it's now at ${updates.venue_name}`);
+      if (updates.tentative === 0 && before.tentative) changes.push("it's locked in");
+      const fyi = changes.length ? defer.notifyDeferred(event_id, changes.join('; ')) : 0;
+      return { ok: true, event_id, updated: Object.keys(updates), fyi_sent_to_deferred: fyi || undefined };
     }
 
     case 'get_event_rsvp_status': {
@@ -1823,6 +1857,13 @@ async function processMessage(msg) {
   const userId = user.id;
   const userPhone = user.phone;
 
+  // A question about a plan this user deferred on: answered in code — no model call,
+  // nothing shown to them (defer.js).
+  if (msg.channel === 'agent_query' && defer.handleQuery(msg, userId)) {
+    console.log(`[agent] agent_query ${msg.id} answered from deferral for user=${userId}`);
+    return;
+  }
+
   // Build live user state snapshot — injected into system prompt so agent
   // always has current context regardless of conversation history window.
   const userTimezone = user.timezone || 'America/Los_Angeles';
@@ -1844,12 +1885,14 @@ async function processMessage(msg) {
         if (recency === 'stale') continue;   // long-past events are noise — never surface them as current
         const invitations = db._raw
           ? db._raw().prepare(`
-              SELECT c.name, ei.status FROM event_invitations ei
+              SELECT c.name, ei.status, ei.defers_to FROM event_invitations ei
               JOIN contacts c ON c.id = ei.contact_id
               WHERE ei.event_id = ?
             `).all(e.id)
           : [];
-        const inviteeList = invitations.map(i => `${i.name} (${i.status})`).join(', ') || 'no invitees yet';
+        const inviteeList = invitations.map(i => i.defers_to
+          ? `${i.name} (in — goes with whatever ${defer.joinNames(defer.parseNames(i.defers_to))} decide; don't ask them about it)`
+          : `${i.name} (${i.status})`).join(', ') || 'no invitees yet';
         const ts = recency === 'flexible'
           ? 'open invite (no fixed time)'
           : new Date(e.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
@@ -1870,21 +1913,23 @@ async function processMessage(msg) {
       // Match on phone, not one contact row: each host has their own contact row for
       // this user, so a single getContactByPhone() lookup missed other hosts' invites.
       const rows = db._raw().prepare(`
-        SELECT ei.id as inv_id, ei.status, ei.needs_owner_decision, se.id as event_id, se.title,
+        SELECT ei.id as inv_id, ei.status, ei.needs_owner_decision, ei.defers_to, se.id as event_id, se.title,
                se.activity_type, se.scheduled_at, se.venue_name, u.name as host_name
         FROM event_invitations ei
         JOIN contacts c ON c.id = ei.contact_id
         JOIN social_events se ON se.id = ei.event_id
         JOIN users u ON u.id = se.host_user_id
-        WHERE c.phone = ? AND se.host_user_id != ? AND ei.notified_at > strftime('%s','now') - 604800
-        ORDER BY ei.notified_at DESC LIMIT 5
+        WHERE c.phone = ? AND se.host_user_id != ? AND COALESCE(se.status, 'open') != 'cancelled'
+          AND (ei.notified_at > strftime('%s','now') - 604800 OR se.scheduled_at > strftime('%s','now') - 86400)
+        ORDER BY se.scheduled_at LIMIT 8
       `).all(user.phone, userId);
       if (!rows.length) return '';
       const lines = rows.map(r => {
         const ts = new Date(r.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
         const venue = r.venue_name ? ` at ${r.venue_name}` : '';
         const ask = r.needs_owner_decision && r.status === 'invited' ? ' | ⚠ ASK YOUR USER before responding (never say why)' : '';
-        return `  - inv_id="${r.inv_id}" | "${r.title}" hosted by ${r.host_name} | ${ts}${venue} | your status: ${r.status}${ask}`;
+        const def = r.defers_to ? ` | your user deferred — goes with whatever ${defer.joinNames(defer.parseNames(r.defers_to))} decide` : '';
+        return `  - inv_id="${r.inv_id}" | "${r.title}" hosted by ${r.host_name} | ${ts}${venue} | your status: ${r.status}${def}${ask}`;
       }).join('\n');
       return `\n## You have been invited to (by other ButterflAI users)\n${lines}\n- Use confirm_coordination_invite to RSVP and optionally add to your calendar`;
     } catch (_) { return ''; }
@@ -2123,6 +2168,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
      - "host_location_unknown" → tell user to set their location in Settings; meanwhile ask if they want flexible or a specific time
   3. NEVER skip step 1. Do not assume distance. Do not ask "what time?" when check_invitee_locations says flexible.
 - For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
+- DEFERRING ON A PLAN: if your user, about a plan they're invited to, says they don't want to weigh in and will go with what certain people decide ("whatever Melanie wants", "it's her birthday, not mine", "you guys figure it out"), call defer_on_plan with those names. That's for THIS plan only. Never pass along their reasons. If a friend's ButterflAI says someone deferred, don't ask that person about the plan — ask the people they defer to.
 - TRIPS AND PLANS STILL BEING FIGURED OUT: when your user is planning something with people (a trip, a weekend, a party) — even with dates or details unsettled — create it with create_social_event (tentative: true, best-known dates, contact_ids = everyone involved) BEFORE messaging anyone about it. That puts it on everyone's Home and calendars. When a friend (or their ButterflAI's reply) is clearly in, record_rsvp accepted (shown as interested); when someone is out, declined. When dates and details are settled, update_event tentative: false. message_agent with topic "coordination" requires the event_id.
 - CREATE THE EVENT BEFORE MESSAGING AGENTS: when your user says they're going somewhere and wants to invite people, ALWAYS call create_social_event first (use flexible_time: true for "come whenever" invites). Then message_agent each invitee. This creates the invite card and calendar entry on their end. If you only call message_agent without creating the event, there is no invite card, no calendar entry, and no RSVP tracking — which breaks the whole flow.
 - AGENT QUERY HANDLING — TWO TYPES, handled differently:
