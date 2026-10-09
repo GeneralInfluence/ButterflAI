@@ -535,6 +535,13 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   `lookup_contact` has no exact match (≤ every 10 min), name-only contacts are kept, and
   partial matches are flagged so the agent asks instead of picking the wrong "Alex".
   Users connected before this must reconnect Google Contacts once.
+- **Names: matched word by word, nicknames known, aliases learned (2026-10-09, owner:
+  "the AI should get used to how users talk about their friends over time").** `web/names.js`
+  is the one matcher (agent `lookup_contact` + People search): every word must start a name
+  word ("Alex Spargo" → Alexandria Spargo); a built-in nickname list (Liz → Elizabeth) is a
+  *likely* match — the agent confirms once; when the user then acts on someone found by a
+  non-exact name, that name is saved as the contact's alias (`also_known_as`, in code) and
+  is an exact match from then on — beating a namesake (the two "Allie"s).
 - **One Google connection (2026-10-09, owner: "everything Google should all be one"):**
   `/auth/google` asks for Calendar + Contacts in one consent (old calendar/contacts entry
   points lead there too); the callback stores whatever was granted and syncs contacts.

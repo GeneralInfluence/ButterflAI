@@ -770,6 +770,44 @@ function openQuestionsFor(userId) {
   } catch (_) { return []; }
 }
 
+// ── Learning what the user calls people (2026-10-09, owner: "the AI should get used to
+// how users talk about their friends over time") ─────────────────────────────────────
+// Recent lookups that weren't exact. When the user then acts on one of the people found
+// (message, invite, add to a group…), the name they used is saved as that contact's alias
+// — next time it's an exact match, and it wins over a namesake. In code, per user.
+const LOOKUP_MEMORY_SECS = 30 * 60;
+const recentLookups = new Map();   // userId → [{ query, ids, at }]
+const ACTS_ON_CONTACT = new Set(['send_logistics_sms', 'draft_contact_message', 'message_agent', 'manage_contact_group',
+  'create_social_event', 'send_contact_invite', 'check_contact_consent']);
+
+function rememberLookup(userId, query, scored) {
+  const weak = scored.filter((c) => c._score < 100).map((c) => c.id);
+  if (!weak.length) return;
+  const now = Math.floor(Date.now() / 1000);
+  const list = (recentLookups.get(userId) || []).filter((l) => l.at > now - LOOKUP_MEMORY_SECS);
+  list.push({ query, ids: weak, at: now });
+  recentLookups.set(userId, list.slice(-10));
+}
+
+/** After a tool acted on contacts: learn the names the user used for them. */
+function learnAliases(userId, contactIds) {
+  const now = Math.floor(Date.now() / 1000);
+  const list = (recentLookups.get(userId) || []).filter((l) => l.at > now - LOOKUP_MEMORY_SECS);
+  for (const id of contactIds) {
+    const hit = [...list].reverse().find((l) => l.ids.includes(id));
+    if (!hit) continue;
+    const c = db.getContact(id);
+    const alias = c && c.invited_by_user_id === userId && names.learnedAlias(c, hit.query);
+    if (!alias) continue;
+    const akas = String(c.also_known_as || '').split(/[,;]+/).map((a) => a.trim()).filter(Boolean);
+    if (!akas.some((a) => names.norm(a) === names.norm(alias))) {
+      db.updateContact(id, { also_known_as: [...akas, alias].slice(-8).join(', ') });
+      console.log(`[agent] learned alias for contact=${id}`);
+    }
+    hit.ids = hit.ids.filter((x) => x !== id);
+  }
+}
+
 // A contact_id must be a real contact of THIS user. The model has invented ids from names
 // ("sean-gonzalez", "aphilos") — the draft tool accepted them and the send failed, and
 // another user's contact id must never be usable. The error tells the model how to recover.
@@ -965,6 +1003,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         .sort((a, b) => b._score - a._score)
         .slice(0, 10);
       let scored = rank(allContacts);
+      // (remembered below so the name used can be learned once the user acts on someone)
       // No strong match (exact name, phone, or prefix)? Their Google contacts may have
       // changed since the last sync — sync now and look again (2026-10-09: "Alex Spargo"
       // wasn't found; contacts were last imported in June, once).
@@ -974,6 +1013,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         if (synced.synced) scored = rank(db.getContactsByUser(userId));
       }
       const strong = scored.length && scored[0]._score >= 80;
+      if (currentTurn && USER_CHANNELS.includes(currentTurn.channel)) rememberLookup(userId, toolInput.query, scored);
       const status = contactsImport.syncStatus(userId);
       const lastImport = status.last_sync_at || status.last_import_at;
       return {
@@ -2692,6 +2732,10 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         }
         turnTrace.tool(block.name, block.input, result, Date.now() - started);
         toolLog.push({ name: block.name, input: block.input, result });
+        // The user acted on someone found by a non-exact name → remember that name.
+        if (ACTS_ON_CONTACT.has(block.name) && result && !result.error && USER_CHANNELS.includes(msg.channel)) {
+          learnAliases(userId, [block.input?.contact_id, ...(block.input?.contact_ids || [])].filter(Boolean));
+        }
         if (SEND_TOOLS.has(block.name)) {
           sendAttempted = true;
           if (sendSucceeded(result)) anySendSucceeded = true;
