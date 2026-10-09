@@ -729,6 +729,17 @@ describe('Chat messages can be copied; notices are shown (2026-10-08)', () => {
     assert.ok(html.includes('async function copyText('));
     assert.ok(html.includes('user-select: text'));
   });
+  // 2026-10-09: Copy and 👎 sat side by side on the tiny timestamp line; Sean kept
+  // hitting Copy instead of 👎, and the feedback box zoomed/jumped on iPhone.
+  test('replies: Copy and 👎 are stacked pills to the right of the bubble', () => {
+    assert.ok(html.includes('<div class="msg-row"><div class="bubble">${renderText(text)}</div><div class="msg-side"><button class="copy-btn"'));
+    assert.match(html, /\.msg-side \{ display: flex; flex-direction: column; gap: 10px;/);
+    assert.match(html, /\.msg-side button \{[\s\S]{0,120}height: 34px; min-width: 48px;/);
+  });
+  test('feedback box: card with pill buttons; 16px text so iPhone does not zoom', () => {
+    assert.match(html, /\.fb-note \{[^}]*font-size: 16px;/);
+    assert.ok(html.includes("box.scrollIntoView({ block: 'nearest'"));
+  });
   test('system notices render as their own kind', () => {
     assert.ok(html.includes("['incoming', 'outgoing', 'notice'].includes(kind)"));
   });

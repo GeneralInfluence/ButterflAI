@@ -136,17 +136,37 @@
     .ts { font-size: 11px; color: #bbb; margin-top: 2px; padding: 0 4px; }
     .msg-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
     .msg-foot .ts { margin-top: 0; }
-    .fb-btn { display: none; background: none; border: none; cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: 6px; opacity: .3; transition: opacity .15s, background .15s; }
-    body.test-user .fb-btn { display: inline-block; }
-    .fb-btn:hover { opacity: .75; background: rgba(108,71,255,.08); }
-    .fb-btn.flagged { opacity: .7; font-size: 11px; color: #8a7fb0; cursor: default; background: none; }
-    .fb-box { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; max-width: 340px; }
-    .fb-note { border: 1.5px solid #e5e5e5; border-radius: 10px; padding: 8px 10px; font-family: inherit; font-size: 14px; resize: vertical; color: inherit; background: #fff; }
+    /* Replies: Copy and 👎 are pills to the RIGHT of the bubble, stacked with space
+       between them (2026-10-09: on the timestamp line they were tiny and side by side —
+       Sean kept hitting Copy instead of 👎). */
+    .msg.bot { max-width: 92%; }
+    .msg-row { display: flex; align-items: flex-start; gap: 8px; }
+    .msg-row .bubble { min-width: 0; }
+    .msg-side { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+    .msg-side button {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 34px; min-width: 48px; padding: 0 10px;
+      border-radius: 999px; border: 1px solid #e5e5e5; background: #fff;
+      font-size: 12px; font-weight: 500; color: #3a3a3c; font-family: inherit; cursor: pointer;
+    }
+    .msg-side .copy-btn.done { color: #34c759; border-color: #34c759; }
+    .fb-btn { display: none; font-size: 15px !important; }
+    body.test-user .msg-side .fb-btn { display: inline-flex; }
+    .msg-side .fb-btn.flagged { background: #ede9fe; border-color: #a78bfa; cursor: default; }
+    .fb-box {
+      margin-top: 8px; align-self: stretch; box-sizing: border-box; width: 100%; max-width: 420px;
+      display: flex; flex-direction: column; gap: 8px;
+      background: #fff; border: 1.5px solid #6c47ff; border-radius: 14px; padding: 10px;
+      box-shadow: 0 2px 8px rgba(108,71,255,.12);
+    }
+    /* 16px: iPhone zooms the whole page when a smaller text box is tapped. */
+    .fb-note { box-sizing: border-box; width: 100%; border: 1.5px solid #e5e5e5; border-radius: 10px; padding: 8px 10px; font-family: inherit; font-size: 16px; resize: none; color: inherit; background: #fff; }
     .fb-note:focus { outline: none; border-color: #6c47ff; }
-    .fb-actions { display: flex; gap: 8px; align-items: center; }
-    .fb-send { background: #6c47ff; color: #fff; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .fb-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+    .fb-send, .fb-cancel { height: 34px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; }
+    .fb-send { background: #6c47ff; color: #fff; border: none; }
     .fb-send:disabled { opacity: .55; cursor: default; }
-    .fb-cancel { background: none; border: none; color: #999; font-size: 13px; cursor: pointer; }
+    .fb-cancel { background: #f2f2f7; color: #3a3a3c; border: none; }
     .fb-thanks { font-size: 13px; color: #8a7fb0; }
 
     /* Typing indicator */
@@ -553,7 +573,8 @@
         try { ok = document.execCommand('copy'); } catch (_) {}
         ta.remove();
       }
-      btn.textContent = ok ? 'Copied ✓' : 'Copy failed';
+      // Short labels: the side pill keeps its size.
+      btn.textContent = ok ? '✓' : '✕';
       btn.classList.toggle('done', ok);
       setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1500);
     }
@@ -588,7 +609,7 @@
       div.className = `msg ${role}${['incoming', 'outgoing', 'notice'].includes(kind) ? ' ' + kind : ''}`;
       const time = ts ? fmtMsgTime(ts) : '';
       if (role === 'bot') {
-        div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="msg-foot"><span class="ts">${time}</span><button class="copy-btn" type="button" title="Copy" aria-label="Copy message">Copy</button><button class="fb-btn" type="button" title="Flag this reply as wrong" aria-label="Flag this reply">👎</button></div>`;
+        div.innerHTML = `<div class="msg-row"><div class="bubble">${renderText(text)}</div><div class="msg-side"><button class="copy-btn" type="button" title="Copy" aria-label="Copy message">Copy</button><button class="fb-btn" type="button" title="Flag this reply as wrong" aria-label="Flag this reply">👎</button></div></div><div class="msg-foot"><span class="ts">${time}</span></div>`;
         const fb = div.querySelector('.fb-btn');
         if (fb) fb.addEventListener('click', () => openFeedback(fb, text));
       } else {
@@ -622,7 +643,8 @@
         <div class="fb-actions"><button class="fb-send" type="button">Send feedback</button><button class="fb-cancel" type="button">Cancel</button></div>`;
       div.appendChild(box);
       const ta = box.querySelector('.fb-note');
-      ta.focus();
+      ta.focus({ preventScroll: true });
+      requestAnimationFrame(() => box.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
       box.querySelector('.fb-cancel').addEventListener('click', () => box.remove());
       box.querySelector('.fb-send').addEventListener('click', async () => {
         const send = box.querySelector('.fb-send');
