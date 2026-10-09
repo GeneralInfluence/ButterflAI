@@ -500,5 +500,20 @@ agent asked what he was up to — and my fix then had it ping him, which the own
 - Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.
   Tests: `tests/integration/plans-feed.test.js`.
 
+## 12. Research & planning tools `[2026-10-09]`
+
+- **Web search + reading pages:** Claude's built-in `web_search_20250305` / `web_fetch_20250910`
+  (server tools; basic versions are ZDR-eligible — matches §8.3). Search $10/1,000 + tokens
+  (~2¢ per search on Haiku incl. results); fetch is token cost only and can only open URLs
+  already in the conversation or search results. Max 5 each per request. Not offered when
+  answering another agent (agent_query). The old Brave-backed `web_search` (never had a key)
+  and the server-side `fetch_url` (could fetch arbitrary URLs from our server) were removed.
+  Brave is cheaper ($5/1,000 with $5/mo free credit) if volume grows.
+- **Weather:** `get_weather_forecast` (`web/weather.js`, Open-Meteo, free, no key): 16-day
+  daily highs/lows °F, precip, conditions, freezing nights; weekdays labelled in code.
+- **Booking:** the agent can't book or pay. It gives the official link + exact details and
+  offers reminders; it must never claim it booked. Paying/booking on a user's behalf = the
+  future "social budget" (IMPLEMENTATION.md §3), needs its own design + per-booking approval.
+
 ---
 *Update this file as decisions move from `[DEFAULT]`/`[OPEN]` to `[LOCKED]`.*

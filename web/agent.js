@@ -40,6 +40,7 @@ const trace      = require('./trace');
 const deliver    = require('./deliver');
 const plans      = require('./plans');
 const links      = require('./links');
+const weather    = require('./weather');
 const datetime   = require('./datetime');
 const coord      = require('./coordination');
 const sse        = require('./sse');
@@ -659,26 +660,15 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
-    name: 'fetch_url',
-    description: 'Fetch and read the contents of a URL — a web page, article, event listing, menu, or any link the user shares. Use this whenever the user sends a URL or asks about something on the web.',
+    name: 'get_weather_forecast',
+    description: 'Daily forecast for a place for the next 16 days: high/low °F, chance of rain/snow, conditions, and which nights hit freezing. Use it for any plan outdoors or travel ("will it freeze at Grover Hot Springs this weekend?"). Each day comes back with its weekday and date already labelled — use those labels, never compute weekdays yourself.',
     input_schema: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: 'The URL to fetch' },
+        place:     { type: 'string', description: 'Town, park or address, e.g. "Grover Hot Springs State Park, CA" or "Markleeville, CA"' },
+        latitude:  { type: 'number', description: 'Optional, if you know it' },
+        longitude: { type: 'number', description: 'Optional, if you know it' },
       },
-      required: ['url'],
-    },
-  },
-  {
-    name: 'web_search',
-    description: 'Search the web for current information — restaurants, venues, events, business hours, news, or anything the user asks about that may require up-to-date info. For local queries (venues, events, businesses), the user\'s city is automatically appended if known — you do not need to add it manually.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Search query. For local queries, do NOT include the city — it is added automatically from the user\'s location.' },
-        local: { type: 'boolean', description: 'Set true for venue/event/business searches to auto-append the user\'s city. Default true for anything location-specific.' },
-      },
-      required: ['query'],
     },
   },
 ];
@@ -698,6 +688,7 @@ function toolStatusLine(toolName, input) {
     case 'update_preferences':     return `Saving your preferences…`;
     case 'manage_avoid_list':      return `Updating your private settings…`;
     case 'share_plan':             return `Sharing your plans…`;
+    case 'get_weather_forecast':   return `Checking the forecast…`;
     case 'clear_my_plans':         return `Clearing your plans…`;
     case 'check_friends_plans':    return `Checking what your friends have shared…`;
     case 'manage_contact_group':   return `Managing contact group…`;
@@ -1660,67 +1651,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       return { updated: true, city };
     }
 
-    case 'fetch_url': {
-      const { url } = toolInput;
-      if (!url || !/^https?:\/\//i.test(url)) return { error: 'Invalid URL.' };
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 10000);
-        const response = await fetch(url, {
-          signal: ctrl.signal,
-          headers: { 'User-Agent': 'ButterflAI/1.0 (social assistant; +https://butterflai.social)' },
-        });
-        clearTimeout(timer);
-        const contentType = response.headers.get('content-type') || '';
-        if (!response.ok) return { error: `HTTP ${response.status}` };
-        let text = await response.text();
-        // Strip HTML tags for readability
-        text = text
-          .replace(/<script[\s\S]*?<\/script>/gi, '')
-          .replace(/<style[\s\S]*?<\/style>/gi, '')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s{3,}/g, '\n\n')
-          .trim()
-          .slice(0, 6000);  // cap at 6k chars
-        return { url, content_type: contentType, text };
-      } catch (err) {
-        return { error: err.name === 'AbortError' ? 'Request timed out.' : err.message };
-      }
-    }
-
-    case 'web_search': {
-      let { query, local } = toolInput;
-      if (!query) return { error: 'query required' };
-      // Auto-append city for local searches
-      if (local !== false) {
-        const searcher = db.getUser(userId);
-        if (searcher?.city) query = `${query} ${searcher.city}`;
-      }
-      const apiKey = process.env.BRAVE_SEARCH_API_KEY;
-      if (!apiKey) return { error: 'Web search not configured.' };
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 8000);
-        const r = await fetch(
-          `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`,
-          {
-            signal: ctrl.signal,
-            headers: { 'Accept': 'application/json', 'X-Subscription-Token': apiKey },
-          }
-        );
-        clearTimeout(timer);
-        if (!r.ok) return { error: `Search API error: ${r.status}` };
-        const data = await r.json();
-        const results = (data.web?.results || []).map(item => ({
-          title: item.title,
-          url:   item.url,
-          snippet: item.description,
-        }));
-        return { query, results };
-      } catch (err) {
-        return { error: err.name === 'AbortError' ? 'Search timed out.' : err.message };
-      }
-    }
+    case 'get_weather_forecast':
+      return weather.forecast(toolInput);
 
     default:
       return { error: `Unknown tool: ${toolName}` };
@@ -2190,6 +2122,7 @@ LOGISTICS vs EXPRESSIVE (the send gate):
 - Teasing, nudging or hyping a friend toward a plan ("tell him to get off his ass, let's get wings") is LOGISTICS. Compose a friendly version and send it right away — no draft, no clarifying question.
 - A GO-AHEAD AFTER A DRAFT IS APPROVAL: if you showed a draft and the user says anything like "send it", "yes", "do it", "just send something", "I don't want to approve, just send" — send that draft immediately with send_logistics_sms. Never ask for approval twice.
 - ${links.linksForPrompt()}
+- PLANNING & RESEARCH — LOOK IT UP, DON'T GIVE UP: for anything current or specific (parks, campgrounds, reservations, hours, events, prices, drive times) use web_search, and web_fetch to read a page (a link the user sends, or a search result). Answer from what you found. For temperatures/rain/freezing use get_weather_forecast (next 16 days; beyond that say it's too far out and give typical conditions). You cannot book or pay: give the official booking link, the exact details to enter (dates with the weekday labels from the tools, site type, number of adults and kids), and offer to remind them. Never say you booked or reserved anything.
 - WHAT FRIENDS ARE UP TO (owner rule — ButterflAI is not a messenger): "what're my boys up to tonight?" → check_friends_plans (group "boys", when "tonight"). Report ONLY what friends shared; for the rest say they haven't shared anything. NEVER message_agent or send_logistics_sms people to ask what they're up to, and never guess. Mention that they'll see you're up for something — nobody gets pinged.
 - When the user offers their own plans for friends ("I'm at Sully's tonight, the boys can come", "free this weekend") → share_plan with their words for how long (until). If plans change → clear_my_plans.
 - TO ASK OR TELL A PERSON SOMETHING SPECIFIC ("tell Allie I'm running late", "ask Bam Bam if he wants wings at 8"), use send_logistics_sms — the person sees it. (What someone is up to is NOT asked this way — use check_friends_plans.) message_agent talks only to their AGENT, which answers on its own without showing them; use it only for agent-level coordination (availability, constraints). lookup_contact tells you whether someone is on ButterflAI (on_butterflai) — trust that, not a contact's tier.
@@ -2293,6 +2226,49 @@ function unverifiedSentClaim(replyText, { anySendSucceeded, failedSends, sendAtt
   return failedSends.length > 0 || (!sendAttempted && asksToSend(userText));
 }
 
+// ── Research: Claude's built-in web search + page reading (2026-10-09) ────────────
+// Sean asked for help booking Grover Hot Springs; the agent couldn't look anything up
+// (the old Brave-backed web_search never had a key). These run on Anthropic's side; the
+// basic versions are covered by zero data retention. Search: $10/1,000 + tokens. Fetch:
+// tokens only, and only URLs already in the conversation or search results.
+// NOT offered when answering another agent (agent_query) — no fetching links that
+// someone else put in front of this user's agent.
+function toolsFor(msg, user) {
+  if (msg.channel === 'agent_query') return TOOL_DEFINITIONS;
+  return [
+    ...TOOL_DEFINITIONS,
+    { type: 'web_search_20250305', name: 'web_search', max_uses: 5,
+      ...(user?.timezone ? { user_location: { type: 'approximate', timezone: user.timezone } } : {}) },
+    { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 5, max_content_tokens: 8000 },
+  ];
+}
+
+// The reply is the text AFTER the last web search/fetch (earlier text is "let me
+// search…"). Search answers arrive split into blocks around citations, so they're joined
+// without separators; cited sources are listed at the end (required when showing
+// web-search output to users).
+function answerText(content) {
+  let lastServer = -1;
+  content.forEach((b, i) => { if (b.type === 'server_tool_use' || /_tool_result$/.test(b.type)) lastServer = i; });
+  const textAfter = content.slice(lastServer + 1).filter(b => b.type === 'text');
+  if (lastServer < 0) return content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+  const text = textAfter.map(b => b.text).join('').trim();
+  const sources = [];
+  for (const b of textAfter) for (const c of (b.citations || [])) if (c.url && !sources.includes(c.url)) sources.push(c.url);
+  return sources.length ? `${text}\n\nSources: ${sources.slice(0, 3).join(' · ')}` : text;
+}
+
+// Test users: record web searches/fetches in the trace like other tools.
+function traceServerTools(turnTrace, content) {
+  for (const b of content || []) {
+    if (b.type !== 'server_tool_use') continue;
+    const result = content.find(r => r.tool_use_id === b.id && /_tool_result$/.test(r.type));
+    const urls = Array.isArray(result?.content) ? result.content.map(r => r.url).filter(Boolean).slice(0, 5)
+      : result?.content?.url ? [result.content.url] : [];
+    turnTrace.tool(b.name, b.input, result ? { urls, error: result.content?.error_code } : { pending: true }, 0);
+  }
+}
+
 // Channels that carry the user's own words (private mode applies to these).
 const USER_CHANNELS = ['sms', 'webchat'];
 const PRIVATE_PLACEHOLDER = '🔒 Private message';
@@ -2377,11 +2353,12 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
 
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: systemPrompt,
-      tools: TOOL_DEFINITIONS,
+      tools: toolsFor(msg, user),
       messages,
     });
+    traceServerTools(turnTrace, response.content);
 
     // FLAI burn instrumentation — STUB, always permissive (§2.3)
     try {
@@ -2394,9 +2371,8 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
     if (response.stop_reason === 'end_turn') {
       // Extract text response and send to user.
       // Use sendUnchecked — agent only processes established users who consented at onboarding.
-      const textBlocks = response.content.filter(b => b.type === 'text');
       // Wrong ButterflAI addresses in a reply are corrected in code (links.fixReply).
-      let replyText = links.fixReply(textBlocks.map(b => b.text).join('\n').trim());
+      let replyText = links.fixReply(answerText(response.content));
 
       // Guard: a reply that says something was sent, in a turn where nothing was.
       if (unverifiedSentClaim(replyText, { anySendSucceeded, failedSends, sendAttempted, userText: msg.text })) {
@@ -2469,6 +2445,10 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       messages.push({ role: 'user', content: toolResults });
       continue;
     }
+
+    // A long web search can pause the server-side loop: continue by sending the
+    // paused assistant content back as-is (already appended above).
+    if (response.stop_reason === 'pause_turn') continue;
 
     // Unexpected stop reason
     console.warn(`[agent] unexpected stop_reason=${response.stop_reason}`);

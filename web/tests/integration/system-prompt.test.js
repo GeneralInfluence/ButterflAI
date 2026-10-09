@@ -623,3 +623,11 @@ describe('What friends are up to / sharing plans (MEMORY.md §11)', () => {
     assertContains('share_plan with their words for how long (until)');
   });
 });
+
+describe('Planning & research (2026-10-09, Grover Hot Springs)', () => {
+  test('look it up instead of giving up; weather tool; honest about booking', () => {
+    assertContains("PLANNING & RESEARCH — LOOK IT UP, DON'T GIVE UP");
+    assertContains('get_weather_forecast');
+    assertContains('Never say you booked or reserved anything');
+  });
+});

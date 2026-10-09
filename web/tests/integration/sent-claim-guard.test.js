@@ -253,3 +253,39 @@ describe('2026-10-09 regressions: links in messages', () => {
     assert.doesNotMatch(reply, /butterfly\.com/);
   });
 });
+
+// 2026-10-09: research tools (Grover Hot Springs). Server tools are stubbed via the model.
+describe('web research: built-in search + fetch', () => {
+  test('search/fetch are offered for the user\'s own chat but not when answering another agent', async () => {
+    const u = mkUser('+12025559350', 'Researcher');
+    const calls = [];
+    agent._setAnthropic({ messages: { create: async (req) => { calls.push(req.tools.map((t) => t.type || t.name)); return { id: 'x', stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] }; } } });
+    await turn(u, 'look up grover hot springs');
+    assert.ok(calls[0].includes('web_search_20250305') && calls[0].includes('web_fetch_20250910'));
+    assert.ok(!calls[0].includes('fetch_url'), 'old server-side fetcher removed');
+    db.storeInboundMessage({ from_phone: u.phone, from_type: 'user', from_id: u.id, channel: 'agent_query', text: '[Agent query from X | thread=t | topic=coordination] hi' });
+    await agent.tick();
+    assert.ok(!calls[1].includes('web_search_20250305') && !calls[1].includes('web_fetch_20250910'));
+  });
+
+  test('reply = the answer after the last search, joined across citation blocks, with sources; pause_turn continues', async () => {
+    const u = mkUser('+12025559351', 'Camper');
+    let i = 0;
+    agent._setAnthropic({ messages: { create: async () => {
+      i++;
+      if (i === 1) return { id: 'p', stop_reason: 'pause_turn', content: [{ type: 'text', text: "I'll look that up." }, { type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'grover hot springs reservations' } }] };
+      return { id: 'f', stop_reason: 'end_turn', content: [
+        { type: 'web_search_tool_result', tool_use_id: 's1', content: [{ type: 'web_search_result', url: 'https://parks.ca.gov/?page_id=508', title: 'Grover Hot Springs SP' }] },
+        { type: 'text', text: 'Campsites are booked through ' },
+        { type: 'text', text: 'ReserveCalifornia', citations: [{ type: 'web_search_result_location', url: 'https://parks.ca.gov/?page_id=508', cited_text: '...' }] },
+        { type: 'text', text: ', up to 6 months ahead.' },
+      ] };
+    } } });
+    const reply = await turn(u, 'can you help with the grover reservation?');
+    assert.equal(i, 2, 'pause_turn → continued');
+    assert.equal(reply, 'Campsites are booked through ReserveCalifornia, up to 6 months ahead.\n\nSources: https://parks.ca.gov/?page_id=508');
+    assert.ok(!reply.includes("I'll look that up"), 'pre-search chatter dropped');
+    const traced = db._raw().prepare(`SELECT tool_name, input_json FROM agent_trace WHERE user_id = ? AND kind = 'tool'`).all(u.id);
+    assert.ok(traced.some((t) => t.tool_name === 'web_search' && t.input_json.includes('grover')), 'search recorded for test users');
+  });
+});
