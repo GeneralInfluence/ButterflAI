@@ -68,3 +68,19 @@ describe('People → Groups: create, add, see who is on ButterflAI', () => {
     assert.equal((await request.post('/api/contacts/groups').send({ name: 'x' })).status, 401);
   });
 });
+
+describe('rename a group (2026-10-09)', () => {
+  test('owner can rename; duplicates, empty names and other users are refused', async () => {
+    const a = mkUser('+12025559710', 'Renamer');
+    const b = mkUser('+12025559711', 'Intruder');
+    const ca = await cookieFor(a); const cb = await cookieFor(b);
+    const g1 = (await request.post('/api/contacts/groups').set('Cookie', ca).send({ name: 'boys' })).body.id;
+    await request.post('/api/contacts/groups').set('Cookie', ca).send({ name: 'Mamas' });
+    const ok = await request.patch(`/api/contacts/groups/${g1}`).set('Cookie', ca).send({ name: 'The Boys' });
+    assert.equal(ok.status, 200);
+    assert.ok((await request.get('/api/contacts/groups').set('Cookie', ca)).body.groups.some((g) => g.name === 'The Boys'));
+    assert.equal((await request.patch(`/api/contacts/groups/${g1}`).set('Cookie', ca).send({ name: 'mamas' })).status, 409);
+    assert.equal((await request.patch(`/api/contacts/groups/${g1}`).set('Cookie', ca).send({ name: ' ' })).status, 400);
+    assert.equal((await request.patch(`/api/contacts/groups/${g1}`).set('Cookie', cb).send({ name: 'Hijacked' })).status, 404);
+  });
+});

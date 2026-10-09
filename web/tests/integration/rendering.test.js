@@ -767,3 +767,11 @@ describe('Chat composer + groups screen (2026-10-09)', () => {
     assert.ok(html.includes('badge-on') && html.includes('not on ButterflAI'));
   });
 });
+
+describe('Groups: rename by tapping the name of an open group (2026-10-09)', () => {
+  test('rename UI is wired', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/contacts.html'), 'utf8');
+    assert.ok(html.includes("onclick=\"renameGroup(event,'${esc(g.id)}')\""));
+    assert.ok(html.includes('function renameGroup(e, groupId)') && html.includes("method: 'PATCH'"));
+  });
+});

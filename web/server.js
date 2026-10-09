@@ -1597,6 +1597,20 @@ app.post('/api/contacts/groups', webAuth.requireAuth, express.json(), (req, res)
   res.json({ ok: true, id });
 });
 
+// PATCH /api/contacts/groups/:groupId — rename one of YOUR groups
+app.patch('/api/contacts/groups/:groupId', webAuth.requireAuth, express.json(), (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Group name required' });
+  if (name.length > 60) return res.status(400).json({ error: 'Group name too long' });
+  const groups = db.getContactGroups(req.user.id);
+  if (!groups.find((g) => g.id === req.params.groupId)) return res.status(404).json({ error: 'Group not found' });
+  if (groups.some((g) => g.id !== req.params.groupId && g.name.toLowerCase() === name.toLowerCase())) {
+    return res.status(409).json({ error: `You already have a group called "${name}"` });
+  }
+  db._raw().prepare('UPDATE contact_groups SET name = ? WHERE id = ? AND user_id = ?').run(name, req.params.groupId, req.user.id);
+  res.json({ ok: true, name });
+});
+
 // POST /api/contacts/groups/:groupId/members — add one of YOUR contacts to YOUR group
 app.post('/api/contacts/groups/:groupId/members', webAuth.requireAuth, express.json(), (req, res) => {
   const group = db.getContactGroups(req.user.id).find((g) => g.id === req.params.groupId);

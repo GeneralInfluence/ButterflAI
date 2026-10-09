@@ -340,6 +340,11 @@
     .group-add-results { margin-top: 6px; }
     .group-add-result { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: none; padding: 8px 4px; font-size: 14px; cursor: pointer; border-radius: 8px; }
     .group-add-result:hover { background: #f5f3ff; }
+    /* Rename: the ✏️ shows on an open group; tapping its name edits it (2026-10-09) */
+    .group-edit { display: none; font-size: 12px; opacity: .6; }
+    .group-card.open .group-edit { display: inline; }
+    .group-card.open .group-name { cursor: text; }
+    .group-name-input { font-size: 16px; font-weight: 700; border: 1.5px solid var(--purple); border-radius: 8px; padding: 3px 8px; width: 100%; font-family: inherit; }
     .badge-on { font-size: 11px; font-weight: 600; color: var(--purple); background: #ede9fe; border-radius: 999px; padding: 2px 8px; }
     .badge-off { font-size: 11px; color: #8e8e93; background: #f2f2f7; border-radius: 999px; padding: 2px 8px; }
     .groups-hint {
@@ -937,7 +942,7 @@
           <div class="group-header" onclick="toggleGroup('${esc(g.id)}')">
             <div class="group-emoji">${emoji}</div>
             <div class="group-info">
-              <div class="group-name">${esc(g.name)}</div>
+              <div class="group-name" onclick="renameGroup(event,'${esc(g.id)}')" title="Tap to rename when open">${esc(g.name)}<span class="group-edit"> ✏️</span></div>
               <div class="group-meta">${members.length} member${members.length !== 1 ? 's' : ''}</div>
             </div>
             <span class="group-chevron">›</span>
@@ -963,6 +968,41 @@
       if (!card) return;
       card.classList.toggle('open');
       if (card.classList.contains('open')) openGroups.add(groupId); else openGroups.delete(groupId);
+    }
+
+    // On an OPEN group, tapping the name edits it in place (Enter or tapping away saves,
+    // Escape cancels). On a closed group the tap just opens it, as before.
+    function renameGroup(e, groupId) {
+      const card = document.getElementById('gc-' + groupId);
+      if (!card || !card.classList.contains('open')) return;   // let the header open it
+      e.stopPropagation();
+      const nameEl = e.currentTarget;
+      if (nameEl.querySelector('input')) return;
+      const oldName = nameEl.firstChild.textContent;
+      const input = document.createElement('input');
+      input.className = 'group-name-input';
+      input.value = oldName;
+      input.maxLength = 60;
+      input.addEventListener('click', ev => ev.stopPropagation());
+      let done = false;
+      const finish = async (save) => {
+        if (done) return; done = true;
+        const name = input.value.trim();
+        if (!save || !name || name === oldName) { loadGroups(); return; }
+        const r = await fetch('/api/contacts/groups/' + groupId, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name })
+        });
+        if (!r.ok) { const err = await r.json().catch(() => ({})); showToast(err.error || 'Could not rename the group'); }
+        loadGroups();
+      };
+      input.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+        if (ev.key === 'Escape') finish(false);
+      });
+      input.addEventListener('blur', () => finish(true));
+      nameEl.replaceChildren(input);
+      input.focus();
+      input.select();
     }
 
     function showNewGroup() {
