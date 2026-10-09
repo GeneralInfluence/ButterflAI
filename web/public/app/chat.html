@@ -549,7 +549,21 @@
 
     // kind: 'incoming' (from another person's ButterflAI) / 'outgoing' (sent for you) cards,
     // 'notice' (something the system told you, e.g. "Bam Bam signed up").
+    // Server messages can reach the page twice: live over SSE and again from the catch-up
+    // poll (a "📤 To …" card arrives while the reply is still pending, so the poll that
+    // waits for the reply fetches it too — 2026-10-09, Melanie's card showed twice).
+    // Skip a bot message already shown with the same text at (about) the same time.
+    const shownBot = [];
+    function alreadyShown(text, ts) {
+      if (!ts) return false;
+      if (shownBot.some(m => m.text === text && Math.abs(m.ts - ts) <= 5)) return true;
+      shownBot.push({ text, ts });
+      if (shownBot.length > 200) shownBot.shift();
+      return false;
+    }
+
     function appendMessage(role, text, ts, updateTs = true, kind = null) {
+      if (role === 'bot' && updateTs && alreadyShown(text, ts)) return;
       // Strip and handle {"action":"REQUEST_LOCATION"} anywhere in bot messages
       if (role === 'bot') {
         const locMatch = text.match(/\{"action"\s*:\s*"REQUEST_LOCATION"\}/);

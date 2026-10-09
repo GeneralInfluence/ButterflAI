@@ -733,3 +733,18 @@ describe('Chat links are tappable (2026-10-09)', () => {
     assert.ok(html.includes('<a href="$1" target="_blank" rel="noopener">$1</a>'));
   });
 });
+
+describe('Chat does not draw the same message twice (2026-10-09)', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
+  test('bot messages from SSE + catch-up poll are de-duplicated', () => {
+    assert.ok(html.includes('function alreadyShown(text, ts)'));
+    assert.ok(html.includes("if (role === 'bot' && updateTs && alreadyShown(text, ts)) return;"));
+  });
+  test('dedupe logic: same text within 5s is skipped, a real repeat later is shown', () => {
+    const fn = html.match(/const shownBot = \[\];[\s\S]*?\n    }\n/)[0];
+    const alreadyShown = new Function(`${fn}; return alreadyShown;`)();
+    assert.equal(alreadyShown('📤 To Mel: hi', 1000), false);
+    assert.equal(alreadyShown('📤 To Mel: hi', 1001), true, 'SSE vs poll timestamps differ by a second');
+    assert.equal(alreadyShown('📤 To Mel: hi', 1600), false, 'genuinely sent again later → shown');
+  });
+});
