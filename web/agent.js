@@ -2245,6 +2245,36 @@ function sendSucceeded(result) {
     || (result.invites_sent || 0) > 0;
 }
 
+// ── Other claimed actions — same rule: say it's done only if a tool did it this turn ──
+// 2026-10-09 (Sean's feedback #8): "Done! ✅ Added Bam Bam to your 'favorite Mama's'
+// group" — it had only looked Bam Bam up; nothing was added. Each entry: what a claim
+// looks like, and which successful tool result backs it. Add entries as new cases appear.
+const ACTION_CLAIMS = [
+  {
+    what: 'a group change',
+    claim: /\b(added|removed|put|moved)\b[^.!?\n]{0,80}\bgroup\b|\bgroup\b[^.!?\n]{0,40}\b(created|updated)\b|\bcreated\b[^.!?\n]{0,40}\bgroup\b/i,
+    done: (log) => log.some((t) => t.name === 'manage_contact_group' && !t.result?.error
+      && (t.result?.added || t.result?.removed || t.result?.created || t.result?.deleted || t.result?.renamed)),
+    how: 'manage_contact_group (list_groups to get the group_id, lookup_contact for the contact_id, then add_member / remove_member)',
+  },
+];
+const ACTION_NEGATED = /\b(not|n't|never|unable to|couldn't|can't|wasn't|haven't|hasn't|didn't|want me to|should i|shall i)\b/i;
+
+function unbackedActionClaim(replyText, toolLog) {
+  if (!replyText) return null;
+  for (const c of ACTION_CLAIMS) {
+    const m = c.claim.exec(replyText);
+    if (!m) continue;
+    // Look at the sentence the claim is in: "I couldn't add…" / "Want me to add…" aren't claims.
+    const start = Math.max(replyText.lastIndexOf('.', m.index), replyText.lastIndexOf('\n', m.index), replyText.lastIndexOf('?', m.index)) + 1;
+    if (ACTION_NEGATED.test(replyText.slice(start, m.index + m[0].length))) continue;
+    if (!c.done(toolLog)) return c;
+  }
+  return null;
+}
+
+const NOT_DONE_FALLBACK = "Heads up — that didn't actually get done. Want me to try again?";
+
 const NOT_SENT_FALLBACK = "Heads up — that didn't actually go through, so nothing was sent. Want me to try again?";
 
 // Tools that send something to someone else. Only their failures count as failed sends.
@@ -2398,6 +2428,8 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   const failedSends = [];
   let sentClaimChallenged = false;
   let agentQueryChallenged = false;
+  let actionClaimChallenged = false;
+  const toolLog = [];   // { name, result } for every tool run this turn
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
@@ -2439,6 +2471,21 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         }
         turnTrace.event('guard', `replaced repeated unverified "sent" claim: ${replyText.slice(0, 200)}`);
         replyText = NOT_SENT_FALLBACK;
+      }
+
+      // Guard: a reply that says something was done (e.g. added to a group) when no tool did it.
+      const unbacked = msg.channel === 'agent_query' ? null : unbackedActionClaim(replyText, toolLog);
+      if (unbacked) {
+        if (!actionClaimChallenged) {
+          actionClaimChallenged = true;
+          turnTrace.event('guard', `blocked unbacked claim (${unbacked.what}): ${replyText.slice(0, 200)}`);
+          messages.push({ role: 'user', content:
+            `[System check — not from the user] Your reply says you made ${unbacked.what}, but no tool did that in this turn. `
+            + `Do it now with ${unbacked.how}, or tell the user plainly it was NOT done. Never say something was done unless a tool confirmed it.` });
+          continue;
+        }
+        turnTrace.event('guard', `replaced repeated unbacked claim (${unbacked.what}): ${replyText.slice(0, 200)}`);
+        replyText = NOT_DONE_FALLBACK;
       }
 
       // Answering another agent: the final text goes to NO ONE (it mixes reasoning with
@@ -2497,6 +2544,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
           result = { error: err.message };
         }
         turnTrace.tool(block.name, block.input, result, Date.now() - started);
+        toolLog.push({ name: block.name, result });
         if (SEND_TOOLS.has(block.name)) {
           sendAttempted = true;
           if (sendSucceeded(result)) anySendSucceeded = true;
@@ -2595,4 +2643,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver, _unverifiedSentClaim: unverifiedSentClaim, NOT_SENT_FALLBACK };
+module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver, _unverifiedSentClaim: unverifiedSentClaim, NOT_SENT_FALLBACK, _unbackedActionClaim: unbackedActionClaim, NOT_DONE_FALLBACK };

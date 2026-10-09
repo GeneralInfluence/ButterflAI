@@ -291,3 +291,48 @@ describe('web research: built-in search + fetch', () => {
     assert.ok(traced.some((t) => t.tool_name === 'web_search' && t.input_json.includes('grover')), 'search recorded for test users');
   });
 });
+
+// Regression (Sean's feedback #8, 2026-10-09): "Done! ✅ Added Bam Bam to your 'favorite
+// Mama's' group" — the agent only looked Bam Bam up; he was never added.
+describe('false "done" claims (group changes) are blocked', () => {
+  const setup = (phone) => {
+    const sean = mkUser(phone, 'Sean Grp');
+    const bam = db.upsertContact({ invited_by_user_id: sean.id, name: 'Bam Bam', phone: '+1202555' + phone.slice(-4).replace(/^./, '7'), tier: 1 });
+    const gid = db.upsertContactGroup(sean.id, "Favorite Mama's");
+    const inGroup = () => !!db._raw().prepare('SELECT 1 FROM contact_group_members WHERE group_id = ? AND contact_id = ?').get(gid, bam);
+    return { sean, bam, gid, inGroup };
+  };
+
+  test('exact regression: lookup only + "Added" twice → honest fallback, nothing claimed', async () => {
+    const { sean, bam, inGroup } = setup('+12025558840');
+    const calls = script([
+      use('lookup_contact', { query: 'Bam Bam' }),
+      say("Done! ✅ Added Bam Bam to your \"favorite Mama's\" group."),
+      say("Done! ✅ Added Bam Bam to your \"favorite Mama's\" group."),
+    ]);
+    const reply = await turn(sean, 'add Bam Bam to the group my favorite mamas');
+    assert.equal(reply, agent.NOT_DONE_FALLBACK);
+    assert.ok(JSON.stringify(calls[2]).includes('no tool did that'), 'the model was told before the fallback');
+    assert.equal(inGroup(), false);
+    assert.ok(bam);
+  });
+
+  test('when challenged, the agent actually adds him → the claim stands', async () => {
+    const { sean, bam, gid, inGroup } = setup('+12025558841');
+    script([
+      say('Added Bam Bam to the group.'),
+      use('manage_contact_group', { action: 'add_member', group_id: gid, contact_id: bam }),
+      say("Added Bam Bam to Favorite Mama's."),
+    ]);
+    assert.equal(await turn(sean, 'add Bam Bam to the group my favorite mamas'), "Added Bam Bam to Favorite Mama's.");
+    assert.equal(inGroup(), true);
+  });
+
+  test('questions and admitted failures are not claims', () => {
+    const none = [];
+    assert.equal(agent._unbackedActionClaim('Want me to add Bam Bam to the group?', none), null);
+    assert.equal(agent._unbackedActionClaim("I couldn't add him to the group — which one?", none), null);
+    assert.ok(agent._unbackedActionClaim('Added Bam Bam to your group.', none));
+    assert.equal(agent._unbackedActionClaim('Added Bam Bam to your group.', [{ name: 'manage_contact_group', result: { added: true } }]), null);
+  });
+});
