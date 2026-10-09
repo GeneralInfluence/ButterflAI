@@ -1514,8 +1514,17 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'get_contact_import_url': {
       const baseUrl = process.env.BASE_URL || 'https://butterflai.social';
-      // Signed, expiring link — never a bare userId (linktoken.js, 2026-10-09).
-      return { url: `${baseUrl}/contacts-import.html?t=${linktoken.sign(userId, 'contacts', linktoken.TTL.link)}` };
+      // Signed, expiring links — never a bare userId (linktoken.js, 2026-10-09).
+      const sync = contactsImport.syncStatus(userId);
+      if (sync.connected) {
+        const r = await contactsImport.syncGoogle(userId, { force: true });
+        return { google_contacts: 'connected — they stay in sync', synced_now: r.synced ? `${r.imported} new` : undefined };
+      }
+      return {
+        url: `${baseUrl}/auth/google?t=${linktoken.sign(userId, 'google', linktoken.TTL.link)}`,
+        other_ways: `${baseUrl}/contacts-import.html?t=${linktoken.sign(userId, 'contacts', linktoken.TTL.link)}`,
+        message: 'The url connects Google (Calendar and Contacts in one step) and keeps contacts in sync. other_ways is for contacts not in Google (paste or a .vcf file).',
+      };
     }
 
     case 'get_pending_invites': {
@@ -1559,7 +1568,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (provider) return { connected: true, provider, message: `${provider} Calendar already connected.` };
       const requestedProvider = toolInput.provider || 'google';
       const urls = {
-        google: `${baseUrl}/auth/google/calendar?t=${linktoken.sign(userId, 'calendar', linktoken.TTL.link)}`,
+        google: `${baseUrl}/auth/google?t=${linktoken.sign(userId, 'google', linktoken.TTL.link)}`,   // Calendar + Contacts in one step
         apple:  `${baseUrl}/auth/apple/calendar?t=${linktoken.sign(userId, 'calendar', linktoken.TTL.link)}`,
       };
       return {

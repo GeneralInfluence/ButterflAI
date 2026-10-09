@@ -66,16 +66,19 @@ describe('connect links', () => {
     }
   });
 
-  test('a signed link starts it, and Google gets a signed state (not the userId)', async () => {
-    const r = await request.get('/auth/google/calendar?t=' + encodeURIComponent(linktoken.sign(victim.id, 'calendar', 600)));
-    assert.equal(r.status, 302);
-    const state = stateOf(r.headers.location);
-    assert.notEqual(state, victim.id);
-    assert.equal(linktoken.verify(state, 'oauth:gcal'), victim.id);
-    const c = await request.get('/auth/google/contacts?t=' + encodeURIComponent(linktoken.sign(victim.id, 'contacts', 600)));
-    assert.equal(linktoken.verify(stateOf(c.headers.location), 'oauth:gcontacts'), victim.id);
-    // A calendar link can't be used for contacts.
-    assert.equal((await request.get('/auth/google/contacts?t=' + encodeURIComponent(linktoken.sign(victim.id, 'calendar', 600)))).status, 401);
+  // Since 2026-10-09 every Google entry point connects Calendar + Contacts together
+  // (owner: "everything Google should all be one"), so the state purpose is 'oauth:google'.
+  test('a signed link starts it, and Google gets a signed state (not the userId) for Calendar + Contacts', async () => {
+    for (const [path, purpose] of [['/auth/google', 'google'], ['/auth/google/calendar', 'calendar'], ['/auth/google/contacts', 'contacts']]) {
+      const r = await request.get(path + '?t=' + encodeURIComponent(linktoken.sign(victim.id, purpose, 600)));
+      assert.equal(r.status, 302, path);
+      const loc = new URL(r.headers.location);
+      assert.notEqual(stateOf(r.headers.location), victim.id);
+      assert.equal(linktoken.verify(stateOf(r.headers.location), 'oauth:google'), victim.id, path);
+      assert.ok(loc.searchParams.get('scope').includes('contacts.readonly') && loc.searchParams.get('scope').includes('calendar.events'));
+    }
+    // A link for something else (e.g. the Apple form) doesn't start a Google flow.
+    assert.equal((await request.get('/auth/google?t=' + encodeURIComponent(linktoken.sign(victim.id, 'apple-form', 600)))).status, 401);
   });
 
   test('the Google callback rejects a forged state (bare userId, old "contacts:<id>" form)', async () => {
@@ -101,9 +104,62 @@ describe('connect links', () => {
   });
 
   test('links the agent sends are signed, not ?userId=', async () => {
+    // Since 2026-10-09 the import link is the one Google connection (Calendar + Contacts);
+    // other_ways is the paste / .vcf page.
     const imp = await agent.executeTool('get_contact_import_url', {}, victim.id, victim.phone);
-    const t = new URL(imp.url).searchParams.get('t');
-    assert.equal(linktoken.verify(t, 'contacts'), victim.id);
-    assert.ok(!imp.url.includes('userId='));
+    assert.equal(linktoken.verify(new URL(imp.url).searchParams.get('t'), 'google'), victim.id);
+    assert.equal(linktoken.verify(new URL(imp.other_ways).searchParams.get('t'), 'contacts'), victim.id);
+    assert.ok(!imp.url.includes('userId=') && !imp.other_ways.includes('userId='));
+  });
+});
+
+describe('one Google connection; Settings shows what is connected', () => {
+  let sean, cookie;
+  before(async () => {
+    process.env.KMS_PROVIDER = 'local';
+    process.env.KMS_MASTER_KEY_HEX = 'b'.repeat(64);
+    sean = mkUser('+12025558802', 'Sean Conn');
+    await request.post('/auth/otp/send').send({ phone: sean.phone });
+    const { code } = db._raw().prepare('SELECT code FROM otp_codes WHERE phone = ? AND used = 0 ORDER BY created_at DESC LIMIT 1').get(sean.phone);
+    cookie = (await request.post('/auth/otp/verify').send({ phone: sean.phone, code })).headers['set-cookie'][0];
+  });
+
+  test('before: nothing connected', async () => {
+    const r = await request.get('/api/user/connections').set('Cookie', cookie);
+    assert.deepEqual(r.body, { google: { calendar: false, contacts: false, contacts_synced_at: null }, apple: { calendar: false } });
+  });
+
+  test('the callback stores Calendar AND Contacts, syncs contacts, and says so', async () => {
+    calendar.exchangeGoogleCode = async () => ({ tokens: { access_token: 'a', refresh_token: 'r' }, calendar: true, contacts: true });
+    calendar.getCalendarTimezone = async () => 'America/Los_Angeles';
+    require('googleapis').google.people = () => ({ people: { connections: { list: async () => ({ data: { connections: [
+      { names: [{ displayName: 'Alex Spargo' }], phoneNumbers: [{ value: '+1 530 555 0142' }] }] } }) } } });
+    const state = linktoken.sign(sean.id, 'oauth:google', 600);
+    const r = await request.get(`/auth/google/callback?code=x&state=${encodeURIComponent(state)}`);
+    assert.equal(r.status, 200);
+    assert.match(r.text, /Google connected/);
+    assert.match(r.text, /Contacts ✓ — 1 new/);
+    assert.ok(db._raw().prepare("SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND name = 'Alex Spargo'").get(sean.id));
+    const c = await request.get('/api/user/connections').set('Cookie', cookie);
+    assert.equal(c.body.google.calendar, true);
+    assert.equal(c.body.google.contacts, true);
+    assert.ok(c.body.google.contacts_synced_at);
+  });
+
+  test('if only Calendar was ticked, the page says Contacts weren\'t shared', async () => {
+    calendar.exchangeGoogleCode = async () => ({ tokens: { access_token: 'a2' }, calendar: true, contacts: false });
+    const r = await request.get(`/auth/google/callback?code=x&state=${encodeURIComponent(linktoken.sign(sean.id, 'oauth:google', 600))}`);
+    assert.match(r.text, /Contacts not shared/);
+  });
+
+  test('Sync contacts now', async () => {
+    const r = await request.post('/api/contacts/sync').set('Cookie', cookie);
+    assert.equal(r.body.synced, true);
+  });
+
+  test('Settings page renders the status rows and loads them', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/settings.html'), 'utf8');
+    assert.ok(html.includes('id="google-status"') && html.includes('href="/auth/google"') && html.includes("fetch('/api/user/connections')"));
+    assert.ok(!html.includes('Connect Google Calendar</a>'), 'no more static button');
   });
 });

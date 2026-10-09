@@ -81,10 +81,33 @@ function getAuthUrl(state) {
  * Exchange an auth code for tokens, encrypt, and persist.
  * Called from the /auth/google/callback route.
  */
+// One Google connection for everything (owner, 2026-10-09: "everything Google should all
+// be one"): Calendar + Contacts in a single consent. `state` is a signed linktoken.
+const GOOGLE_SCOPES = {
+  calendar: ['https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/calendar.events'],
+  contacts: ['https://www.googleapis.com/auth/contacts.readonly'],
+};
+function getGoogleAuthUrl(state) {
+  return makeGoogleClient().generateAuthUrl({
+    access_type: 'offline', prompt: 'consent', include_granted_scopes: true,
+    scope: [...GOOGLE_SCOPES.calendar, ...GOOGLE_SCOPES.contacts], state,
+  });
+}
+/** Exchange the code; report which parts the user actually granted. */
+async function exchangeGoogleCode(code) {
+  const { tokens } = await makeGoogleClient().getToken(code);
+  const granted = String(tokens.scope || '').split(/\s+/);
+  return { tokens, calendar: GOOGLE_SCOPES.calendar.every((s) => granted.includes(s)), contacts: granted.includes(GOOGLE_SCOPES.contacts[0]) };
+}
+
 async function handleOAuthCallback(code, userId) {
   const client = makeGoogleClient();
   const { tokens } = await client.getToken(code);
+  return storeTokens(userId, tokens);
+}
 
+/** Encrypt and store a user's Google Calendar tokens. */
+async function storeTokens(userId, tokens) {
   // Encrypt before storing
   const encrypted = await crypto.encryptRecord(tokens);
   db._raw().prepare(`
@@ -407,6 +430,9 @@ function hasAnyCalendarConnected(userId) {
 module.exports = {
   // Google-specific
   getAuthUrl,
+  getGoogleAuthUrl,
+  exchangeGoogleCode,
+  storeTokens,
   handleOAuthCallback,
   hasCalendarConnected,
   // Apple-specific

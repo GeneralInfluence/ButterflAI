@@ -132,7 +132,13 @@
     .copy-btn:hover { opacity: 0.85; }
     .referral-sub { font-size: 13px; color: #888; margin-top: 10px; }
     .joined-count { font-size: 13px; color: #555; margin-top: 6px; }
-  </style>
+      .conn-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #f2f2f7; }
+    .conn-row[hidden] { display: none; }
+    .conn-info { flex: 1; min-width: 0; }
+    .conn-name { font-size: 15px; font-weight: 600; color: #1c1c1e; }
+    .conn-status { font-size: 13px; color: #3a3a3c; margin-top: 2px; }
+    .conn-row .btn { flex-shrink: 0; }
+</style>
 </head>
 <body>
 <header>
@@ -190,9 +196,20 @@
           When off, your location is hidden from coordination — no one can tell where you are.
         </p>
       </div>
-      <div class="btn-row">
-        <a class="btn btn-secondary" href="/auth/google/calendar">Connect Google Calendar</a>
-        <a class="btn btn-secondary" href="/auth/apple/calendar">Connect Apple Calendar</a>
+      <!-- What's connected (2026-10-09: this always said "Connect Google Calendar", even when
+           it was connected; Google Contacts had no button). One Google connection covers
+           Calendar + Contacts. -->
+      <div class="conn-row">
+        <div class="conn-info"><div class="conn-name">Google</div><div class="conn-status" id="google-status">Checking…</div></div>
+        <a class="btn btn-secondary" id="google-btn" href="/auth/google">Connect Google</a>
+      </div>
+      <div class="conn-row" id="contacts-sync-row" hidden>
+        <div class="conn-info"><div class="conn-status" id="contacts-sync-status"></div></div>
+        <button class="btn btn-secondary" id="contacts-sync-btn" onclick="syncContactsNow()">Sync contacts now</button>
+      </div>
+      <div class="conn-row">
+        <div class="conn-info"><div class="conn-name">Apple Calendar</div><div class="conn-status" id="apple-status">Checking…</div></div>
+        <a class="btn btn-secondary" id="apple-btn" href="/auth/apple/calendar">Connect</a>
       </div>
     </div>
   </section>
@@ -893,6 +910,39 @@
   })();
   </script>
   <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  </script>
+  <script>
+  // Connections: show what's actually connected (2026-10-09).
+  (function () {
+    const day = (ts) => ts ? new Date(ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+    async function loadConnections() {
+      try {
+        const c = await fetch('/api/user/connections').then((r) => r.json());
+        const g = c.google || {};
+        const parts = [g.calendar ? 'Calendar ✓' : 'Calendar —', g.contacts ? 'Contacts ✓' : 'Contacts —'];
+        document.getElementById('google-status').textContent = parts.join(' · ');
+        const gb = document.getElementById('google-btn');
+        gb.textContent = g.calendar && g.contacts ? 'Reconnect' : g.calendar || g.contacts ? 'Connect the rest' : 'Connect Google';
+        document.getElementById('contacts-sync-row').hidden = !g.contacts;
+        if (g.contacts) document.getElementById('contacts-sync-status').textContent = 'Contacts stay in sync' + (g.contacts_synced_at ? ` · last synced ${day(g.contacts_synced_at)}` : '');
+        const a = c.apple || {};
+        document.getElementById('apple-status').textContent = a.calendar ? 'Connected ✓' : 'Not connected';
+        document.getElementById('apple-btn').textContent = a.calendar ? 'Reconnect' : 'Connect';
+      } catch (_) {
+        document.getElementById('google-status').textContent = 'Couldn’t check — try again later';
+      }
+    }
+    window.syncContactsNow = async function () {
+      const btn = document.getElementById('contacts-sync-btn');
+      btn.disabled = true; btn.textContent = 'Syncing…';
+      try {
+        const r = await fetch('/api/contacts/sync', { method: 'POST' }).then((x) => x.json());
+        document.getElementById('contacts-sync-status').textContent = r.synced ? `Synced just now · ${r.imported} new` : 'Couldn’t sync — try reconnecting Google';
+      } catch (_) { document.getElementById('contacts-sync-status').textContent = 'Couldn’t sync — try again'; }
+      btn.disabled = false; btn.textContent = 'Sync contacts now';
+    };
+    loadConnections();
+  })();
   </script>
   <script src="/update-check.js"></script>
   <script src="/install-prompt.js"></script>

@@ -535,6 +535,12 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   `lookup_contact` has no exact match (≤ every 10 min), name-only contacts are kept, and
   partial matches are flagged so the agent asks instead of picking the wrong "Alex".
   Users connected before this must reconnect Google Contacts once.
+- **One Google connection (2026-10-09, owner: "everything Google should all be one"):**
+  `/auth/google` asks for Calendar + Contacts in one consent (old calendar/contacts entry
+  points lead there too); the callback stores whatever was granted and syncs contacts.
+  Settings shows real status (`/api/user/connections`: Google Calendar ✓ · Contacts ✓,
+  last synced; Apple) and has "Sync contacts now" — it used to always say "Connect Google
+  Calendar", even when connected.
 - **Deferring on a plan (owner, 2026-10-09 — Allie: "it's Melanie's birthday, not mine"):**
   an invitee can say they'll go with whatever certain people decide (`defer_on_plan`,
   migration 037, `web/defer.js`). **Plan only.** They're in; questions about that plan are

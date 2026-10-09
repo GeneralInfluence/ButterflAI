@@ -2191,12 +2191,15 @@ app.get('/api/events/:userId/:eventId', webAuth.requireAuth, (req, res) => {
 // Who a connect flow acts for: the logged-in user, or a signed link (?t=) the agent sent
 // them. Never a bare ?userId= — anyone could attach their own calendar/contacts to
 // someone else's ButterflAI with that (security fix 2026-10-09, linktoken.js).
-function connectUser(req, purpose) {
+function connectUser(req, purposes) {
   const token = req.cookies?.[webAuth.COOKIE_NAME];
   const session = token ? webAuth.verifyToken(token)?.userId : null;
   if (session && db.getUser(session)) return session;
-  const fromLink = linktoken.verify(req.query?.t || req.body?.t, purpose);
-  return fromLink && db.getUser(fromLink) ? fromLink : null;
+  for (const purpose of [].concat(purposes)) {
+    const fromLink = linktoken.verify(req.query?.t || req.body?.t, purpose);
+    if (fromLink && db.getUser(fromLink)) return fromLink;
+  }
+  return null;
 }
 function linkExpired(res) {
   return res.status(401).send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2207,11 +2210,19 @@ function linkExpired(res) {
   </body></html>`);
 }
 
-// Initiate Google Calendar OAuth for a user (logged in, or a signed ?t= link).
-app.get('/auth/google/calendar', (req, res) => {
-  const userId = connectUser(req, 'calendar');
+// Connect Google — Calendar AND Contacts in one consent (owner, 2026-10-09: "everything
+// Google should all be one"). Logged in, or a signed ?t= link (any Google link purpose).
+const GOOGLE_LINK_PURPOSES = ['google', 'calendar', 'contacts'];
+app.get('/auth/google', (req, res) => {
+  const userId = connectUser(req, GOOGLE_LINK_PURPOSES);
   if (!userId) return linkExpired(res);
-  res.redirect(calendar.getAuthUrl(linktoken.sign(userId, 'oauth:gcal', linktoken.TTL.oauth)));
+  res.redirect(calendar.getGoogleAuthUrl(linktoken.sign(userId, 'oauth:google', linktoken.TTL.oauth)));
+});
+// Older calendar-only / contacts-only entry points now connect both.
+app.get('/auth/google/calendar', (req, res) => {
+  const userId = connectUser(req, GOOGLE_LINK_PURPOSES);
+  if (!userId) return linkExpired(res);
+  res.redirect(calendar.getGoogleAuthUrl(linktoken.sign(userId, 'oauth:google', linktoken.TTL.oauth)));
 });
 
 // Apple Calendar connect — user submits Apple ID + app-specific password.
@@ -2299,9 +2310,26 @@ app.post('/auth/apple/calendar', async (req, res) => {
 
 // Initiate Google Contacts OAuth
 app.get('/auth/google/contacts', (req, res) => {
-  const userId = connectUser(req, 'contacts');
+  const userId = connectUser(req, GOOGLE_LINK_PURPOSES);
   if (!userId) return linkExpired(res);
-  res.redirect(contactsImport.getGoogleContactsAuthUrl(linktoken.sign(userId, 'oauth:gcontacts', linktoken.TTL.oauth)));
+  res.redirect(calendar.getGoogleAuthUrl(linktoken.sign(userId, 'oauth:google', linktoken.TTL.oauth)));
+});
+
+// What's connected — shown in Settings (it always said "Connect Google Calendar", even
+// when connected — 2026-10-09).
+app.get('/api/user/connections', webAuth.requireAuth, (req, res) => {
+  const sync = contactsImport.syncStatus(req.user.id);
+  res.json({
+    google: { calendar: calendar.hasCalendarConnected(req.user.id), contacts: sync.connected, contacts_synced_at: sync.last_sync_at },
+    apple: { calendar: !!calendar.hasAppleCalendarConnected(req.user.id) },
+  });
+});
+
+// Sync Google contacts now (Settings button).
+app.post('/api/contacts/sync', webAuth.requireAuth, async (req, res) => {
+  const r = await contactsImport.syncGoogle(req.user.id, { force: true });
+  if (r.reason === 'not_connected') return res.status(409).json({ error: 'Google Contacts not connected' });
+  res.json(r);
 });
 
 // Shared OAuth callback (handles both calendar and contacts based on state prefix)
@@ -2315,11 +2343,48 @@ app.get('/auth/google/callback', async (req, res) => {
 
   // `state` must be a signed linktoken we issued — a bare userId would let anyone attach
   // their own Google account to someone else's ButterflAI (2026-10-09).
-  const contactsUser = linktoken.verify(state, 'oauth:gcontacts');
-  const calendarUser = contactsUser ? null : linktoken.verify(state, 'oauth:gcal');
-  if (!contactsUser && !calendarUser) return linkExpired(res);
+  const googleUser = linktoken.verify(state, 'oauth:google');
+  const contactsUser = googleUser ? null : linktoken.verify(state, 'oauth:gcontacts');
+  const calendarUser = googleUser || contactsUser ? null : linktoken.verify(state, 'oauth:gcal');
+  if (!googleUser && !contactsUser && !calendarUser) return linkExpired(res);
 
   try {
+    if (googleUser) {
+      // One Google connection: store whatever the user granted, sync contacts now.
+      const user = db.getUser(googleUser);
+      if (!user) return res.status(400).send('Unknown user');
+      const g = await calendar.exchangeGoogleCode(code);
+      const done = [];
+      if (g.calendar) {
+        await calendar.storeTokens(googleUser, g.tokens);
+        const calTz = await calendar.getCalendarTimezone(googleUser).catch(() => null);
+        if (calTz) db.updateUser(googleUser, { timezone: calTz });
+        db.appendConversation(googleUser, 'assistant', `[System] Google Calendar connected. Timezone: ${calTz || 'unknown'}. You can check availability, find free slots, and create calendar events.`);
+        done.push('Calendar');
+      }
+      let imported = null;
+      if (g.contacts) {
+        await contactsImport.saveGoogleTokens(googleUser, g.tokens);
+        const r = await contactsImport.importFromGoogle(googleUser, g.tokens);
+        db._raw().prepare("UPDATE contact_sync_tokens SET last_sync_at = strftime('%s','now') WHERE user_id = ?").run(googleUser);
+        imported = r.imported;
+        db.appendConversation(googleUser, 'assistant', `[System] Google Contacts connected and synced (${r.imported} new). They stay in sync automatically.`);
+        done.push('Contacts');
+      }
+      const lines = [
+        g.calendar ? '📅 Calendar ✓ — I can check your real availability.' : '📅 Calendar not shared — reconnect and tick Calendar to use it.',
+        g.contacts ? `👥 Contacts ✓ — ${imported} new, and they stay in sync.` : '👥 Contacts not shared — reconnect and tick Contacts to use them.',
+      ];
+      return res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Google connected — ButterflAI</title></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f2f2f7;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;padding:24px">
+  <div style="background:#fff;border-radius:24px;padding:36px 28px;max-width:380px;width:100%;text-align:center;box-shadow:0 4px 32px rgba(108,71,255,.10)">
+    <div style="font-size:40px">🦋</div>
+    <h1 style="font-size:22px;margin:8px 0 14px;color:#1c1c1e">${done.length ? 'Google connected' : 'Nothing was shared'}</h1>
+    ${lines.map((l) => `<p style="font-size:15px;color:#3a3a3c;line-height:1.5;margin:6px 0">${l}</p>`).join('')}
+    <a href="/app/settings" style="display:inline-block;margin-top:20px;padding:12px 28px;background:#6c47ff;color:#fff;font-size:15px;font-weight:600;border-radius:12px;text-decoration:none">← Back to settings</a>
+  </div></body></html>`);
+    }
+
     if (contactsUser) {
       // Google Contacts
       const userId = contactsUser;
