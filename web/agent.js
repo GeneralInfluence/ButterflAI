@@ -38,6 +38,7 @@ const sensitive  = require('./sensitive');
 const avoid      = require('./avoid');
 const topics     = require('./topics');
 const defer      = require('./defer');
+const linktoken  = require('./linktoken');
 const { toE164 } = require('./phoneUtils');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
@@ -1493,7 +1494,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'get_contact_import_url': {
       const baseUrl = process.env.BASE_URL || 'https://butterflai.social';
-      return { url: `${baseUrl}/contacts-import.html?userId=${userId}` };
+      // Signed, expiring link — never a bare userId (linktoken.js, 2026-10-09).
+      return { url: `${baseUrl}/contacts-import.html?t=${linktoken.sign(userId, 'contacts', linktoken.TTL.link)}` };
     }
 
     case 'get_pending_invites': {
@@ -1537,8 +1539,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (provider) return { connected: true, provider, message: `${provider} Calendar already connected.` };
       const requestedProvider = toolInput.provider || 'google';
       const urls = {
-        google: `${baseUrl}/auth/google/calendar?userId=${userId}`,
-        apple:  `${baseUrl}/auth/apple/calendar?userId=${userId}`,
+        google: `${baseUrl}/auth/google/calendar?t=${linktoken.sign(userId, 'calendar', linktoken.TTL.link)}`,
+        apple:  `${baseUrl}/auth/apple/calendar?t=${linktoken.sign(userId, 'calendar', linktoken.TTL.link)}`,
       };
       return {
         connected: false,

@@ -304,7 +304,13 @@ understood without pulling server logs (`web/trace.js`, table `agent_trace`).
 
 4. **The system prompt is not an enforcement layer for privacy.** Rules in the prompt may be misinterpreted. Privacy invariants are enforced in code and verified by tests.
 
-5. **When in doubt, don't send it.** The default for all sensitive data is: don't cross any boundary unless there is an explicit, code-verified consent record.
+5. **A link or OAuth `state` that acts for a user must be signed** (`web/linktoken.js`: user +
+   purpose + expiry, HMAC). Never put a bare userId in a link or trust one from a URL/body —
+   on 2026-10-09 that let anyone attach their own calendar/contacts to another user's
+   ButterflAI, and let unauthenticated API routes read contacts or send as another user.
+   Tests: `connect-links.test.js`, `route-auth.test.js`.
+
+6. **When in doubt, don't send it.** The default for all sensitive data is: don't cross any boundary unless there is an explicit, code-verified consent record.
 
 ---
 

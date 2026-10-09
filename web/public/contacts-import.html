@@ -155,13 +155,14 @@
 
   <script>
     const params  = new URLSearchParams(window.location.search);
-    const userId  = params.get('userId') || params.get('uid');
+    // Signed link from your ButterflAI (?t=), or your logged-in session. Bare ?userId=
+    // links are no longer accepted (security fix 2026-10-09).
+    const linkToken = params.get('t');
     const statusEl = document.getElementById('status');
 
     // Google Contacts OAuth — single tap, all contacts
     document.getElementById('googleBtn').addEventListener('click', () => {
-      if (!userId) { showStatus('Missing userId — try the link from your text message again.', 'error'); return; }
-      window.location.href = `/auth/google/contacts?userId=${encodeURIComponent(userId)}`;
+      window.location.href = '/auth/google/contacts' + (linkToken ? '?t=' + encodeURIComponent(linkToken) : '');
     });
 
     // Tab switching
@@ -184,7 +185,7 @@
       const resp = await fetch('/api/contacts/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, contacts }),
+        body: JSON.stringify({ contacts }),   // the API acts for the logged-in user
       });
       const data = await resp.json();
       if (resp.ok) {

@@ -78,16 +78,17 @@ function addManualContact(userId, { name, phone }) {
 
 /**
  * Google People API OAuth URL (separate scope from calendar).
- * state = userId
+ * state = signed linktoken
  */
-function getGoogleContactsAuthUrl(userId) {
+// `state` is a signed linktoken (purpose 'oauth:gcontacts'), not a bare userId (2026-10-09).
+function getGoogleContactsAuthUrl(state) {
   const { google } = require('googleapis');
   const client = makeGooglePeopleClient();
   return client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
     scope: ['https://www.googleapis.com/auth/contacts.readonly'],
-    state: `contacts:${userId}`,
+    state,
   });
 }
 

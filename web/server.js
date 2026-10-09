@@ -34,6 +34,7 @@ const trace = require('./trace');
 const deliver = require('./deliver');
 const topics = require('./topics');
 const defer = require('./defer');
+const linktoken = require('./linktoken');
 const plans = require('./plans');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
@@ -2183,31 +2184,38 @@ app.get('/api/events/:userId/:eventId', webAuth.requireAuth, (req, res) => {
 
 // ── Google OAuth callbacks ────────────────────────────────────────────────────
 
-// Initiate Google Calendar OAuth for a user.
-// Accepts ?userId= (SMS link) or falls back to the authenticated session cookie.
+// Who a connect flow acts for: the logged-in user, or a signed link (?t=) the agent sent
+// them. Never a bare ?userId= — anyone could attach their own calendar/contacts to
+// someone else's ButterflAI with that (security fix 2026-10-09, linktoken.js).
+function connectUser(req, purpose) {
+  const token = req.cookies?.[webAuth.COOKIE_NAME];
+  const session = token ? webAuth.verifyToken(token)?.userId : null;
+  if (session && db.getUser(session)) return session;
+  const fromLink = linktoken.verify(req.query?.t || req.body?.t, purpose);
+  return fromLink && db.getUser(fromLink) ? fromLink : null;
+}
+function linkExpired(res) {
+  return res.status(401).send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Link expired — ButterflAI</title></head><body style="font-family:-apple-system,sans-serif;max-width:420px;margin:15vh auto;padding:0 20px;text-align:center;color:#1c1c1e">
+  <div style="font-size:40px">🦋</div><h2>This link has expired</h2>
+  <p style="color:#3a3a3c;line-height:1.5">Log in and connect from Settings, or ask your ButterflAI for a new link.</p>
+  <a href="/app/settings" style="display:inline-block;margin-top:12px;padding:12px 24px;background:#6c47ff;color:#fff;border-radius:12px;text-decoration:none;font-weight:600">Open Settings</a>
+  </body></html>`);
+}
+
+// Initiate Google Calendar OAuth for a user (logged in, or a signed ?t= link).
 app.get('/auth/google/calendar', (req, res) => {
-  let userId = req.query.userId;
-  if (!userId) {
-    // Try session cookie
-    const token = req.cookies?.[webAuth.COOKIE_NAME];
-    const payload = token ? webAuth.verifyToken(token) : null;
-    userId = payload?.userId;
-  }
-  if (!userId || !db.getUser(userId)) return res.status(400).send('Invalid userId');
-  const url = calendar.getAuthUrl(userId);
-  res.redirect(url);
+  const userId = connectUser(req, 'calendar');
+  if (!userId) return linkExpired(res);
+  res.redirect(calendar.getAuthUrl(linktoken.sign(userId, 'oauth:gcal', linktoken.TTL.oauth)));
 });
 
 // Apple Calendar connect — user submits Apple ID + app-specific password.
-// Accepts ?userId= (SMS link) or falls back to the authenticated session cookie.
+// Logged in, or a signed ?t= link; the form carries a short-lived signed token.
 app.get('/auth/apple/calendar', (req, res) => {
-  let userId = req.query.userId;
-  if (!userId) {
-    const token = req.cookies?.[webAuth.COOKIE_NAME];
-    const payload = token ? webAuth.verifyToken(token) : null;
-    userId = payload?.userId;
-  }
-  if (!userId || !db.getUser(userId)) return res.status(400).send('Invalid userId');
+  const userId = connectUser(req, 'calendar');
+  if (!userId) return linkExpired(res);
+  const formToken = linktoken.sign(userId, 'apple-form', linktoken.TTL.form);
   res.send(`<!DOCTYPE html>
 <html lang="en"><head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2231,7 +2239,7 @@ app.get('/auth/apple/calendar', (req, res) => {
     <p>ButterflAI needs an <strong>app-specific password</strong> (not your regular Apple ID password).<br>
     Generate one at <a href="https://appleid.apple.com" target="_blank">appleid.apple.com</a> → Sign-In and Security → App-Specific Passwords.</p>
     <form method="POST" action="/auth/apple/calendar">
-      <input type="hidden" name="userId" value="${userId}">
+      <input type="hidden" name="t" value="${formToken}">
       <label>Apple ID (email)</label>
       <input type="email" name="appleId" placeholder="you@icloud.com" required autocomplete="username">
       <label>App-Specific Password</label>
@@ -2244,10 +2252,11 @@ app.get('/auth/apple/calendar', (req, res) => {
 });
 
 app.post('/auth/apple/calendar', async (req, res) => {
-  const { userId, appleId, appPassword } = req.body;
-  if (!userId || !appleId || !appPassword) return res.status(400).send('Missing fields');
+  const { appleId, appPassword } = req.body;
+  const userId = connectUser(req, 'apple-form');
+  if (!userId) return linkExpired(res);
+  if (!appleId || !appPassword) return res.status(400).send('Missing fields');
   const user = db.getUser(userId);
-  if (!user) return res.status(400).send('Invalid userId');
 
   try {
     await calendar.saveAppleCredentials(userId, { appleId, appPassword });
@@ -2286,10 +2295,9 @@ app.post('/auth/apple/calendar', async (req, res) => {
 
 // Initiate Google Contacts OAuth
 app.get('/auth/google/contacts', (req, res) => {
-  const { userId } = req.query;
-  if (!userId || !db.getUser(userId)) return res.status(400).send('Invalid userId');
-  const url = contactsImport.getGoogleContactsAuthUrl(userId);
-  res.redirect(url);
+  const userId = connectUser(req, 'contacts');
+  if (!userId) return linkExpired(res);
+  res.redirect(contactsImport.getGoogleContactsAuthUrl(linktoken.sign(userId, 'oauth:gcontacts', linktoken.TTL.oauth)));
 });
 
 // Shared OAuth callback (handles both calendar and contacts based on state prefix)
@@ -2301,10 +2309,16 @@ app.get('/auth/google/callback', async (req, res) => {
     return res.send('Authorization cancelled. You can close this window.');
   }
 
+  // `state` must be a signed linktoken we issued — a bare userId would let anyone attach
+  // their own Google account to someone else's ButterflAI (2026-10-09).
+  const contactsUser = linktoken.verify(state, 'oauth:gcontacts');
+  const calendarUser = contactsUser ? null : linktoken.verify(state, 'oauth:gcal');
+  if (!contactsUser && !calendarUser) return linkExpired(res);
+
   try {
-    if (state?.startsWith('contacts:')) {
+    if (contactsUser) {
       // Google Contacts
-      const userId = state.replace('contacts:', '');
+      const userId = contactsUser;
       const user = db.getUser(userId);
       if (!user) return res.status(400).send('Unknown user');
 
@@ -2400,8 +2414,8 @@ app.get('/auth/google/callback', async (req, res) => {
 </html>`);
 
     } else {
-      // Google Calendar (state = userId)
-      const userId = state;
+      // Google Calendar
+      const userId = calendarUser;
       const user = db.getUser(userId);
       if (!user) return res.status(400).send('Unknown user');
 
@@ -2516,7 +2530,7 @@ app.get('/api/contacts/import-url/:userId', webAuth.requireAuth, (req, res) => {
   const user = db.getUser(req.params.userId);
   if (!user) return res.status(404).json({ error: 'not found' });
   const baseUrl = process.env.BASE_URL || 'https://butterflai.social';
-  res.json({ url: `${baseUrl}/contacts-import.html?userId=${user.id}` });
+  res.json({ url: `${baseUrl}/contacts-import.html?t=${linktoken.sign(user.id, 'contacts', linktoken.TTL.link)}` });
 });
 
 app.post('/api/contacts/add', webAuth.requireAuth, (req, res) => {

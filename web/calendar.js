@@ -61,9 +61,10 @@ function makeGoogleClient() {
 
 /**
  * Generate the Google OAuth URL to redirect the user to.
- * state = userId (used to match the callback to a user).
+ * `state` is a signed linktoken (purpose 'oauth:gcal') naming the user — never a bare
+ * userId, which anyone could forge (2026-10-09).
  */
-function getAuthUrl(userId) {
+function getAuthUrl(state) {
   const client = makeGoogleClient();
   return client.generateAuthUrl({
     access_type: 'offline',       // gets a refresh token
@@ -72,7 +73,7 @@ function getAuthUrl(userId) {
       'https://www.googleapis.com/auth/calendar.readonly',
       'https://www.googleapis.com/auth/calendar.events',
     ],
-    state: userId,
+    state,
   });
 }
 
