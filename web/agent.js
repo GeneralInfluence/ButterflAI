@@ -36,6 +36,7 @@ const multiparty = require('./multiparty');
 const desires    = require('./desires');
 const sensitive  = require('./sensitive');
 const avoid      = require('./avoid');
+const { toE164 } = require('./phoneUtils');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
 const plans      = require('./plans');
@@ -249,6 +250,7 @@ const TOOL_DEFINITIONS = [
         topic:       { type: 'string', enum: ['availability', 'constraints', 'rsvp', 'coordination'], description: 'What you\'re asking about' },
         message:     { type: 'string', description: 'Your question or message to the other agent. Be specific.' },
         thread_id:   { type: 'string', description: 'Thread ID to continue an existing conversation; omit to start a new one' },
+        event_id:    { type: 'string', description: 'REQUIRED for topic "coordination": the eventId (from Open events) of the plan or trip this is about. Create it first with create_social_event (tentative: true if details are still open).' },
       },
       required: ['contact_id', 'topic', 'message'],
     },
@@ -405,7 +407,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'record_rsvp',
-    description: 'Record an RSVP for a contact on an event when the confirmation happened outside the system (in person, verbally, via another channel). Use when the user says "Allison said she\'s in" or similar.',
+    description: 'Record an RSVP for a contact on an event YOU host when they answered outside the invite (in person, by text, or in a reply from their ButterflAI). Use when the user says "Allison said she\'s in", or when a friend\'s ButterflAI reply shows they\'re clearly in ("I\'m good with that", "count me in") → accepted. On a tentative event, accepted shows as "interested" and puts it on their ButterflAI calendar.',
     input_schema: {
       type: 'object',
       properties: {
@@ -576,7 +578,8 @@ const TOOL_DEFINITIONS = [
         when:          { type: 'string', description: 'PREFERRED. The user\'s day + time phrase exactly as they said it — "friday 7pm", "saturday evening", "tomorrow at 8pm", "tonight at 9". The server resolves the exact date in the user\'s timezone, so you do NOT compute or verify any date. Always use this instead of scheduled_at when the user gave a day/time in words. Include both a day and a time.' },
         scheduled_at:  { type: 'string', description: 'Only for an explicit calendar date the user gave as a date (e.g. "September 30 at 7pm"). ISO 8601 with offset. Prefer "when" for weekday/relative phrasing. OMIT both if the user said no fixed time ("open invite", "whenever").' },
         flexible_time: { type: 'boolean', description: 'Set true when the user explicitly says no fixed time — "come when you\'re ready", "open invite", "whenever works". Omit or false when a specific time is set.' },
-        duration_mins: { type: 'number' },
+        tentative:     { type: 'boolean', description: 'true while the group is still working out details (dates, where to stay, who\'s in) — e.g. a trip being planned. Use the best-known dates. Set false with update_event once it\'s settled.' },
+        duration_mins: { type: 'number', description: 'Length in minutes. A weekend trip Fri–Sun is about 2880.' },
         notes:         { type: 'string' },
         event_type:    { type: 'string', enum: ['private', 'public'], description: '"private" (default) = user is hosting their own event. "public" = ONLY use this if the user explicitly says to make it public or open to anyone beyond their contacts — e.g. "make this public", "share this openly", "anyone can join". Do NOT infer public just because the venue is a public place.' },
         contact_ids:   { type: 'array', items: { type: 'string' }, description: 'Contacts to invite (must be Tier 1+)' },
@@ -595,6 +598,9 @@ const TOOL_DEFINITIONS = [
         flexible_time: { type: 'boolean', description: 'Set false once a specific time is agreed; leave true if still a window/range' },
         notes:         { type: 'string', description: 'Free-text: time window agreed ("Sean arriving 7–9pm"), special context, etc.' },
         venue_name:    { type: 'string', description: 'Update venue if agreed during negotiation' },
+        tentative:     { type: 'boolean', description: 'false once the plan is settled (dates/place agreed); true if it\'s back to being figured out' },
+        title:         { type: 'string' },
+        duration_mins: { type: 'number' },
       },
       required: ['event_id'],
     },
@@ -1075,14 +1081,27 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'message_agent': {
-      const { contact_id, topic, message: agentMsg, thread_id } = toolInput;
+      const { contact_id, topic, message: agentMsg, thread_id, event_id } = toolInput;
+      // Coordinating a plan means there IS a plan: the event exists so it shows on Home and
+      // calendars and RSVPs are tracked (2026-10-09: the Grover trip was coordinated across
+      // three people's agents and never created). Enforced here, not left to the prompt.
+      if (topic === 'coordination') {
+        const ev = event_id ? db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(event_id) : null;
+        const invited = ev && ev.host_user_id !== userId && db._raw().prepare(`
+          SELECT 1 FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+          WHERE ei.event_id = ? AND c.phone = ?`).get(event_id, db.getUser(userId)?.phone);
+        if (!ev || (ev.host_user_id !== userId && !invited)) {
+          return { error: 'CREATE_EVENT_FIRST', action_status: 'NOT_SENT',
+            message: 'Coordination needs the event it is about. Create it with create_social_event (tentative: true if dates or details are still open, contact_ids = everyone involved), then call message_agent again with event_id.' };
+        }
+      }
       const contact = db.getContact(contact_id);
       if (!contact?.phone) return { error: 'Contact not found' };
       const targetUser = db.getUserByPhone(contact.phone);
       if (!targetUser) return { error: 'Contact is not a ButterflAI user — they need to sign up first', contact_name: contact.name };
       const msgId = db.sendAgentMessage({
         fromUserId: userId, toUserId: targetUser.id,
-        threadId: thread_id, kind: 'query', topic, body: agentMsg,
+        threadId: thread_id || event_id, kind: 'query', topic, body: agentMsg,
       });
       // Queue message for target agent to process
       const senderUser = db.getUser(userId);
@@ -1398,7 +1417,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'record_rsvp': {
       const { event_id, contact_phone, status, source } = toolInput;
-      const contact = db.getContactByPhone(contact_phone);
+      // Only on events this user hosts, for this user's own contacts (it used to accept
+      // any event_id and any contact row with that phone).
+      const ev = db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(event_id);
+      if (!ev || ev.host_user_id !== userId) return { error: 'EVENT_NOT_FOUND', message: 'Use an eventId of an event you host (from Open events).' };
+      const phone = toE164(contact_phone) || contact_phone;
+      const contact = db.getContactsByUser(userId).find((c) => c.phone === phone);
       if (!contact) return { error: 'Contact not found' };
       // Upsert invitation record
       const existing = db._raw().prepare(
@@ -1586,6 +1610,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         // Not invited because they're on the user's own avoid list. Tell the user (only
         // the user) and offer to remove them from the list if this was intentional.
         avoided_not_invited: inviteResult.avoided,
+        tentative: !!eventData.tentative || undefined,
         note: inviteResult.sent > 0
           ? `Invite(s) sent. Contacts can reply YES/NO and their response will be tracked automatically.`
           : `Event created but no invites sent (check contact_ids are valid and contacts aren't opted out).`,
@@ -1593,7 +1618,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'update_event': {
-      const { event_id, scheduled_at, flexible_time, notes, venue_name } = toolInput;
+      const { event_id, scheduled_at, flexible_time, notes, venue_name, tentative, title, duration_mins } = toolInput;
       // Verify ownership — agent can only update events they host
       const evCheck = db._raw().prepare('SELECT id, host_user_id FROM social_events WHERE id = ?').get(event_id);
       if (!evCheck) return { error: 'Event not found' };
@@ -1607,6 +1632,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (flexible_time !== undefined) updates.flexible_time = flexible_time ? 1 : 0;
       if (notes !== undefined) updates.notes = notes;
       if (venue_name !== undefined) updates.venue_name = venue_name;
+      if (tentative !== undefined) updates.tentative = tentative ? 1 : 0;
+      if (title) updates.title = String(title).slice(0, 200);
+      if (duration_mins !== undefined && Number(duration_mins) > 0) updates.duration_mins = Math.round(Number(duration_mins));
       if (!Object.keys(updates).length) return { ok: true, note: 'No fields to update' };
       const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
       db._raw().prepare(`UPDATE social_events SET ${sets} WHERE id = ?`)
@@ -1825,7 +1853,8 @@ async function processMessage(msg) {
           ? 'open invite (no fixed time)'
           : new Date(e.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
         const pastTag = recency === 'past' ? '  [ALREADY HAPPENED — do NOT present as upcoming]' : '';
-        rows.push(`  - eventId="${e.id}" | "${e.title}" | ${ts}${pastTag} | invitees: ${inviteeList}`);
+        const tentTag = e.tentative ? ' | TENTATIVE (details still being worked out; "accepted" = interested)' : '';
+        rows.push(`  - eventId="${e.id}" | "${e.title}" | ${ts}${pastTag}${tentTag} | invitees: ${inviteeList}`);
       }
       return rows.length ? rows.join('\n') : '  (none)';
     } catch (_) { return '  (none)'; }
@@ -2093,6 +2122,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
      - "host_location_unknown" → tell user to set their location in Settings; meanwhile ask if they want flexible or a specific time
   3. NEVER skip step 1. Do not assume distance. Do not ask "what time?" when check_invitee_locations says flexible.
 - For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
+- TRIPS AND PLANS STILL BEING FIGURED OUT: when your user is planning something with people (a trip, a weekend, a party) — even with dates or details unsettled — create it with create_social_event (tentative: true, best-known dates, contact_ids = everyone involved) BEFORE messaging anyone about it. That puts it on everyone's Home and calendars. When a friend (or their ButterflAI's reply) is clearly in, record_rsvp accepted (shown as interested); when someone is out, declined. When dates and details are settled, update_event tentative: false. message_agent with topic "coordination" requires the event_id.
 - CREATE THE EVENT BEFORE MESSAGING AGENTS: when your user says they're going somewhere and wants to invite people, ALWAYS call create_social_event first (use flexible_time: true for "come whenever" invites). Then message_agent each invitee. This creates the invite card and calendar entry on their end. If you only call message_agent without creating the event, there is no invite card, no calendar entry, and no RSVP tracking — which breaks the whole flow.
 - AGENT QUERY HANDLING — TWO TYPES, handled differently:
   1. FACTUAL QUERIES (health info, allergies, availability from stored prefs): handle SILENTLY. Check stored preferences, call reply_agent with the answer. Do NOT mention to your user. The coordination is invisible.

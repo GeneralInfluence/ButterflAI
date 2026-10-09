@@ -91,6 +91,7 @@ function ensureEventTables() {
       event_type   TEXT NOT NULL DEFAULT 'private',
       flexible_time  INTEGER DEFAULT 0,   -- 1 = no fixed time ("come when you're ready"), migration 022
       host_attending INTEGER DEFAULT 1,   -- 0 = host bailed but event continues, migration 024
+      tentative      INTEGER NOT NULL DEFAULT 0, -- 1 = details still being worked out, migration 035
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 
@@ -124,7 +125,7 @@ function ensureEventTables() {
  *   scheduled_at (ISO string or unix ts), duration_mins, notes
  * @returns {string} eventId
  */
-function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time }) {
+function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative }) {
   // flexible_time=true → no fixed time ("come when you're ready"); use now as placeholder timestamp
   const isFlexible = !scheduled_at || flexible_time;
   const ts = isFlexible
@@ -153,10 +154,10 @@ function createEvent(hostUserId, { title, activity_type, venue_name, venue_addre
 
   const id = uuidv4();
   db._raw().prepare(`
-    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, hostUserId, title, activity_type, venue_name || null, venue_address || null,
-         ts, duration_mins || 120, notes || null, type, isFlexible ? 1 : 0);
+         ts, duration_mins || 120, notes || null, type, isFlexible ? 1 : 0, tentative ? 1 : 0);
 
   return id;
 }
@@ -337,7 +338,7 @@ async function inviteContacts(eventId, contactIds) {
         : formatEventDate(event.scheduled_at, inviteeUser.timezone || hostTimezone);
       try {
         await push.notifyUser(db, inviteeUser.id, {
-          title: `${host.name} invited you`,
+          title: event.tentative ? `${host.name} is planning something` : `${host.name} invited you`,
           body: `${event.activity_type} · ${whenStr}`,
           url: `/app/events?invite=${eventId}`,
         });
@@ -354,7 +355,7 @@ async function inviteContacts(eventId, contactIds) {
     // would block on ConsentRequired for new contacts, preventing the invite going out.
     const dateStr = event.flexible_time ? 'whenever you\'re free' : formatEventDate(event.scheduled_at, hostTimezone);
     const venueStr = event.venue_name ? ` at ${event.venue_name}` : '';
-    const message = buildInviteMessage(host.name, contact.name, event.activity_type, dateStr, venueStr, invId, !!event.flexible_time);
+    const message = buildInviteMessage(host.name, contact.name, event.activity_type, dateStr, venueStr, invId, !!event.flexible_time, !!event.tentative);
 
     try {
       await sms.sendUnchecked(contact.phone, message);
@@ -374,9 +375,11 @@ async function inviteContacts(eventId, contactIds) {
  * Self-identify header is included (agent acting on behalf of host).
  * Contact is given a simple reply mechanism (YES/NO to a shortcode-style reply).
  */
-function buildInviteMessage(hostName, contactName, activityType, dateStr, venueStr, invitationId, isFlexible = false) {
+function buildInviteMessage(hostName, contactName, activityType, dateStr, venueStr, invitationId, isFlexible = false, isTentative = false) {
   const baseUrl = process.env.BASE_URL || 'https://butterflai.social';
-  const timing = isFlexible
+  const timing = isTentative
+    ? `${hostName} is planning ${activityType}${venueStr} (tentatively ${dateStr} — details still being worked out). Interested?`
+    : isFlexible
     ? `${hostName} is having ${activityType}${venueStr} — open invite, come over whenever works for you!`
     : `${hostName} is having ${activityType}${venueStr} on ${dateStr} and would love you to join — you in?`;
   // Deep link: /app/chat opens chat inside the PWA on Android (handle_links: preferred).

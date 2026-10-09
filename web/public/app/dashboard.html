@@ -101,6 +101,9 @@
     .feed-item { display: flex; gap: 12px; align-items: flex-start; text-decoration: none; color: inherit; }
     .feed-icon { font-size: 20px; line-height: 1.3; }
     .feed-item .card-sub { margin-top: 2px; }
+    .badge-tentative { display: inline-block; font-size: 11px; font-weight: 600; color: #b45309; background: #fef3c7; border-radius: 999px; padding: 1px 8px; margin-left: 6px; vertical-align: 2px; }
+    .feed-action { margin-top: 4px; font-size: 13px; font-weight: 600; color: #6c47ff; }
+    .feed-item.needs-you { border: 2px solid #6c47ff; }
     .hint { font-size: 13px; color: #888; margin-top: 8px; line-height: 1.5; }
   </style>
 </head>
@@ -178,9 +181,28 @@
     return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${t}`;
   }
 
+  // Tentative trips show the date only (times are placeholders until it's settled).
+  function whenFor(i) {
+    if (!i.tentative) return when(i.at);
+    const d = new Date(i.at * 1000);
+    return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+  const names = (a) => a.length <= 2 ? a.join(' & ') : a.slice(0, -1).join(', ') + ' & ' + a[a.length - 1];
+  const tent = (i) => i.tentative ? '<span class="badge-tentative">Tentative</span>' : '';
+  const action = (i) => i.action ? `<div class="feed-action">${esc(i.action)}</div>` : '';
+
   function feedItemHtml(i) {
-    if (i.type === 'invite') return `<a class="card feed-item" href="/app/events?invite=${esc(i.event_id)}"><span class="feed-icon">📩</span><div><div class="card-title">${esc(i.host)} invited you: ${esc(i.title)}</div><div class="card-sub">${when(i.at)}${i.venue ? ' · ' + esc(i.venue) : ''} · tap to respond</div></div></a>`;
-    if (i.type === 'event') return `<a class="card feed-item" href="/app/events"><span class="feed-icon">📅</span><div><div class="card-title">${esc(i.title)}</div><div class="card-sub">${when(i.at)}${i.venue ? ' · ' + esc(i.venue) : ''}${i.role === 'host' ? ' · you\'re hosting' : ' · with ' + esc(i.host)}</div></div></a>`;
+    if (i.type === 'invite') return `<a class="card feed-item needs-you" href="/app/events?invite=${esc(i.event_id)}"><span class="feed-icon">📩</span><div><div class="card-title">${esc(i.host)} ${i.tentative ? 'is planning' : 'invited you'}: ${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''}</div>${action(i)}</div></a>`;
+    if (i.type === 'event') {
+      const who = i.role === 'host'
+        ? [i.interested && i.interested.length ? `${names(i.interested.map(esc))} ${i.tentative ? 'interested' : 'in'}` : '',
+           i.waiting_on && i.waiting_on.length ? `waiting on ${names(i.waiting_on.map(esc))}` : '',
+           i.out && i.out.length ? `${names(i.out.map(esc))} out` : ''].filter(Boolean).join(' · ') || 'you\'re hosting'
+        : 'with ' + esc(i.host);
+      return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="/app/events"><span class="feed-icon">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
+    }
+    if (i.type === 'question') return `<a class="card feed-item needs-you" href="/app/chat"><span class="feed-icon">❓</span><div><div class="card-title">${esc(i.who)} asked</div><div class="card-sub">${esc(i.text)}</div>${action(i)}</div></a>`;
+    if (i.type === 'waiting') return `<a class="card feed-item" href="/app/chat"><span class="feed-icon">⏳</span><div><div class="card-title">Waiting on ${names(i.who.map(esc))}</div><div class="card-sub">${esc(i.text)}</div></div></a>`;
     if (i.type === 'plan') return `<div class="card feed-item"><span class="feed-icon">🟢</span><div><div class="card-title">${esc(i.who)}: ${esc(i.text)}</div><div class="card-sub">until ${when(i.until)}</div></div></div>`;
     if (i.type === 'interest') return `<div class="card feed-item"><span class="feed-icon">👋</span><div><div class="card-title">${esc(i.who)}'s up for something ${esc(i.about)}</div><div class="card-sub">Share what you're up to above if you're in</div></div></div>`;
     return '';

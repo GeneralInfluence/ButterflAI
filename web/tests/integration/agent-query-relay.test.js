@@ -51,8 +51,13 @@ const toolUse = (name, input) => ({ id: 'm' + Math.random(), stop_reason: 'tool_
 const endText = (text) => ({ id: 'm' + Math.random(), stop_reason: 'end_turn', content: [{ type: 'text', text }] });
 
 // Sean's agent asks Allie's agent (the real message_agent path).
+// Since 2026-10-09 a coordination message needs its event, so the trip is created
+// (tentative) first, as the real flow now does.
 async function seanAsks(sean, allie) {
-  const r = await agent.executeTool('message_agent', { contact_id: knows(sean, allie), topic: 'coordination',
+  const contactId = knows(sean, allie);
+  const ev = await agent.executeTool('create_social_event', { title: 'Grover Hot Springs', activity_type: 'camping trip',
+    scheduled_at: new Date(Date.now() + 14 * 86400e3).toISOString(), tentative: true }, sean.id, sean.phone);
+  const r = await agent.executeTool('message_agent', { contact_id: contactId, topic: 'coordination', event_id: ev.eventId,
     message: "Grover Hot Springs Oct 23–24 looks like 29°F Saturday night. Heated cabin or reschedule? What do you think?" }, sean.id, sean.phone);
   assert.equal(r.sent, true);
 }

@@ -508,6 +508,16 @@ agent asked what he was up to — and my fix then had it ping him, which the own
 - **Home tab = the feed**, ranked: invites waiting on you → your events in the next 24h →
   friends' plans → friends up for something → later events; your own active plans on top.
   Removed: overdue check-ins, coming up. "Invite a friend" lives in Settings.
+- **Feed ranking (owner, 2026-10-09): what needs YOU to make progress first, then how
+  soon.** Order: invites / questions from friends' ButterflAIs / "lock in the plan" →
+  next 24h → friends' plans / interest → questions you're waiting on → later events.
+  Looks 60 days ahead (trips are planned weeks out).
+- **Tentative events (2026-10-09, the Grover trip):** a trip or plan still being figured out
+  is created `tentative` (migration 035) before anyone is messaged — `message_agent` with
+  topic "coordination" is refused without its `event_id` (code). Friends clearly in are
+  `record_rsvp accepted` ("Interested") → on their ButterflAI calendar; the host sees who's
+  interested / not answered; when all have answered, "lock in the plan" (update_event
+  tentative: false).
 - **Agent-to-agent:** "what is your user up to" is never answered from memory and never
   triggers a ping; agents answer only from what the user explicitly shared.
 - Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.

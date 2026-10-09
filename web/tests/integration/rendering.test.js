@@ -860,3 +860,18 @@ describe('Voice input keeps listening until tapped again', () => {
     assert.match(html, /window\.toggleMic = \(\) => \{\s*if \(wantOn \|\| listening\) \{\s*wantOn = false;/);
   });
 });
+
+// 2026-10-09: tentative trips, questions waiting on you, and who you're waiting on.
+describe('Home feed + Events show tentative plans and what needs you', () => {
+  const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8');
+  test('dashboard renders question, waiting, tentative badge and next action', () => {
+    const html = read('dashboard.html');
+    assert.ok(html.includes("i.type === 'question'") && html.includes("i.type === 'waiting'"));
+    assert.ok(html.includes('badge-tentative') && html.includes('feed-action') && html.includes('needs-you'));
+  });
+  test('events page: Tentative badge, "Interested" instead of "Going"', () => {
+    const html = read('events.html');
+    assert.ok(html.includes(">Tentative</span>"));
+    assert.ok(html.includes("accepted: e.tentative ? '⭐ Interested' : '✅ Going'"));
+  });
+});

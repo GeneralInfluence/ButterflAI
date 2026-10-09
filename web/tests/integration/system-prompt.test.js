@@ -470,6 +470,13 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-09: the Grover trip was coordinated but never created, so it wasn't on Home.
+  test('trips still being figured out are created tentative first; clear interest is recorded', () => {
+    assertContains('TRIPS AND PLANS STILL BEING FIGURED OUT', 'tentative trips rule');
+    assertContains('tentative: true', 'create tentative');
+    assertContains('record_rsvp accepted (shown as interested)', 'interest recorded');
+  });
+
   // 2026-10-09: Allie and Melanie were texted their agent's reasoning when it surfaced
   // Sean's trip question. Surfacing now goes only through tell_my_user (enforced in code).
   test('answering another agent: final text reaches no one; tell_my_user carries the message', () => {

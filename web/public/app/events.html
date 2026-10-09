@@ -395,7 +395,7 @@
       return `<div class="card">
         <div class="card-header" onclick="toggleManage('${e.id}', this)" style="cursor:pointer">
           <div>
-            <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}</div>
+            <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}${e.tentative ? ' <span style="display:inline-block;font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px;vertical-align:2px">Tentative</span>' : ''}</div>
             <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${fmtDate(e.scheduled_at)} ${fmtTime(e.scheduled_at)}</div>
             ${rsvpLine ? `<div class="card-sub" style="margin-top:2px;font-size:13px">${rsvpLine}</div>` : ''}
           </div>
@@ -573,16 +573,19 @@
     }
     el.innerHTML = events.map(e => {
       const dt = new Date((e.scheduled_at||0) * 1000);
+      // Tentative plans (2026-10-09): date only, "Interested" rather than "Going".
       const whenStr = e.flexible_time
         ? 'Open invite — come when you\'re ready'
-        : dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' ' +
-          dt.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+        : e.tentative
+          ? dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' (tentative)'
+          : dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' ' +
+            dt.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
       const isPending = e.rsvp_status === 'invited';
-      const statusLabel = { invited: '⏳ Pending', accepted: '✅ Going', declined: '❌ Declined' }[e.rsvp_status] || e.rsvp_status;
+      const statusLabel = { invited: '⏳ Pending', accepted: e.tentative ? '⭐ Interested' : '✅ Going', declined: '❌ Declined' }[e.rsvp_status] || e.rsvp_status;
       return `<div class="card" id="invite-${e.invitation_id}">
         <div class="card-header">
           <div style="flex:1;min-width:0">
-            <div class="card-title">${escHtml(e.title)}</div>
+            <div class="card-title">${escHtml(e.title)}${e.tentative ? ' <span style="display:inline-block;font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px;vertical-align:2px">Tentative</span>' : ''}</div>
             <div class="card-sub">${escHtml(e.host_name || 'Unknown host')} · ${escHtml(whenStr)}</div>
             ${e.venue_name ? `<div class="card-sub" style="margin-top:2px">📍 ${escHtml(e.venue_name)}</div>` : ''}
           </div>
@@ -594,8 +597,8 @@
           </div>
         </div>
         ${isPending ? `<div style="display:flex;gap:8px;margin-top:12px">
-          <button onclick="rsvp('${e.invitation_id}','accepted')" style="flex:1;padding:12px;background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">✓ Accept</button>
-          <button onclick="rsvp('${e.invitation_id}','declined')" style="flex:1;padding:12px;background:#f2f2f7;color:#3a3a3c;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">✗ Decline</button>
+          <button onclick="rsvp('${e.invitation_id}','accepted')" style="flex:1;padding:12px;background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">${e.tentative ? '⭐ I\'m interested' : '✓ Accept'}</button>
+          <button onclick="rsvp('${e.invitation_id}','declined')" style="flex:1;padding:12px;background:#f2f2f7;color:#3a3a3c;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer">${e.tentative ? 'Not this time' : '✗ Decline'}</button>
         </div>` : e.rsvp_status === 'accepted' ? `<div style="margin-top:10px">
           <button onclick="withdrawRsvp('${e.invitation_id}',this)" style="width:100%;padding:10px;border-radius:10px;border:none;background:#fff0f0;color:#ef4444;font-size:14px;font-weight:600;cursor:pointer">Not going anymore</button>
         </div>` : ''}
