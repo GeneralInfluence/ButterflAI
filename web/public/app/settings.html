@@ -205,6 +205,7 @@
       <div class="btn-row">
         <button class="btn btn-secondary" id="notif-btn" onclick="enableNotifications()">Enable notifications</button>
         <button class="btn btn-secondary" id="notif-test-btn" onclick="sendTestNotification()" style="display:none">Send test</button>
+        <button class="btn btn-secondary" id="notif-off-btn" onclick="disableNotifications()" style="display:none">Turn off</button>
       </div>
       <p id="notif-status" style="font-size:13px;color:#888;margin-top:10px;min-height:18px"></p>
     </div>
@@ -815,13 +816,51 @@
     var ok = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     if (!ok) { if (btn) btn.disabled = true; if (status) status.textContent = 'This browser does not support push notifications.'; return; }
     var testBtn = document.getElementById('notif-test-btn');
-    function markOn(msg) { btn.textContent = 'Notifications on'; btn.disabled = true; if (testBtn) testBtn.style.display = ''; if (msg) status.textContent = msg; }
+    var offBtn = document.getElementById('notif-off-btn');
+    function markOn(msg) {
+      btn.textContent = 'Notifications on'; btn.disabled = true;
+      if (testBtn) testBtn.style.display = ''; if (offBtn) offBtn.style.display = '';
+      if (msg) status.textContent = msg;
+    }
+    function markOff(msg, label) {
+      btn.textContent = label || 'Enable notifications'; btn.disabled = false;
+      if (testBtn) testBtn.style.display = 'none'; if (offBtn) offBtn.style.display = 'none';
+      status.textContent = msg || '';
+    }
+    async function ownsSubscription(sub) {
+      var r = await fetch('/api/push/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+      return r.ok && (await r.json()).mine;
+    }
+    // A push subscription belongs to this BROWSER. If another account on this browser
+    // enabled it (e.g. Aphilos, then logging in as Bam Bam), offer to take it over.
     navigator.serviceWorker.getRegistration().then(function (reg) {
       if (!reg) return;
-      return reg.pushManager.getSubscription().then(function (sub) {
-        if (sub) markOn("You're all set.");
+      return reg.pushManager.getSubscription().then(async function (sub) {
+        if (!sub) return;
+        if (await ownsSubscription(sub)) markOn("You're all set.");
+        else markOff('This browser gets notifications for another account. A browser can notify one account at a time.', 'Enable for this account');
       });
     }).catch(function () {});
+    window.disableNotifications = async function () {
+      try {
+        status.textContent = 'Turning off…';
+        var reg = await navigator.serviceWorker.getRegistration();
+        var sub = reg && await reg.pushManager.getSubscription();
+        if (sub) {
+          await fetch('/api/push/unsubscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+          await sub.unsubscribe();
+        }
+        markOff('Notifications are off on this device.');
+      } catch (e) { status.textContent = 'Could not turn notifications off — please try again.'; }
+    };
+    // Explain WHY enabling failed instead of a generic retry message.
+    function explainPushError(e) {
+      if (navigator.brave) {
+        return 'Brave blocks notifications by default. Open brave://settings/privacy, turn on "Use Google services for push messaging", restart Brave, then try again.';
+      }
+      if (e && e.name === 'NotAllowedError') return 'Notifications are blocked for this site — allow them in your browser or phone settings, then try again.';
+      return 'Could not enable notifications (' + ((e && (e.message || e.name)) || 'unknown error') + '). Please try again.';
+    }
     window.sendTestNotification = async function () {
       status.textContent = 'Sending…';
       try {
@@ -849,7 +888,7 @@
         var r = await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub) });
         if (!r.ok) throw new Error('save failed');
         markOn("You're all set — I'll ping you here.");
-      } catch (e) { status.textContent = 'Could not enable notifications — please try again.'; }
+      } catch (e) { status.textContent = explainPushError(e); }
     };
   })();
   </script>

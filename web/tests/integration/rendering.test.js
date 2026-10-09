@@ -687,3 +687,29 @@ describe('Chat messages can be copied; notices are shown (2026-10-08)', () => {
     assert.ok(html.includes("['incoming', 'outgoing', 'notice'].includes(kind)"));
   });
 });
+
+describe('2026-10-08 webapp fixes (notifications, update banner, dates, mic)', () => {
+  const fs = require('node:fs'); const path = require('node:path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8');
+  test('settings: per-account notification status, Turn off, and a Brave-specific explanation', () => {
+    const html = read('app/settings.html');
+    assert.ok(html.includes("fetch('/api/push/status'") && html.includes('Enable for this account'));
+    assert.ok(html.includes('id="notif-off-btn"') && html.includes('window.disableNotifications'));
+    assert.ok(html.includes('Use Google services for push messaging'));
+  });
+  test('update banner: a new SW under a current page swaps quietly (no second tap)', () => {
+    const js = read('update-check.js');
+    assert.ok(js.includes('async function onWorkerInstalled('));
+    assert.ok(js.includes('quietSwap = true'));
+    assert.match(js, /controllerchange[\s\S]{0,120}quietSwap\) return/);
+  });
+  test('chat: message times include the date when not today', () => {
+    const html = read('app/chat.html');
+    assert.ok(html.includes('function fmtMsgTime(') && html.includes('Yesterday'));
+  });
+  test('chat: mic hidden in Brave; recognition errors explained', () => {
+    const html = read('app/chat.html');
+    assert.ok(html.includes('if (navigator.brave) return;'));
+    assert.ok(html.includes("'network': '🎤 Voice input isn"));
+  });
+});

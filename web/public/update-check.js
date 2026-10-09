@@ -152,11 +152,29 @@
   // very first visit.
   const hadController = !!navigator.serviceWorker.controller;
   let reloading = false;
+  let quietSwap = false; // new SW taking over under a page that's already current
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloading || !hadController) return;
+    if (reloading || !hadController || quietSwap) return;
     reloading = true;
     reloadForUpdate();
   });
+
+  // A new service worker finished installing. The SW caches nothing (every page and
+  // script comes from the network), so if THIS page is already the latest version there
+  // is nothing to reload: let the new SW take over quietly. Only a stale page gets the
+  // banner. (2026-10-08: tapping "Update now" reloaded onto the current page, the SW
+  // update landed a moment later, and the banner came back — it took two taps.)
+  async function onWorkerInstalled(worker) {
+    waitingWorker = worker;
+    if (await isStale()) {
+      if (document.visibilityState === 'visible') showUpdateBanner();
+      // If invisible, the next visibilitychange applies it.
+      return;
+    }
+    quietSwap = true;
+    waitingWorker = null;
+    worker.postMessage({ type: 'SKIP_WAITING' });
+  }
 
   // ── Periodic + foreground checks ──────────────────────────────────────────
   async function checkWhileVisible() {
@@ -176,11 +194,10 @@
 
   // ── Registration + SW update detection ────────────────────────────────────
   navigator.serviceWorker.ready.then(registration => {
-    // 1. A SW waiting right now (deployed while we were away) — fresh open, apply it.
+    // 1. A SW waiting right now (deployed while we were away) — swap quietly if this
+    //    page is current, otherwise reload onto the latest.
     if (registration.waiting) {
-      waitingWorker = registration.waiting;
-      applyUpdate();
-      return;
+      onWorkerInstalled(registration.waiting);
     }
 
     // 2. Detect new SW found while page is open
@@ -188,9 +205,7 @@
       const newWorker = registration.installing;
       newWorker.addEventListener('statechange', () => {
         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-          waitingWorker = newWorker;
-          if (document.visibilityState === 'visible') showUpdateBanner();
-          // If invisible, the next visibilitychange applies it.
+          onWorkerInstalled(newWorker);
         }
       });
     });
@@ -219,7 +234,9 @@
         });
       }
     }
-    if ((reg && reg.waiting) || await isStale()) { applyUpdate(); return { status: 'updating' }; }
+    // Only a stale PAGE needs a reload; a waiting SW under a current page swaps quietly.
+    if (await isStale()) { applyUpdate(); return { status: 'updating' }; }
+    if (reg && reg.waiting) onWorkerInstalled(reg.waiting);
     return { status: 'latest' };
   };
 

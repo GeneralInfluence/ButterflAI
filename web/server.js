@@ -1695,6 +1695,24 @@ app.post('/api/push/subscribe', webAuth.requireAuth, express.json(), (req, res) 
   res.json({ ok: true });
 });
 
+// POST /api/push/status — does this browser's subscription belong to the logged-in user?
+// A subscription is per browser, so after switching accounts on one device (Aphilos →
+// Bam Bam) the browser is "subscribed" but notifies the other account.
+app.post('/api/push/status', webAuth.requireAuth, express.json(), (req, res) => {
+  const endpoint = req.body?.endpoint;
+  if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
+  const row = db._raw().prepare('SELECT user_id FROM push_subscriptions WHERE endpoint = ?').get(endpoint);
+  res.json({ registered: !!row, mine: !!row && row.user_id === req.user.id });
+});
+
+// POST /api/push/unsubscribe — turn notifications off for this browser (own subscription only)
+app.post('/api/push/unsubscribe', webAuth.requireAuth, express.json(), (req, res) => {
+  const endpoint = req.body?.endpoint;
+  if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
+  db._raw().prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?').run(endpoint, req.user.id);
+  res.json({ ok: true });
+});
+
 // POST /api/push/test — send a test push to the logged-in user's own devices, so a
 // tester can confirm notifications work end-to-end without needing a second person.
 app.post('/api/push/test', webAuth.requireAuth, async (req, res) => {

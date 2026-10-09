@@ -515,6 +515,22 @@
     }
 
     // ── DOM helpers ────────────────────────────────────────────────────────────
+    // Time only for today; "Yesterday", the weekday, or the date for older messages
+    // (2026-10-08: older messages showed a time with no date).
+    function fmtMsgTime(ts) {
+      const d = new Date(ts * 1000);
+      const now = new Date();
+      const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+      const days = Math.round((startOf(now) - startOf(d)) / 86400000);
+      if (days <= 0) return time;
+      if (days === 1) return `Yesterday ${time}`;
+      if (days < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+      const opts = { month: 'short', day: 'numeric' };
+      if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+      return `${d.toLocaleDateString([], opts)}, ${time}`;
+    }
+
     // Copy a message's text. Clipboard API first; fall back to selecting + execCommand.
     async function copyText(text, btn) {
       let ok = false;
@@ -544,7 +560,7 @@
       if (!text) return; // nothing left to show
       const div  = document.createElement('div');
       div.className = `msg ${role}${['incoming', 'outgoing', 'notice'].includes(kind) ? ' ' + kind : ''}`;
-      const time = ts ? new Date(ts * 1000).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+      const time = ts ? fmtMsgTime(ts) : '';
       if (role === 'bot') {
         div.innerHTML = `<div class="bubble">${renderText(text)}</div><div class="msg-foot"><span class="ts">${time}</span><button class="copy-btn" type="button" title="Copy" aria-label="Copy message">Copy</button><button class="fb-btn" type="button" title="Flag this reply as wrong" aria-label="Flag this reply">👎</button></div>`;
         const fb = div.querySelector('.fb-btn');
@@ -686,6 +702,10 @@
     (function initVoice() {
       const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRec) return; // browser doesn't support it — mic button stays hidden
+      // Brave exposes the API but ships no speech service: recognition always fails with a
+      // "network" error, Shields on or off (2026-10-08). Hide the button there — the phone
+      // keyboard's own mic still works for dictation.
+      if (navigator.brave) return;
 
       const micBtn = document.getElementById('mic-btn');
       micBtn.style.display = 'flex';
@@ -750,8 +770,16 @@
         listening = false;
         micBtn.classList.remove('listening');
         micBtn.title = 'Speak to ButterflAI';
-        if (e.error === 'not-allowed') {
-          document.getElementById('status-text').textContent = '🎤 Mic access denied — check browser settings';
+        // Say why it failed — it used to fail silently for anything but a denied mic.
+        const why = {
+          'not-allowed': '🎤 Mic access denied — check browser settings',
+          'service-not-allowed': '🎤 Voice input is turned off in this browser',
+          'network': '🎤 Voice input isn\'t available in this browser — use your keyboard\'s mic',
+          'audio-capture': '🎤 No microphone found',
+          'no-speech': '🎤 Didn\'t catch that — tap the mic and try again',
+        }[e.error];
+        if (why && !discard) {
+          document.getElementById('status-text').textContent = why;
           setTimeout(() => { document.getElementById('status-text').textContent = 'Your social assistant'; }, 4000);
         }
       };
