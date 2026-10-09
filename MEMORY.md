@@ -471,6 +471,11 @@ Owner decision after the first friends test (Sean got an unattributed text from 
   same rule: in their chat if they're there; push + 30-min SMS fallback if notifications
   are on; texted right away if not — never an automatic text while they're looking at the
   app (feedback #6).
+- **Answering another agent, the final text reaches no one** (rule in code, 2026-10-09 —
+  Allie and Melanie were texted their agent's reasoning about Sean's Grover trip). Only
+  `reply_agent` (to the other agent) and `tell_my_user` (a clean message to the user,
+  once per turn, blocked if the asker is on their avoid list) reach anybody. The incoming
+  "[Agent query …]" is not stored in the user's chat.
 - **Links:** the agent may only use the real app links (`web/links.js`). Messages to
   others with a made-up ButterflAI address or a "[…]" placeholder are refused before
   sending; wrong addresses in replies to the user are corrected.

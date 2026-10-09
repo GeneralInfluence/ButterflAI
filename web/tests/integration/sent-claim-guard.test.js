@@ -197,9 +197,11 @@ describe('stale history and agent-to-agent answers', () => {
     db.storeInboundMessage({ from_phone: bb.phone, from_type: 'user', from_id: bb.id, channel: 'agent_query',
       text: "[Agent query from Sean's agent | thread=t1 | topic=coordination] Hey — what's Bam Bam up to tonight?" });
     await agent.tick();
-    const sent = JSON.stringify(lastCallMessages(calls));
+    const sent = JSON.stringify(calls);
     assert.ok(!sent.includes('80s bar'), 'old plans never reach the model when answering another agent');
-    assert.equal(lastCallMessages(calls).length, 1, 'only the incoming question');
+    // First call, not last: since 2026-10-09 a text-only answer to another agent gets one
+    // "[System check]" follow-up (its final text reaches no one), so later calls are longer.
+    assert.equal(calls[0].length, 1, 'only the incoming question');
   });
 
   test('own chat: messages older than 7 days are dropped; earlier days are labelled with their date', async () => {

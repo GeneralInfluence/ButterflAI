@@ -470,6 +470,13 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-09: Allie and Melanie were texted their agent's reasoning when it surfaced
+  // Sean's trip question. Surfacing now goes only through tell_my_user (enforced in code).
+  test('answering another agent: final text reaches no one; tell_my_user carries the message', () => {
+    assertContains('WHEN ANSWERING ANOTHER AGENT YOUR FINAL TEXT IS SHOWN TO NO ONE', 'final text not delivered');
+    assertContains('pass it to your user with tell_my_user', 'surface via tool');
+  });
+
   test('Agent must not use meta-commentary words that reveal coordination', () => {
     assertContains('"discreetly"', 'discreetly banned from agent messages');
     assertContains('"no awkward conversation needed"', 'awkward conversation phrase banned');
@@ -491,7 +498,9 @@ describe('Agent message invisibility and tone', () => {
 describe('Coordination invite handling and event-first rule', () => {
   test('Coordination invites (plans) must be surfaced to user, not handled silently', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invite label');
-    assertContains('SURFACE THIS TO YOUR USER immediately', 'surface to user rule');
+    // Wording changed 2026-10-09: surfacing now goes through tell_my_user (the final text
+    // of an agent_query turn reaches no one — it leaked reasoning to Allie and Melanie).
+    assertContains('pass it to your user with tell_my_user', 'surface to user rule');
   });
 
   test('Factual queries still handled silently', () => {

@@ -673,6 +673,22 @@ const TOOL_DEFINITIONS = [
   },
 ];
 
+// Offered ONLY when answering another agent (agent_query). 2026-10-09: Allie and Melanie
+// were texted their agent's reasoning ("I don't have an active event … Let me ask her
+// directly: ---") because the final text of an agent_query turn went to the user. Now the
+// final text of those turns goes nowhere; what reaches the user is only this tool's message.
+const TELL_MY_USER_TOOL = {
+  name: 'tell_my_user',
+  description: 'ONLY while answering another agent: pass something to YOUR user — a plan or question from their friend that they should decide on. `message` is exactly what your user will read: short, friendly, plain text, naming the friend ("Sean says Grover Hot Springs may drop to 29°F Saturday night — heated cabin or different dates?"). No reasoning, no mention of agents or snapshots. Your final text in this turn is shown to no one.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      message: { type: 'string', description: 'What your user reads. Plain text, no markdown.' },
+    },
+    required: ['message'],
+  },
+};
+
 // ── Tool execution (all scoped to userId) ─────────────────────────────────────
 
 // Returns a short, friendly status line shown in the chat UI while a tool runs.
@@ -1091,6 +1107,26 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         });
       }
       return { replied: true, reply_id: replyId };
+    }
+
+    case 'tell_my_user': {
+      const turn = currentTurn || {};
+      if (turn.channel !== 'agent_query') {
+        return { error: 'NOT_AVAILABLE', message: 'Only for passing another agent\'s plan or question to your user. Just reply normally.' };
+      }
+      if (turn.toldUser) return { error: 'ALREADY_TOLD', message: 'You already passed this to your user. Do not send it again.' };
+      const text = sms.toPlainSms(String(toolInput.message || '').trim()).slice(0, 600);
+      if (!text) return { error: 'EMPTY_MESSAGE' };
+      // Someone your user avoids doesn't get to put things in front of them.
+      const asker = turn.askerId ? db.getUser(turn.askerId) : null;
+      if (asker?.phone && avoid.findByPhone(avoid.listAvoid(userId), asker.phone)) {
+        return { delivered: false, note: 'Not passed on. Answer the other agent with reply_agent that your user isn\'t available.' };
+      }
+      turn.toldUser = true;
+      db.appendConversation(userId, 'assistant', text);
+      const online = sse.push(userId, { role: 'assistant', text, ts: Math.floor(Date.now() / 1000) });
+      const r = await deliver.notifySelf(db.getUser(userId), text, { online });
+      return { delivered: true, via: r.via, note: 'Your user has it. When they answer, pass it back with message_agent.' };
     }
 
     case 'store_private_data': {
@@ -1840,7 +1876,11 @@ async function processMessage(msg) {
 
   // Load recent conversation history so the agent has context across SMS turns (continued below)
   // NOTE: processMessage continues after buildSystemPrompt definition
-  return _processMessageContinue({ msg, user, userId, userPhone, systemPrompt });
+  try {
+    return await _processMessageContinue({ msg, user, userId, userPhone, systemPrompt });
+  } finally {
+    currentTurn = null;   // turn state (e.g. tell_my_user's once-only flag) never leaks to the next call
+  }
 }
 
 /**
@@ -2031,7 +2071,8 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - CREATE THE EVENT BEFORE MESSAGING AGENTS: when your user says they're going somewhere and wants to invite people, ALWAYS call create_social_event first (use flexible_time: true for "come whenever" invites). Then message_agent each invitee. This creates the invite card and calendar entry on their end. If you only call message_agent without creating the event, there is no invite card, no calendar entry, and no RSVP tracking — which breaks the whole flow.
 - AGENT QUERY HANDLING — TWO TYPES, handled differently:
   1. FACTUAL QUERIES (health info, allergies, availability from stored prefs): handle SILENTLY. Check stored preferences, call reply_agent with the answer. Do NOT mention to your user. The coordination is invisible.
-  2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join"): SURFACE THIS TO YOUR USER immediately and naturally. Say "Hey, [Name] is heading to [place] tonight around [time] — want to go?" Then relay their answer back via reply_agent. Do not reveal agent-to-agent mechanics; just present the social opportunity like a friend texting.
+  2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join", or asks your user's opinion on a plan): pass it to your user with tell_my_user — ONLY the message they should read, e.g. "Sean's heading to [place] tonight around [time] — want to go?" When your user answers, pass it back with message_agent. Do not reveal agent-to-agent mechanics.
+  WHEN ANSWERING ANOTHER AGENT YOUR FINAL TEXT IS SHOWN TO NO ONE. Only reply_agent (to the other agent) and tell_my_user (to your user) reach anybody. Never put your reasoning in either.
   3. "WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS": NEVER answer this yourself — not from memory, not from old messages. Where your user will be is theirs to share. Do NOT ping your user to answer it either — ButterflAI never pushes people to respond to individuals. Reply via reply_agent with only what your user has explicitly shared for that time; if nothing, reply "Nothing shared for tonight."
 - Only escalate a FACTUAL query to your user if: (a) the answer genuinely requires their personal decision (not just stored data), AND (b) you have already tried to answer from stored preferences and cannot. Ask your user privately without naming the other agent: "someone asked if you have X on file, do you want to share that?"
 - PRIVATE DATA IS SHARED PER-PERSON, NEVER GLOBALLY. Private information (anything the user put in private mode, or that reads as sensitive — health, sexual, financial, legal, mental-health, relationship) is shared with a contact ONLY if the user has approved sharing THAT specific item with THAT specific contact. Consent is per user-pair. There is no "share with everyone" setting.
@@ -2234,7 +2275,7 @@ function unverifiedSentClaim(replyText, { anySendSucceeded, failedSends, sendAtt
 // NOT offered when answering another agent (agent_query) — no fetching links that
 // someone else put in front of this user's agent.
 function toolsFor(msg, user) {
-  if (msg.channel === 'agent_query') return TOOL_DEFINITIONS;
+  if (msg.channel === 'agent_query') return [...TOOL_DEFINITIONS, TELL_MY_USER_TOOL];
   return [
     ...TOOL_DEFINITIONS,
     { type: 'web_search_20250305', name: 'web_search', max_uses: 5,
@@ -2332,8 +2373,17 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   // words (and this turn's replies) are kept only encrypted, and the queued copy of
   // the message is scrubbed, so no plain-text copy is left at rest.
   const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
-  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '' };
-  appendHistory(userId, 'user', msg.text, isPrivate);
+  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms' };
+  if (msg.channel === 'agent_query') {
+    // Who's asking (for tell_my_user's avoid-list check), from the queued "thread=<id>".
+    const thread = /\bthread=([\w-]+)/.exec(msg.text || '')?.[1];
+    currentTurn.askerId = thread ? db._raw().prepare('SELECT from_user FROM agent_messages WHERE id = ?').get(thread)?.from_user : null;
+  } else {
+    // An agent_query is NOT kept in the user's chat: it showed up there as if they'd typed
+    // "[Agent query from Sean Gonzalez's agent | thread=…]" (2026-10-09). What the user
+    // needs to see arrives via tell_my_user.
+    appendHistory(userId, 'user', msg.text, isPrivate);
+  }
   if (isPrivate) db.scrubInboundMessageText(msg.id, PRIVATE_PLACEHOLDER);
 
   // Test users only: record this turn (message, tool calls, reply) for triage.
@@ -2347,6 +2397,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   let sendAttempted = false;
   const failedSends = [];
   let sentClaimChallenged = false;
+  let agentQueryChallenged = false;
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
@@ -2388,6 +2439,23 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         }
         turnTrace.event('guard', `replaced repeated unverified "sent" claim: ${replyText.slice(0, 200)}`);
         replyText = NOT_SENT_FALLBACK;
+      }
+
+      // Answering another agent: the final text goes to NO ONE (it mixes reasoning with
+      // what the model meant to say). Answers go out only via reply_agent / tell_my_user.
+      if (msg.channel === 'agent_query') {
+        const answered = currentTurn?.toldUser || messages.some((m) => Array.isArray(m.content)
+          && m.content.some((b) => b.type === 'tool_use' && b.name === 'reply_agent'));
+        if (!answered && !agentQueryChallenged) {
+          agentQueryChallenged = true;
+          turnTrace.event('guard', `agent_query ended with text only: ${String(replyText || '').slice(0, 200)}`);
+          messages.push({ role: 'user', content:
+            '[System check — not from the user] Your text is shown to no one. Answer the other agent with reply_agent, '
+            + 'or, if your user should decide, call tell_my_user with only the message they should read.' });
+          continue;
+        }
+        if (replyText) turnTrace.event('internal', `agent_query final text (not delivered): ${replyText.slice(0, 300)}`);
+        break;
       }
 
       if (replyText) {
