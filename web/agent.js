@@ -1006,7 +1006,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     case 'reply_agent': {
       const { message_id, body: replyBody } = toolInput;
       const original = db._raw().prepare('SELECT * FROM agent_messages WHERE id = ?').get(message_id);
-      if (!original) return { error: 'Message not found' };
+      // Only a question addressed to THIS user's agent can be answered by it.
+      if (!original || original.to_user !== userId) return { error: 'Message not found' };
+      // Answer once. (2026-10-08: Bam Bam's agent replied twice to the same question.)
+      if (original.processed) {
+        return { error: 'ALREADY_REPLIED', message: 'You already answered this message. Do not reply again.' };
+      }
       const replyId = db.sendAgentMessage({
         fromUserId: userId, toUserId: original.from_user,
         threadId: original.thread_id, kind: 'reply', topic: original.topic, body: replyBody,
@@ -1018,7 +1023,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         db.storeInboundMessage({
           from_phone: sender.phone, from_type: 'user', from_id: sender.id,
           channel: 'agent_reply',
-          text: `[Agent reply from ${user.name}'s agent | thread=${original.thread_id} | topic=${original.topic}] ${replyBody}`,
+          // executeTool has no `user` in scope — referencing it threw AFTER the reply was
+          // stored, so the asker never got it and the model retried (Bam Bam's double
+          // reply, 2026-10-08). Resolve the replier locally, as message_agent does.
+          text: `[Agent reply from ${db.getUser(userId)?.name || 'their'}'s agent | thread=${original.thread_id} | topic=${original.topic}] ${replyBody}`,
         });
       }
       return { replied: true, reply_id: replyId };
@@ -2022,6 +2030,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - AGENT QUERY HANDLING — TWO TYPES, handled differently:
   1. FACTUAL QUERIES (health info, allergies, availability from stored prefs): handle SILENTLY. Check stored preferences, call reply_agent with the answer. Do NOT mention to your user. The coordination is invisible.
   2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join"): SURFACE THIS TO YOUR USER immediately and naturally. Say "Hey, [Name] is heading to [place] tonight around [time] — want to go?" Then relay their answer back via reply_agent. Do not reveal agent-to-agent mechanics; just present the social opportunity like a friend texting.
+  3. "WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS": NEVER answer this yourself — not from memory, not from old messages. Where your user will be is theirs to share. Ask your user ("Sean's asking what you're up to tonight — want me to tell him anything?") and relay only what they say via reply_agent. Until they answer, reply_agent at most "I'll check with them."
 - Only escalate a FACTUAL query to your user if: (a) the answer genuinely requires their personal decision (not just stored data), AND (b) you have already tried to answer from stored preferences and cannot. Ask your user privately without naming the other agent: "someone asked if you have X on file, do you want to share that?"
 - PRIVATE DATA IS SHARED PER-PERSON, NEVER GLOBALLY. Private information (anything the user put in private mode, or that reads as sensitive — health, sexual, financial, legal, mental-health, relationship) is shared with a contact ONLY if the user has approved sharing THAT specific item with THAT specific contact. Consent is per user-pair. There is no "share with everyone" setting.
 - When coordinating and a private item would genuinely help (e.g. a dietary or health constraint for a dinner), call request_private_sharing(contact_id, data_key). This sends the user a confirmation prompt — it does NOT share anything by itself, and the item is shared ONLY if the user replies yes (confirmed in code, not by you). Do not claim it is shared until they confirm. If they have not confirmed, do NOT reveal it — even if you know the answer from stored data. get_contact_hard_constraints enforces this in code and will withhold anything not approved for that specific contact; never try to route around it.
@@ -2224,14 +2233,38 @@ function appendHistory(userId, role, text, isPrivate) {
   return db.appendConversation(userId, role, PRIVATE_PLACEHOLDER, { ct: e.encrypted_v, iv: e.iv, tag: e.auth_tag });
 }
 
+// Which past messages the model sees, and how. Rules, not judgment (2026-10-08, Bam
+// Bam's feedback #5): his agent answered "what's Bam Bam up to tonight?" with a JULY
+// plan ("80s bar tonight") pulled from undated chat history, and told Sean's agent
+// where Bam Bam would be.
+//  - Answering ANOTHER agent (agent_query): no history at all. It answers only from the
+//    structured, current state in the system prompt (coordination-only snapshot).
+//  - Otherwise: only the last HISTORY_DAYS days, and anything before today is labelled
+//    with its date so an old plan can never read as current.
+const HISTORY_DAYS = 7;
+function historyForModel(userId, msg, timezone) {
+  if (msg.channel === 'agent_query') return [];
+  const tz = timezone || 'America/New_York';
+  const now = Math.floor(Date.now() / 1000);
+  const dayKey = (secs) => new Date(secs * 1000).toLocaleDateString('en-CA', { timeZone: tz });
+  const today = dayKey(now);
+  return db.getRecentConversation(userId, 50)
+    .filter(h => h.created_at >= now - HISTORY_DAYS * 86400)
+    .map(h => {
+      if (dayKey(h.created_at) === today) return { role: h.role, content: h.text };
+      const label = new Date(h.created_at * 1000).toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' });
+      return { role: h.role, content: `[from ${label} — not today] ${h.text}` };
+    });
+}
+
 async function _processMessageContinue({ msg, user, userId, userPhone, systemPrompt }) {
   // Load recent conversation history so the agent has context across SMS turns.
   // Filter: Anthropic only accepts 'user' and 'assistant' roles in messages[].
   // Strip 'system' role rows (used for injected context) and ensure alternating roles.
-  const history = db.getRecentConversation(userId, 50);
+  const history = historyForModel(userId, msg, user?.timezone);
   const rawHistory = history
     .filter(h => h.role === 'user' || h.role === 'assistant')
-    .map(h => ({ role: h.role, content: h.text }));
+    .map(h => ({ role: h.role, content: h.content }));
   // Deduplicate consecutive same-role entries (keep last) to avoid role-alternation errors
   const dedupedHistory = rawHistory.reduce((acc, h) => {
     if (acc.length > 0 && acc[acc.length - 1].role === h.role) {

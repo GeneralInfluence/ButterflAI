@@ -183,3 +183,52 @@ describe('2026-10-08 regressions', () => {
     assert.ok(hist.some((h) => h.role === 'assistant' && h.text.includes('Bam Bam signed up')));
   });
 });
+
+// Regression (prod, 2026-10-08, Bam Bam feedback #5).
+describe('stale history and agent-to-agent answers', () => {
+  const lastCallMessages = (calls) => calls.at(-1);
+
+  test('answering another agent: the model gets NO conversation history', async () => {
+    const bb = mkUser('+12025559330', 'Bam Bam H');
+    const july = Math.floor(Date.parse('2026-07-17T20:00:00Z') / 1000);
+    db._raw().prepare(`INSERT INTO conversation_history (id, user_id, role, text, created_at) VALUES (?, ?, 'assistant', ?, ?)`)
+      .run(uuidv4(), bb.id, 'Heading to the 80s bar on California Ave tonight 7–8 PM!', july);
+    const calls = script([say("I'll check with them.")]);
+    db.storeInboundMessage({ from_phone: bb.phone, from_type: 'user', from_id: bb.id, channel: 'agent_query',
+      text: "[Agent query from Sean's agent | thread=t1 | topic=coordination] Hey — what's Bam Bam up to tonight?" });
+    await agent.tick();
+    const sent = JSON.stringify(lastCallMessages(calls));
+    assert.ok(!sent.includes('80s bar'), 'old plans never reach the model when answering another agent');
+    assert.equal(lastCallMessages(calls).length, 1, 'only the incoming question');
+  });
+
+  test('own chat: messages older than 7 days are dropped; earlier days are labelled with their date', async () => {
+    const u = mkUser('+12025559331', 'Dated');
+    const now = Math.floor(Date.now() / 1000);
+    const ins = db._raw().prepare(`INSERT INTO conversation_history (id, user_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)`);
+    ins.run(uuidv4(), u.id, 'assistant', 'OLD: 80s bar tonight', now - 30 * 86400);
+    ins.run(uuidv4(), u.id, 'user', 'two days ago message', now - 2 * 86400);
+    ins.run(uuidv4(), u.id, 'assistant', 'two days ago reply', now - 2 * 86400 + 5);
+    const calls = script([say('ok')]);
+    await turn(u, 'hi');
+    const msgs = lastCallMessages(calls);
+    const all = JSON.stringify(msgs);
+    assert.ok(!all.includes('OLD: 80s bar'), '30-day-old message excluded');
+    assert.ok(msgs.some((m) => typeof m.content === 'string' && /^\[from \w{3}, \w{3} \d+ — not today\] two days ago reply$/.test(m.content)), 'older day labelled');
+    assert.equal(msgs.at(-1).content, 'hi', 'today unlabelled');
+  });
+
+  test('reply_agent answers once, and only questions addressed to you', async () => {
+    const sean = mkUser('+12025559332', 'Sean Q');
+    const bb = mkUser('+12025559333', 'BB Q');
+    const other = mkUser('+12025559334', 'Other Q');
+    const qid = db.sendAgentMessage({ fromUserId: sean.id, toUserId: bb.id, threadId: 't2', kind: 'query', topic: 'coordination', body: 'up to?' });
+    const first = await agent.executeTool('reply_agent', { message_id: qid, body: "I'll check with them." }, bb.id, bb.phone);
+    assert.equal(first.replied, true);
+    const second = await agent.executeTool('reply_agent', { message_id: qid, body: 'again' }, bb.id, bb.phone);
+    assert.equal(second.error, 'ALREADY_REPLIED');
+    const qid2 = db.sendAgentMessage({ fromUserId: sean.id, toUserId: bb.id, threadId: 't3', kind: 'query', topic: 'coordination', body: 'x' });
+    const notMine = await agent.executeTool('reply_agent', { message_id: qid2, body: 'hijack' }, other.id, other.phone);
+    assert.equal(notMine.error, 'Message not found');
+  });
+});
