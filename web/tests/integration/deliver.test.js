@@ -53,6 +53,10 @@ describe('message to a ButterflAI user', () => {
     allie = mkUser('+12025559401', 'Allie McLaine');
     sean = mkUser('+12025559402', 'Sean Gonzalez');
     seanAtAllie = contactOf(allie, sean);
+    // Sean uses the app (opened it today). Since 2026-10-09, someone who hasn't used the
+    // app in 14 days and can't get push is texted right away instead — tested below.
+    db._raw().prepare('UPDATE users SET last_active_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000), sean.id);
+    sean = db.getUser(sean.id);
   });
 
   test('arrives in the app as a labelled card, not a text; sender gets a "To" card', async () => {
@@ -74,7 +78,11 @@ describe('message to a ButterflAI user', () => {
     assert.equal(await deliver.tickFallback(), 0, 'not due yet → nothing texted');
     ago(1)(r.delivery_id);
     await deliver.tickFallback();
-    assert.ok(texts.some((t) => t.to === sean.phone && t.body === "Allie's ButterflAI: Wings at 8?"));
+    // Since 2026-10-09 pending messages from the same sender go out as ONE text, so the
+    // earlier unseen message (previous test) is combined into this one.
+    const toSean = texts.filter((t) => t.to === sean.phone);
+    assert.equal(toSean.length, 1, 'one combined text');
+    assert.ok(toSean[0].body.startsWith("Allie's ButterflAI: ") && toSean[0].body.endsWith('Wings at 8?'));
     assert.equal(delivery(r.delivery_id).status, 'texted');
   });
 
@@ -127,5 +135,62 @@ describe('message to someone not on ButterflAI', () => {
     assert.equal(r.delivered_via, 'sms');
     assert.deepEqual(texts.map((t) => [t.to, t.body]), [[friendPhone, "Nate's ButterflAI: Trivia Thursday?"]]);
     assert.equal(history(host).at(-1).text, '📤 To Pat Friend (by text): Trivia Thursday?');
+  });
+});
+
+// Rules added 2026-10-09 (Melanie: inactive since June; "text her now"; four separate
+// texts; Sean texted about his own agent's updates while in the web app — feedback #6).
+describe('texting rules (2026-10-09)', () => {
+  const setActive = (u, secsAgo) => db._raw().prepare('UPDATE users SET last_active_at = ? WHERE id = ?').run(secsAgo == null ? null : Math.floor(Date.now() / 1000) - secsAgo, u.id);
+
+  test('recipient not using the app and no push → texted right away (card still in their chat)', async () => {
+    const sean2 = mkUser('+12025559420', 'Sean Two');
+    const melanie = mkUser('+12025559421', 'Melanie Noel');
+    setActive(melanie, 200 * 86400);
+    texts.length = 0;
+    const r = await deliver.deliverToContact({ fromUser: sean2, contact: db.getContact(contactOf(sean2, melanie)), message: 'Log in at https://butterflai.social/app/login' });
+    assert.equal(r.delivered_via, 'sms');
+    assert.deepEqual(texts.map((t) => t.body), ["Sean's ButterflAI: Log in at https://butterflai.social/app/login"]);
+    assert.equal(history(melanie).at(-1).kind, 'incoming');
+  });
+
+  test('"text her now" (forceText) → texted immediately even if she uses the app', async () => {
+    const a = mkUser('+12025559422', 'Asker');
+    const b = mkUser('+12025559423', 'Active Bee');
+    setActive(b, 60);
+    texts.length = 0;
+    const r = await deliver.deliverToContact({ fromUser: a, contact: db.getContact(contactOf(a, b)), message: 'Call me', forceText: true });
+    assert.equal(r.delivered_via, 'sms');
+    assert.equal(texts.length, 1);
+  });
+
+  test("the agent honours the user's own words: 'Text her now' → sent by text", async () => {
+    const u = mkUser('+12025559424', 'Worder');
+    const her = mkUser('+12025559425', 'Herself');
+    setActive(her, 60);
+    const herId = contactOf(u, her);
+    let i = 0;
+    agent._setAnthropic({ messages: { create: async () => (i++ === 0
+      ? { id: 'm1', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'send_logistics_sms', input: { contact_id: herId, message: 'Here is the login: https://butterflai.social/app/login' } }] }
+      : { id: 'm2', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Texted her.' }] }) } });
+    texts.length = 0;
+    db.storeInboundMessage({ from_phone: u.phone, from_type: 'user', from_id: u.id, channel: 'webchat', text: 'Text her now' });
+    await agent.tick();
+    assert.ok(texts.some((t) => t.to === her.phone && t.body.includes('/app/login')), 'texted, not in-app-with-wait');
+  });
+
+  test("the agent's own updates: no text while you're in the app; pending fallback otherwise", async () => {
+    const u = mkUser('+12025559426', 'Selfy');
+    setActive(u, 60);
+    texts.length = 0;
+    assert.deepEqual(await deliver.notifySelf(u, 'Allie is in!', { online: true }), { via: 'app' });
+    assert.equal(texts.length, 0);
+    await deliver.notifySelf(db.getUser(u.id), 'Allie is in!', { online: false });
+    assert.equal(texts.length, 0, 'active user → wait in the app, not an immediate text');
+    const pending = db._raw().prepare(`SELECT * FROM deliveries WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`).get(u.id, u.id);
+    assert.ok(pending, 'fallback scheduled');
+    db._raw().prepare('UPDATE deliveries SET sms_due_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000) - 1, pending.id);
+    await deliver.tickFallback();
+    assert.deepEqual(texts.map((t) => t.body), ['Allie is in!'], 'own updates have no "X\'s ButterflAI" prefix');
   });
 });

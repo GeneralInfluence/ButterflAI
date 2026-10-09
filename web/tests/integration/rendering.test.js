@@ -726,3 +726,10 @@ describe('Home: feed replaces overdue check-ins / coming up / invite a friend (2
     assert.ok(read('settings.html').includes('Invite a friend'));
   });
 });
+
+describe('Chat links are tappable (2026-10-09)', () => {
+  test('renderText turns URLs into links', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
+    assert.ok(html.includes('<a href="$1" target="_blank" rel="noopener">$1</a>'));
+  });
+});

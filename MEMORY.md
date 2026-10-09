@@ -457,6 +457,16 @@ Owner decision after the first friends test (Sean got an unattributed text from 
   noise): delivered in-app with a push; texted if unseen after 30 min (push on) or 2 min
   (no push); never texted if they're in the app or open it first. Non-users: SMS
   immediately (only channel). An SMS opt-out doesn't block in-app delivery.
+- **Texted right away instead (rules in code, 2026-10-09 — Melanie hadn't opened the app
+  since June):** when the user asks for a text ("text her now", "send him a text", "by
+  SMS" — matched on their own words) or when the recipient hasn't used the app in 14 days
+  and can't get push. Several unseen messages from one sender go out as ONE fallback text.
+- **The user's own agent** (acting on its own: RSVPs, other agents' replies) follows the
+  same rule: in their chat if they're there; push + SMS fallback otherwise — never an
+  automatic text while they're looking at the app (feedback #6).
+- **Links:** the agent may only use the real app links (`web/links.js`). Messages to
+  others with a made-up ButterflAI address or a "[…]" placeholder are refused before
+  sending; wrong addresses in replies to the user are corrected.
 - Code: `web/deliver.js` (`deliverToContact`, `markSeen`, `tickFallback`), table
   `deliveries`, `conversation_history.kind`. Tests: `tests/integration/deliver.test.js`.
 - Considered and rejected: becoming a WhatsApp-style messenger (agent would sit in every

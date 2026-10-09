@@ -232,3 +232,24 @@ describe('stale history and agent-to-agent answers', () => {
     assert.equal(notMine.error, 'Message not found');
   });
 });
+
+describe('2026-10-09 regressions: links in messages', () => {
+  test('send_logistics_sms with a made-up link or placeholder is refused before sending', async () => {
+    const u = mkUser('+12025559340', 'Linker');
+    const cid = db.upsertContact({ invited_by_user_id: u.id, name: 'Mel', phone: '+12025559341', tier: 1 });
+    texts.length = 0;
+    const bad = await agent.executeTool('send_logistics_sms', { contact_id: cid, message: 'login: https://app.butterflai.com/login' }, u.id, u.phone);
+    assert.equal(bad.error, 'WRONG_LINK');
+    const ph = await agent.executeTool('send_logistics_sms', { contact_id: cid, message: 'here: [ButterflAI login]' }, u.id, u.phone);
+    assert.equal(ph.error, 'PLACEHOLDER_IN_MESSAGE');
+    assert.equal(texts.length, 0, 'nothing sent');
+  });
+
+  test("a wrong ButterflAI link in the agent's reply to the user is corrected", async () => {
+    const u = mkUser('+12025559342', 'Replyee');
+    script([say("Aren't we .social? Yes — log in at https://butterfly.com/login")]);
+    const reply = await turn(u, 'whats the login link');
+    assert.match(reply, /https:\/\/butterflai\.social\/app\/login/);
+    assert.doesNotMatch(reply, /butterfly\.com/);
+  });
+});

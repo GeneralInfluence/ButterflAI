@@ -86,6 +86,25 @@ function parseDate(text, tz, now) {
  */
 function resolveEventDateTime(whenText, timezone, now = new Date()) {
   const tz = timezone || 'America/Los_Angeles';
+  // Relative: "in about an hour", "in 30 min", "in half an hour" → now + that, rounded up
+  // to 5 minutes. (2026-10-09: "tonight in about an hour" was scheduled for 7:00 PM —
+  // "tonight" won and the relative part was ignored.)
+  const rel = String(whenText || '').toLowerCase()
+    .match(/\bin (?:about |around |like |roughly )?(half an?|an?|one|two|three|four|\d{1,3}(?:\.\d)?) ?(hours?|hrs?|minutes?|mins?)\b/);
+  if (rel) {
+    const words = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, 'half a': 0.5, 'half an': 0.5 };
+    const n = words[rel[1]] ?? parseFloat(rel[1]);
+    const ms = n * (rel[2].startsWith('h') ? 3600e3 : 60e3);
+    const step = 5 * 60e3;
+    const utc = new Date(Math.ceil((now.getTime() + ms) / step) * step);
+    return {
+      ts: Math.floor(utc.getTime() / 1000),
+      iso: utc.toISOString(),
+      weekday: utc.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz }),
+      date: utc.toLocaleDateString('en-CA', { timeZone: tz }),
+      label: utc.toLocaleString('en-US', { timeZone: tz, weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+    };
+  }
   const date = parseDate(whenText, tz, now);
   const time = parseTime(whenText);
   if (!date || !time) return null;

@@ -39,6 +39,7 @@ const avoid      = require('./avoid');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
 const plans      = require('./plans');
+const links      = require('./links');
 const datetime   = require('./datetime');
 const coord      = require('./coordination');
 const sse        = require('./sse');
@@ -228,6 +229,10 @@ const TOOL_DEFINITIONS = [
         is_first_contact: {
           type: 'boolean',
           description: 'Set true if this is the first outbound message to this contact — triggers self-identify + STOP notice',
+        },
+        via: {
+          type: 'string', enum: ['app', 'text'],
+          description: '"text" when the user asked for it to go by text ("text her now"). Otherwise omit — ButterflAI decides (in the app, or a text if they won\'t see it there).',
         },
       },
       required: ['contact_id', 'message'],
@@ -753,6 +758,17 @@ function describeContact(c) {
   };
 }
 
+// Tools whose text goes to another person or agent → checked by links.checkOutbound.
+const OUTBOUND_TEXT_FIELDS = {
+  send_logistics_sms: 'message', draft_contact_message: 'message',
+  message_agent: 'message', reply_agent: 'body',
+};
+
+// The user explicitly asked for a TEXT ("text her now", "send him a text", "by SMS").
+// Honoured in code — not left to the model to remember (2026-10-09).
+const USER_ASKED_TEXT = /\b(text (?:her|him|them|it|me)|send (?:her|him|them) a text|by text|via text|over text|as a text|sms)\b/i;
+let currentTurn = null; // { userText } for the turn being processed (tick is sequential)
+
 // Tools that persist what the user says in plain text. Refused while private mode is on.
 const PLAINTEXT_WRITE_TOOLS = ['update_preferences', 'save_agent_note'];
 
@@ -775,6 +791,15 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         message: `Unknown contact id(s): ${bad.join(', ')}. Never guess ids — call lookup_contact with each person's name and use the "id" it returns, then retry.`,
       };
     }
+  }
+
+  // Messages to other people can't carry a made-up ButterflAI link or a "[link]"
+  // placeholder (2026-10-09: four wrong login links sent to Melanie). Refused here with
+  // the real links in the error, so the model can retry correctly.
+  const outboundField = OUTBOUND_TEXT_FIELDS[toolName];
+  if (outboundField && toolInput && toolInput[outboundField] !== undefined) {
+    const chk = links.checkOutbound(toolInput[outboundField]);
+    if (!chk.ok) return chk;
   }
 
   // Private mode is enforced here, not just in the prompt (PRIVACY.md Invariant 7):
@@ -1001,7 +1026,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         }
         // In the app for ButterflAI users, by text otherwise — always naming the sender
         // ("Allie's ButterflAI: …"), with a "📤 To …" card in this user's chat.
-        return await deliver.deliverToContact({ fromUser: user, contact, message: messageBody });
+        // Texted right away if the user asked for a text in this turn (their words, checked
+        // in code) or via:"text"; deliver.js also texts people who can't see it in the app.
+        const forceText = toolInput.via === 'text' || USER_ASKED_TEXT.test(currentTurn?.userText || '');
+        return await deliver.deliverToContact({ fromUser: user, contact, message: messageBody, forceText });
       } catch (err) {
         if (err instanceof ConsentRequired) {
           // Contact has not opted in — return an assisted-compose fallback.
@@ -2161,6 +2189,7 @@ LOGISTICS vs EXPRESSIVE (the send gate):
 - When in doubt, lean logistics. The cost of an extra approval is higher than the cost of sending a slightly imperfect logistics message.
 - Teasing, nudging or hyping a friend toward a plan ("tell him to get off his ass, let's get wings") is LOGISTICS. Compose a friendly version and send it right away — no draft, no clarifying question.
 - A GO-AHEAD AFTER A DRAFT IS APPROVAL: if you showed a draft and the user says anything like "send it", "yes", "do it", "just send something", "I don't want to approve, just send" — send that draft immediately with send_logistics_sms. Never ask for approval twice.
+- ${links.linksForPrompt()}
 - WHAT FRIENDS ARE UP TO (owner rule — ButterflAI is not a messenger): "what're my boys up to tonight?" → check_friends_plans (group "boys", when "tonight"). Report ONLY what friends shared; for the rest say they haven't shared anything. NEVER message_agent or send_logistics_sms people to ask what they're up to, and never guess. Mention that they'll see you're up for something — nobody gets pinged.
 - When the user offers their own plans for friends ("I'm at Sully's tonight, the boys can come", "free this weekend") → share_plan with their words for how long (until). If plans change → clear_my_plans.
 - TO ASK OR TELL A PERSON SOMETHING SPECIFIC ("tell Allie I'm running late", "ask Bam Bam if he wants wings at 8"), use send_logistics_sms — the person sees it. (What someone is up to is NOT asked this way — use check_friends_plans.) message_agent talks only to their AGENT, which answers on its own without showing them; use it only for agent-level coordination (availability, constraints). lookup_contact tells you whether someone is on ButterflAI (on_butterflai) — trust that, not a contact's tier.
@@ -2327,6 +2356,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   // words (and this turn's replies) are kept only encrypted, and the queued copy of
   // the message is scrubbed, so no plain-text copy is left at rest.
   const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
+  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '' };
   appendHistory(userId, 'user', msg.text, isPrivate);
   if (isPrivate) db.scrubInboundMessageText(msg.id, PRIVATE_PLACEHOLDER);
 
@@ -2365,7 +2395,8 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       // Extract text response and send to user.
       // Use sendUnchecked — agent only processes established users who consented at onboarding.
       const textBlocks = response.content.filter(b => b.type === 'text');
-      let replyText = textBlocks.map(b => b.text).join('\n').trim();
+      // Wrong ButterflAI addresses in a reply are corrected in code (links.fixReply).
+      let replyText = links.fixReply(textBlocks.map(b => b.text).join('\n').trim());
 
       // Guard: a reply that says something was sent, in a turn where nothing was.
       if (unverifiedSentClaim(replyText, { anySendSucceeded, failedSends, sendAttempted, userText: msg.text })) {
@@ -2388,11 +2419,16 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         appendHistory(userId, 'assistant', replyText, isPrivate);
         turnTrace.reply(replyText);
         // Push to web UI via SSE if connected
-        sse.push(userId, { role: 'assistant', text: replyText, ts: Math.floor(Date.now() / 1000) });
-        // Send via SMS only if the message came in via SMS, not web chat
-        if (userPhone && msg.channel !== 'webchat') {
+        const online = sse.push(userId, { role: 'assistant', text: replyText, ts: Math.floor(Date.now() / 1000) });
+        if (userPhone && msg.channel === 'sms') {
+          // They texted us → answer by text.
           console.log(`[agent] replying to ${userPhone}: "${replyText.slice(0, 60)}"`);
           await sms.sendUnchecked(userPhone, replyText);
+        } else if (msg.channel !== 'webchat') {
+          // The agent acting on its own (an RSVP came in, another agent replied…): it's
+          // in their chat; text only if they won't see it there. (Feedback #6, 2026-10-09:
+          // Sean got these as texts while looking at the web app.)
+          await deliver.notifySelf(user || db.getUser(userId), replyText, { online });
         }
       }
       break;

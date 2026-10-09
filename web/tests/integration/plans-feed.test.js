@@ -186,3 +186,13 @@ describe('retention + API', () => {
     assert.equal(plans.myPlans(a.id).length, 0);
   });
 });
+
+describe('resolveEventDateTime — relative times (2026-10-09)', () => {
+  test('"tonight in about an hour" is an hour from now, not 7 PM', () => {
+    const { resolveEventDateTime } = require('../../datetime');
+    const now = new Date('2026-10-09T01:19:00Z');                  // 6:19 PM PT
+    assert.equal(resolveEventDateTime('tonight in about an hour', 'America/Los_Angeles', now).label, 'Thursday, Oct 8, 7:20 PM');
+    assert.equal(resolveEventDateTime('in 30 min', 'America/Los_Angeles', now).label, 'Thursday, Oct 8, 6:50 PM');
+    assert.equal(resolveEventDateTime('friday 7pm', 'America/Los_Angeles', now).label, 'Friday, Oct 9, 7:00 PM');
+  });
+});

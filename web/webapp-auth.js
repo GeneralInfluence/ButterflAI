@@ -64,6 +64,14 @@ function verifyToken(token) {
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 
+// Record that the user is using the app (at most every 5 minutes). deliver.js uses it
+// to decide whether a message can wait in the app or should be texted right away.
+function touchActive(user) {
+  const now = Math.floor(Date.now() / 1000);
+  if (user.last_active_at && now - user.last_active_at < 300) return;
+  try { db._raw().prepare('UPDATE users SET last_active_at = ? WHERE id = ?').run(now, user.id); } catch (_) {}
+}
+
 function requireAuth(req, res, next) {
   try {
     const token = req.cookies?.[COOKIE_NAME];
@@ -73,6 +81,7 @@ function requireAuth(req, res, next) {
     const user = db.getUser(payload.userId);
     if (!user) return res.status(401).json({ error: 'User not found.' });
     req.user = user;
+    touchActive(user);
     next();
   } catch (err) {
     console.error('[auth] requireAuth error:', err.message);
@@ -88,6 +97,7 @@ function requireAuthPage(req, res, next) {
   const user = db.getUser(payload.userId);
   if (!user) return res.redirect('/app/login');
   req.user = user;
+  touchActive(user);
   next();
 }
 
