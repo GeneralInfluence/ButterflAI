@@ -739,7 +739,8 @@ describe('Invitation dismiss', () => {
 
     // Create event + invite (direct /api/events endpoint, not agent tool)
     const hostId2 = db.getUserByPhone('+15559990001')?.id;
-    const eRes = await request.post('/api/events')
+    // Logged in as the host since 2026-10-09 — the route used to trust a body userId.
+    const eRes = await request.post('/api/events').set('Cookie', hostCookie)
       .send({ userId: hostId2, title: 'Dismiss Test Event',
               scheduled_at: Math.floor(Date.now()/1000) + 7200,
               activity_type: 'hangout', contactIds: [contactId] });

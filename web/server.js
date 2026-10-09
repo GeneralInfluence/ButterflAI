@@ -645,9 +645,17 @@ app.post('/api/join', joinLimiter, async (req, res) => {
 
 // ── Internal agent API ────────────────────────────────────────────────────────
 
-app.post('/api/agent/invite/create', (req, res) => {
-  const { userId, contactName } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId required' });
+// The logged-in user may only act on their own data (PRIVACY.md Invariant 4). These routes
+// used to trust a userId from the URL/body with no login (found 2026-10-09).
+function sameUser(req, res, userId) {
+  if (userId && userId !== req.user.id) { res.status(403).json({ error: 'Forbidden' }); return false; }
+  return true;
+}
+
+app.post('/api/agent/invite/create', webAuth.requireAuth, (req, res) => {
+  const { contactName } = req.body;
+  if (!sameUser(req, res, req.body.userId)) return;
+  const userId = req.user.id;
 
   const user = db.getUser(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -2030,27 +2038,33 @@ app.post('/mcp/inbound', express.json({ limit: '64kb' }), (req, res) => {
 
 // ── Venue API ─────────────────────────────────────────────────────────────────
 
-app.get('/api/venues/favorites/:userId', (req, res) => {
+app.get('/api/venues/favorites/:userId', webAuth.requireAuth, (req, res) => {
+  if (!sameUser(req, res, req.params.userId)) return;
   res.json({ favorites: venues.getFavorites(req.params.userId) });
 });
 
-app.post('/api/venues/favorites', (req, res) => {
-  const { userId, ...venue } = req.body;
-  if (!userId || !venue.name) return res.status(400).json({ error: 'userId and name required' });
+app.post('/api/venues/favorites', webAuth.requireAuth, (req, res) => {
+  const { userId: claimed, ...venue } = req.body;
+  if (!sameUser(req, res, claimed)) return;
+  const userId = req.user.id;
+  if (!venue.name) return res.status(400).json({ error: 'name required' });
   const id = venues.addFavorite(userId, venue);
   res.json({ ok: true, id });
 });
 
-app.delete('/api/venues/favorites/:userId/:venueId', (req, res) => {
+app.delete('/api/venues/favorites/:userId/:venueId', webAuth.requireAuth, (req, res) => {
+  if (!sameUser(req, res, req.params.userId)) return;
   venues.removeFavorite(req.params.userId, req.params.venueId);
   res.json({ ok: true });
 });
 
 // ── Events API ────────────────────────────────────────────────────────────────
 
-app.post('/api/events', async (req, res) => {
-  const { userId, contactIds, ...eventData } = req.body;
-  if (!userId || !eventData.title) return res.status(400).json({ error: 'userId and title required' });
+app.post('/api/events', webAuth.requireAuth, async (req, res) => {
+  const { userId: claimed, contactIds, ...eventData } = req.body;
+  if (!sameUser(req, res, claimed)) return;
+  const userId = req.user.id;
+  if (!eventData.title) return res.status(400).json({ error: 'title required' });
   try {
     const eventId = multiparty.createEvent(userId, eventData);
     let inviteResult = { sent: 0, skipped: 0 };
@@ -2063,7 +2077,8 @@ app.post('/api/events', async (req, res) => {
   }
 });
 
-app.get('/api/events/:userId', (req, res) => {
+app.get('/api/events/:userId', webAuth.requireAuth, (req, res) => {
+  if (!sameUser(req, res, req.params.userId)) return;
   const events = multiparty.getEventsByHost(req.params.userId);
   // Attach RSVP summary to each event so host can see who accepted/declined
   const withRsvp = events.map(e => ({
@@ -2155,7 +2170,8 @@ app.delete('/api/events/:id/invite/:invitationId', webAuth.requireAuth, (req, re
   res.json({ ok: true });
 });
 
-app.get('/api/events/:userId/:eventId', (req, res) => {
+app.get('/api/events/:userId/:eventId', webAuth.requireAuth, (req, res) => {
+  if (!sameUser(req, res, req.params.userId)) return;
   const event = multiparty.getEvent(req.params.eventId);
   if (!event || event.host_user_id !== req.params.userId) return res.status(404).json({ error: 'Not found' });
   res.json({ event, rsvp: multiparty.getRsvpSummary(req.params.eventId) });
@@ -2491,16 +2507,19 @@ app.post('/api/contacts/import', webAuth.requireAuth, express.json(), (req, res)
 });
 
 // Get a signed import link (agent sends this to the user)
-app.get('/api/contacts/import-url/:userId', (req, res) => {
+app.get('/api/contacts/import-url/:userId', webAuth.requireAuth, (req, res) => {
+  if (!sameUser(req, res, req.params.userId)) return;
   const user = db.getUser(req.params.userId);
   if (!user) return res.status(404).json({ error: 'not found' });
   const baseUrl = process.env.BASE_URL || 'https://butterflai.social';
   res.json({ url: `${baseUrl}/contacts-import.html?userId=${user.id}` });
 });
 
-app.post('/api/contacts/add', (req, res) => {
-  const { userId, name, phone } = req.body;
-  if (!userId || !name) return res.status(400).json({ error: 'userId and name required' });
+app.post('/api/contacts/add', webAuth.requireAuth, (req, res) => {
+  const { userId: claimed, name, phone } = req.body;
+  if (!sameUser(req, res, claimed)) return;
+  const userId = req.user.id;
+  if (!name) return res.status(400).json({ error: 'name required' });
   try {
     const contactId = contactsImport.addManualContact(userId, { name, phone });
     res.json({ ok: true, contactId });
@@ -2510,21 +2529,25 @@ app.post('/api/contacts/add', (req, res) => {
 });
 
 // Get importable (Tier 0) contacts
-app.get('/api/contacts/importable/:userId', (req, res) => {
+app.get('/api/contacts/importable/:userId', webAuth.requireAuth, (req, res) => {
+  if (!sameUser(req, res, req.params.userId)) return;
   const contacts = contactsImport.getImportableContacts(req.params.userId);
   res.json({ contacts });
 });
 
 // Get active (Tier 1+) contacts
-app.get('/api/contacts/active/:userId', (req, res) => {
+app.get('/api/contacts/active/:userId', webAuth.requireAuth, (req, res) => {
+  if (!sameUser(req, res, req.params.userId)) return;
   const contacts = contactsImport.getActiveContacts(req.params.userId);
   res.json({ contacts });
 });
 
 // Send an invite to a specific Tier 0 contact (Gate 2)
-app.post('/api/contacts/invite', async (req, res) => {
-  const { userId, contactId, context } = req.body;
-  if (!userId || !contactId) return res.status(400).json({ error: 'userId and contactId required' });
+app.post('/api/contacts/invite', webAuth.requireAuth, async (req, res) => {
+  const { userId: claimed, contactId, context } = req.body;
+  if (!sameUser(req, res, claimed)) return;
+  const userId = req.user.id;
+  if (!contactId) return res.status(400).json({ error: 'contactId required' });
   try {
     const result = await contactsImport.sendInvite(userId, contactId, context || 'keeping in touch');
     res.json({ ok: true, ...result });
