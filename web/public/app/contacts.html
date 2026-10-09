@@ -331,6 +331,17 @@
       border-radius: 8px;
     }
     .group-delete-btn:hover { background: #fff0f0; }
+    /* Create groups / add people right here (2026-10-09) */
+    .new-group { display: flex; gap: 8px; margin-bottom: 12px; }
+    .new-group input, .group-add input { flex: 1; min-width: 0; border: 1.5px solid #e5e5ea; border-radius: 10px; padding: 9px 12px; font-size: 14px; }
+    .new-group button, .group-add-btn { background: var(--purple); color: #fff; border: none; border-radius: 10px; padding: 9px 14px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .new-group-toggle { width: 100%; background: #fff; border: 1.5px dashed #c4b5fd; color: var(--purple); border-radius: 14px; padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer; margin-bottom: 12px; }
+    .group-add { padding: 10px 16px; border-top: 1px solid #f0f0f0; }
+    .group-add-results { margin-top: 6px; }
+    .group-add-result { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: none; padding: 8px 4px; font-size: 14px; cursor: pointer; border-radius: 8px; }
+    .group-add-result:hover { background: #f5f3ff; }
+    .badge-on { font-size: 11px; font-weight: 600; color: var(--purple); background: #ede9fe; border-radius: 999px; padding: 2px 8px; }
+    .badge-off { font-size: 11px; color: #8e8e93; background: #f2f2f7; border-radius: 999px; padding: 2px 8px; }
     .groups-hint {
       text-align: center;
       padding: 12px 20px 4px;
@@ -895,13 +906,21 @@
       }
     }
 
+    const openGroups = new Set();
+    const newGroupHtml = `
+      <button class="new-group-toggle" id="new-group-toggle" onclick="showNewGroup()">＋ New group</button>
+      <form class="new-group" id="new-group-form" style="display:none" onsubmit="event.preventDefault(); createGroup();">
+        <input id="new-group-name" placeholder="Group name, e.g. The Boys" maxlength="60">
+        <button type="submit">Create</button>
+      </form>`;
+
     function renderGroups(groups) {
       const gl = document.getElementById('groups-list');
       if (!groups.length) {
-        gl.innerHTML = '<div class="empty-state"><span class="emoji">🫂</span>No groups yet.<br><br>Tell your ButterflAI to create one:<br><em style="color:#6c47ff">"Create a group called Closest Friends<br>and add Allie and Sean"</em></div>';
+        gl.innerHTML = newGroupHtml + '<div class="empty-state"><span class="emoji">🫂</span>No groups yet.<br><br>Create one above, or tell your ButterflAI:<br><em style="color:#6c47ff">"Create a group called Closest Friends<br>and add Allie and Sean"</em></div>';
         return;
       }
-      gl.innerHTML = groups.map(g => {
+      gl.innerHTML = newGroupHtml + groups.map(g => {
         const emoji   = g.emoji || '👥';
         const members = g.members || [];
         const memberRows = members.map(m => {
@@ -910,10 +929,11 @@
           return `<div class="group-member-row">
             <div class="group-member-initials">${esc(init)}</div>
             <div class="group-member-name">${esc(name)}</div>
+            ${m.on_butterflai ? '<span class="badge-on">on ButterflAI</span>' : '<span class="badge-off">not on ButterflAI</span>'}
             <button class="group-member-remove" onclick="removeMember(event,'${esc(g.id)}','${esc(m.id)}',this)" title="Remove from group">✕</button>
           </div>`;
         }).join('');
-        return `<div class="group-card" id="gc-${esc(g.id)}">
+        return `<div class="group-card${openGroups.has(g.id) ? ' open' : ''}" id="gc-${esc(g.id)}">
           <div class="group-header" onclick="toggleGroup('${esc(g.id)}')">
             <div class="group-emoji">${emoji}</div>
             <div class="group-info">
@@ -924,6 +944,10 @@
           </div>
           <div class="group-members">
             ${memberRows || '<div style="padding:12px 16px;font-size:13px;color:#aaa">No members yet</div>'}
+            <div class="group-add">
+              <input placeholder="Add people — search your contacts" oninput="searchAdd('${esc(g.id)}', this.value)" autocomplete="off">
+              <div class="group-add-results" id="gar-${esc(g.id)}"></div>
+            </div>
             <div class="group-footer">
               <button class="group-delete-btn" onclick="deleteGroup(event,'${esc(g.id)}','${esc(g.name)}')">🗑 Delete group</button>
             </div>
@@ -931,11 +955,53 @@
         </div>`;
       }).join('');
       gl.insertAdjacentHTML('beforeend',
-        '<p class="groups-hint">💬 Tell ButterflAI to add members or create new groups</p>');
+        '<p class="groups-hint">💬 You can also just tell ButterflAI: "add Dave to the boys"</p>');
     }
 
     function toggleGroup(groupId) {
-      document.getElementById('gc-' + groupId)?.classList.toggle('open');
+      const card = document.getElementById('gc-' + groupId);
+      if (!card) return;
+      card.classList.toggle('open');
+      if (card.classList.contains('open')) openGroups.add(groupId); else openGroups.delete(groupId);
+    }
+
+    function showNewGroup() {
+      document.getElementById('new-group-toggle').style.display = 'none';
+      document.getElementById('new-group-form').style.display = 'flex';
+      document.getElementById('new-group-name').focus();
+    }
+
+    async function createGroup() {
+      const name = document.getElementById('new-group-name').value.trim();
+      if (!name) return;
+      const r = await fetch('/api/contacts/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      if (!r.ok) { showToast('Could not create the group'); return; }
+      const { id } = await r.json();
+      openGroups.add(id);   // open it so you can add people straight away
+      await loadGroups();
+    }
+
+    // Search your contacts and add one with a tap.
+    let groupSearchTimer = null;
+    function searchAdd(groupId, q) {
+      clearTimeout(groupSearchTimer);
+      const out = document.getElementById('gar-' + groupId);
+      if (!q.trim()) { out.innerHTML = ''; return; }
+      groupSearchTimer = setTimeout(async () => {
+        try {
+          const { contacts } = await fetch('/api/contacts/list?q=' + encodeURIComponent(q.trim())).then(r => r.json());
+          out.innerHTML = (contacts || []).slice(0, 8).map(c =>
+            `<button class="group-add-result" onclick="addMember('${esc(groupId)}','${esc(c.id)}')">＋ ${esc(c.nickname || c.name)}${c.phone ? ` <span style="color:#aaa;font-size:12px">…${esc(c.phone.slice(-4))}</span>` : ''}</button>`
+          ).join('') || '<div style="font-size:13px;color:#aaa;padding:6px 4px">No match</div>';
+        } catch (_) { out.innerHTML = ''; }
+      }, 250);
+    }
+
+    async function addMember(groupId, contactId) {
+      const r = await fetch(`/api/contacts/groups/${groupId}/members`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: contactId }) });
+      if (!r.ok) { showToast('Could not add them'); return; }
+      openGroups.add(groupId);
+      await loadGroups();
     }
 
     async function removeMember(e, groupId, contactId, btn) {

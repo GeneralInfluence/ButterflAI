@@ -1579,8 +1579,32 @@ app.get('/api/contacts/list', webAuth.requireAuth, (req, res) => {
 
 // GET /api/contacts/groups — all groups with members for the authenticated user
 app.get('/api/contacts/groups', webAuth.requireAuth, (req, res) => {
-  const groups = db.getContactGroups(req.user.id);
+  // Each member says whether they're on ButterflAI — shared plans and "what're my boys
+  // up to" only reach people who are.
+  const groups = db.getContactGroups(req.user.id).map((g) => ({
+    ...g,
+    members: (g.members || []).map((m) => ({ ...m, on_butterflai: !!(m.phone && db.getUserByPhone(m.phone)) })),
+  }));
   res.json({ groups });
+});
+
+// POST /api/contacts/groups — create a group from the People → Groups screen
+app.post('/api/contacts/groups', webAuth.requireAuth, express.json(), (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Group name required' });
+  if (name.length > 60) return res.status(400).json({ error: 'Group name too long' });
+  const id = db.upsertContactGroup(req.user.id, name, req.body?.emoji || null);
+  res.json({ ok: true, id });
+});
+
+// POST /api/contacts/groups/:groupId/members — add one of YOUR contacts to YOUR group
+app.post('/api/contacts/groups/:groupId/members', webAuth.requireAuth, express.json(), (req, res) => {
+  const group = db.getContactGroups(req.user.id).find((g) => g.id === req.params.groupId);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const contact = db.getContact(req.body?.contact_id);
+  if (!contact || contact.invited_by_user_id !== req.user.id) return res.status(404).json({ error: 'Contact not found' });
+  db.addContactToGroup(group.id, contact.id);
+  res.json({ ok: true });
 });
 
 // DELETE /api/contacts/groups/:groupId — delete a group (user must own it)

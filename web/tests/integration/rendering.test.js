@@ -748,3 +748,22 @@ describe('Chat does not draw the same message twice (2026-10-09)', () => {
     assert.equal(alreadyShown('📤 To Mel: hi', 1600), false, 'genuinely sent again later → shown');
   });
 });
+
+describe('Chat composer + groups screen (2026-10-09)', () => {
+  const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8');
+  test('chat: Voice and Private are pills under the text area, with send', () => {
+    const html = read('chat.html');
+    const composer = html.slice(html.indexOf('<div class="composer">'), html.indexOf('<script>', html.indexOf('<div class="composer">')));
+    assert.ok(composer.indexOf('id="msg-input"') < composer.indexOf('class="composer-actions"'), 'text area first');
+    assert.match(composer, /id="mic-btn" class="pill"/);
+    assert.match(composer, /id="private-btn" class="pill"/);
+    assert.ok(composer.includes('id="send-btn"'));
+    assert.ok(html.includes("btn.classList.toggle('on', sensitiveMode)"), 'private state shown on the pill');
+  });
+  test('groups: create, add people, on-ButterflAI badges', () => {
+    const html = read('contacts.html');
+    assert.ok(html.includes('＋ New group') && html.includes('async function createGroup('));
+    assert.ok(html.includes('function searchAdd(') && html.includes('async function addMember('));
+    assert.ok(html.includes('badge-on') && html.includes('not on ButterflAI'));
+  });
+});

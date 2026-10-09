@@ -164,35 +164,49 @@
       30% { transform: translateY(-5px); }
     }
 
-    /* Input */
+    /* Input — composer modeled on the Claude app (2026-10-09): text area on top, and a
+       row of pills (Voice, Private) with send underneath, instead of icons beside it. */
     .input-row {
       min-height: var(--input-h); /* grow with textarea, don't clip long messages */
       background: #fff;
       border-top: 1px solid #e5e5e5;
-      display: flex;
-      align-items: flex-end;  /* align buttons to bottom when textarea grows */
-      padding: 10px 12px;
-      gap: 10px;
+      padding: 8px 12px 10px;
       flex-shrink: 0;
     }
-    #msg-input {
-      flex: 1;
-      padding: 10px 14px;
+    .composer {
       border: 1.5px solid #e5e5e5;
-      border-radius: 22px;
+      border-radius: 20px;
+      background: #fafafa;
+      padding: 8px 8px 6px 14px;
+      transition: border-color .15s, background .15s;
+    }
+    .composer:focus-within { border-color: var(--purple); background: #fff; }
+    #msg-input {
+      display: block;
+      width: 100%;
+      padding: 4px 4px 4px 0;
+      border: none;
+      background: transparent;
       font-size: 15px;
       outline: none;
       resize: none;
       overflow: hidden;       /* prevents scrollbar flash during auto-resize */
       font-family: inherit;
-      max-height: 100px;
+      max-height: 120px;
       line-height: 1.4;
-      background: #fafafa;
-      transition: border-color .15s;
     }
-    #msg-input:focus { border-color: var(--purple); background: #fff; }
+    .composer-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 32px; padding: 0 12px;
+      border-radius: 999px; border: 1px solid #e5e5e5; background: #fff;
+      font-size: 13px; font-weight: 500; color: #3a3a3c; font-family: inherit;
+      cursor: pointer; transition: background .15s, border-color .15s, color .15s;
+    }
+    .pill:hover { border-color: #c7c7cc; }
     #send-btn {
-      width: 40px; height: 40px;
+      margin-left: auto;
+      width: 36px; height: 36px;
       border-radius: 50%;
       background: var(--purple);
       border: none;
@@ -202,25 +216,16 @@
       transition: opacity .15s;
     }
     #send-btn:disabled { opacity: .4; }
-    #send-btn svg { width: 18px; height: 18px; fill: #fff; }
+    #send-btn svg { width: 17px; height: 17px; fill: #fff; }
 
-    #mic-btn {
-      width: 40px; height: 40px;
-      border-radius: 50%;
-      background: #f0f0f5;
-      border: none;
-      cursor: pointer;
-      display: none; /* shown only when SpeechRecognition is available */
-      align-items: center; justify-content: center;
-      flex-shrink: 0;
-      transition: background .2s;
-    }
-    #mic-btn svg { width: 18px; height: 18px; fill: #555; transition: fill .2s; }
+    #mic-btn { display: none; } /* shown only when SpeechRecognition is available */
+    #mic-btn svg { width: 15px; height: 15px; fill: #555; transition: fill .2s; }
     #mic-btn.listening {
-      background: #ff3b30;
+      background: #ff3b30; border-color: #ff3b30; color: #fff;
       animation: mic-pulse 1.2s ease-in-out infinite;
     }
     #mic-btn.listening svg { fill: #fff; }
+    #private-btn.on { background: #fff0f0; border-color: #fca5a5; color: #b91c1c; }
     @keyframes mic-pulse {
       0%, 100% { box-shadow: 0 0 0 0 rgba(255,59,48,.5); }
       50%       { box-shadow: 0 0 0 8px rgba(255,59,48,0); }
@@ -285,14 +290,19 @@
     🔒 Private mode on <span style="font-weight:500;opacity:.8">· what this means ›</span>
   </a>
   <div class="input-row">
-    <button id="mic-btn" onclick="toggleMic()" title="Speak to ButterflAI">
-      <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-1.5 16.93A7.001 7.001 0 0 1 5 11H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2a7 7 0 0 1-5.5 6.93z"/></svg>
-    </button>
-    <button id="private-btn" onclick="toggleSensitiveMode()" title="Private mode — store what you say as sensitive/encrypted" style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:8px;font-size:18px;opacity:0.4;transition:opacity .15s,background .15s" aria-label="Private mode">🔒</button>
-    <textarea id="msg-input" placeholder="Message your ButterflAI…" rows="1"></textarea>
-    <button id="send-btn" onclick="send()" disabled>
-      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
-    </button>
+    <div class="composer">
+      <textarea id="msg-input" placeholder="Message your ButterflAI…" rows="1"></textarea>
+      <div class="composer-actions">
+        <button id="mic-btn" class="pill" type="button" onclick="toggleMic()" title="Speak to ButterflAI">
+          <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-1.5 16.93A7.001 7.001 0 0 1 5 11H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2a7 7 0 0 1-5.5 6.93z"/></svg>
+          <span id="mic-label">Voice</span>
+        </button>
+        <button id="private-btn" class="pill" type="button" onclick="toggleSensitiveMode()" title="Private mode — store what you say as sensitive/encrypted" aria-label="Private mode" aria-pressed="false">🔒 <span id="private-label">Private</span></button>
+        <button id="send-btn" type="button" onclick="send()" disabled aria-label="Send">
+          <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -328,8 +338,9 @@
       const btn = document.getElementById('private-btn');
       const banner = document.getElementById('sensitive-banner');
       const input = document.getElementById('msg-input');
-      btn.style.opacity = sensitiveMode ? '1' : '0.4';
-      btn.style.background = sensitiveMode ? '#fff0f0' : 'none';
+      btn.classList.toggle('on', sensitiveMode);
+      btn.setAttribute('aria-pressed', String(sensitiveMode));
+      document.getElementById('private-label').textContent = sensitiveMode ? 'Private on' : 'Private';
       banner.style.display = sensitiveMode ? 'block' : 'none';
       input.placeholder = sensitiveMode
         ? '🔒 Private — saved encrypted, visible only to you'
@@ -753,6 +764,7 @@
         finalSoFar  = '';
         micBtn.classList.add('listening');
         micBtn.title = 'Tap to stop';
+        document.getElementById('mic-label').textContent = 'Listening…';
       };
 
       recognition.onresult = e => {
@@ -773,6 +785,7 @@
       recognition.onend = () => {
         listening = false;
         micBtn.classList.remove('listening');
+        document.getElementById('mic-label').textContent = 'Voice';
         micBtn.title = 'Speak to ButterflAI';
         if (discard) { discard = false; return; } // already sent — don't restore it
         // Commit: trim trailing whitespace from the final value
@@ -788,6 +801,7 @@
       recognition.onerror = e => {
         listening = false;
         micBtn.classList.remove('listening');
+        document.getElementById('mic-label').textContent = 'Voice';
         micBtn.title = 'Speak to ButterflAI';
         // Say why it failed — it used to fail silently for anything but a denied mic.
         const why = {
