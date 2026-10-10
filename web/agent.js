@@ -858,6 +858,26 @@ const OUTBOUND_TEXT_FIELDS = {
 const USER_ASKED_TEXT = /\b(text (?:her|him|them|it|me)|send (?:her|him|them) a text|by text|via text|over text|as a text|sms)\b/i;
 let currentTurn = null; // { userText } for the turn being processed (tick is sequential)
 
+// ── Passing the user's answer to another agent: keep its meaning (2026-10-09) ─────────
+// Melanie: "how much is a cabin? probably need to reschedule". Her agent sent Sean's:
+// "Melanie says she'd probably need to reschedule rather than book a cabin" — her question
+// dropped, her "probably" turned into a decision. Checked here before sending (once per
+// turn: a second attempt goes through, so the model can't get stuck).
+const HEDGE = /\b(probably|maybe|might|not sure|i think|i guess|i'?m leaning|leaning|possibly|perhaps|kinda|kind of|not certain)\b/i;
+const KEPT_HEDGE = /\b(probably|maybe|might|not sure|thinks?|leaning|possibly|perhaps|tentative|undecided|hasn'?t decided|considering|open to|unsure)\b/i;
+function relayProblem(userText, outText) {
+  const u = String(userText || ''), o = String(outText || '');
+  if (!u || !o) return null;
+  const question = (u.match(/[^.?!\n]*\?/g) || []).map((q) => q.trim()).filter((q) => q.length > 3)[0];
+  if (question && !/[?$]|\d/.test(o)) {
+    return `Your user asked a question: "${question}" — your message drops it. Include their question for the other side, or answer it first (look it up), then send.`;
+  }
+  if (HEDGE.test(u) && !KEPT_HEDGE.test(o)) {
+    return `Your user wasn't certain ("${u.match(HEDGE)[0]}") — your message states it as decided. Keep it tentative (e.g. "leaning toward…", "probably…"), then send.`;
+  }
+  return null;
+}
+
 // Tools that persist what the user says in plain text. Refused while private mode is on.
 const PLAINTEXT_WRITE_TOOLS = ['update_preferences', 'save_agent_note'];
 
@@ -871,6 +891,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
   if (toolInput && toolInput.contact_id !== undefined) {
     const c = ownContact(userId, toolInput.contact_id);
     if (c.error) return c;
+  }
+  // Relaying the user's own words to another agent: don't change what they meant.
+  if ((toolName === 'reply_agent' || toolName === 'message_agent') && currentTurn?.userText && !currentTurn.relayChecked) {
+    const problem = relayProblem(currentTurn.userText, toolName === 'reply_agent' ? toolInput.body : toolInput.message);
+    if (problem) {
+      currentTurn.relayChecked = true;
+      return { error: 'RELAY_CHANGES_MEANING', action_status: 'NOT_SENT', message: problem };
+    }
   }
   if (toolInput && Array.isArray(toolInput.contact_ids)) {
     const bad = toolInput.contact_ids.filter((id) => ownContact(userId, id).error);
@@ -2278,6 +2306,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - AGENT QUERY HANDLING — TWO TYPES, handled differently:
   1. FACTUAL QUERIES (health info, allergies, availability from stored prefs): handle SILENTLY. Check stored preferences, call reply_agent with the answer. Do NOT mention to your user. The coordination is invisible.
   2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join", or asks your user's opinion on a plan): pass it to your user with tell_my_user — ONLY the message they should read, e.g. "Sean's heading to [place] tonight around [time] — want to go?" When your user answers, pass it back with message_agent. Do not reveal agent-to-agent mechanics.
+  PASSING YOUR USER'S ANSWER BACK: keep what they meant. If they asked something ("how much is a cabin?"), answer it or include it — never drop it. If they hedged ("probably", "maybe"), keep it tentative — never turn it into a decision. Never tell your user what the other side is doing or planning unless their ButterflAI actually said so.
   WHEN ANSWERING ANOTHER AGENT YOUR FINAL TEXT IS SHOWN TO NO ONE. Only reply_agent (to the other agent) and tell_my_user (to your user) reach anybody. Never put your reasoning in either.
   3. "WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS": NEVER answer this yourself — not from memory, not from old messages. Where your user will be is theirs to share. Do NOT ping your user to answer it either — ButterflAI never pushes people to respond to individuals. Reply via reply_agent with only what your user has explicitly shared for that time; if nothing, reply "Nothing shared for tonight."
 - Only escalate a FACTUAL query to your user if: (a) the answer genuinely requires their personal decision (not just stored data), AND (b) you have already tried to answer from stored preferences and cannot. Ask your user privately without naming the other agent: "someone asked if you have X on file, do you want to share that?"
@@ -2890,4 +2919,4 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver, _unverifiedSentClaim: unverifiedSentClaim, NOT_SENT_FALLBACK, _unbackedActionClaim: unbackedActionClaim, NOT_DONE_FALLBACK };
+module.exports = { _relayProblem: relayProblem, startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver, _unverifiedSentClaim: unverifiedSentClaim, NOT_SENT_FALLBACK, _unbackedActionClaim: unbackedActionClaim, NOT_DONE_FALLBACK };

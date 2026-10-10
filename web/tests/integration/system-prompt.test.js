@@ -470,6 +470,13 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-09: Melanie's "how much is a cabin? probably need to reschedule" was relayed as a decision.
+  test("passing the user's answer back keeps its meaning", () => {
+    assertContains("PASSING YOUR USER'S ANSWER BACK: keep what they meant", 'relay meaning rule');
+    assertContains('never turn it into a decision', 'hedges kept');
+    assertContains('Never tell your user what the other side is doing or planning unless their ButterflAI actually said so', 'no invented other side');
+  });
+
   // 2026-10-09: the agent told Sean Alexandria "hasn't opted in" so it couldn't invite her.
   test('an invite needs no prior opt-in', () => {
     assertContains('AN INVITE NEEDS NO PRIOR OPT-IN', 'invite rule');

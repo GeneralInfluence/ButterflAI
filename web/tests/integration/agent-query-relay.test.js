@@ -143,3 +143,45 @@ describe('answering another agent', () => {
     assert.equal(agent._unbackedActionClaim('Melanie replied: she is in.', [], { openQuestions: 1 }), null, 'reporting someone else\'s reply is not a claim');
   });
 });
+
+// Regression (2026-10-09): Melanie answered "how much is a cabin? probably need to
+// reschedule"; her agent told Sean's "Melanie says she'd probably need to reschedule
+// rather than book a cabin" — her question dropped, a lean turned into a decision.
+describe("passing the user's answer back keeps what they meant", () => {
+  test('exact regression: question dropped → sent back once; the second try keeps it and goes', async () => {
+    const mel = mkUser('Melanie Relay'); const sean3 = mkUser('Sean Relay'); knows(mel, sean3);
+    await seanAsks(sean3, mel);
+    script([toolUse('tell_my_user', { message: 'Sean asks: heated cabin or reschedule?' }), endText('')]);
+    await agent.tick();
+    const q = db._raw().prepare("SELECT id FROM agent_messages WHERE to_user = ? AND kind = 'query'").get(mel.id);
+    const results = [];
+    let i = 0;
+    const steps = [
+      toolUse('reply_agent', { message_id: q.id, body: "Melanie would rather reschedule than book a cabin." }),
+      toolUse('reply_agent', { message_id: q.id, body: "Melanie's asking how much a cabin would be — she's leaning toward rescheduling but hasn't decided." }),
+      endText('Passed that to Sean.'),
+    ];
+    agent._setAnthropic({ messages: { create: async (req) => {
+      const last = req.messages.at(-1);
+      if (Array.isArray(last.content)) for (const b of last.content) if (b.type === 'tool_result') results.push(JSON.parse(b.content));
+      return { id: 'r' + i, ...steps[Math.min(i++, steps.length - 1)] };
+    } } });
+    db.storeInboundMessage({ from_phone: mel.phone, from_type: 'user', from_id: mel.id, channel: 'webchat', text: 'how much is a cabin?  probably need to reschedule' });
+    await agent.tick();
+    assert.equal(results[0].error, 'RELAY_CHANGES_MEANING');
+    assert.match(results[0].message, /how much is a cabin\?/);
+    assert.equal(results[1].replied, true);
+    const sent = db._raw().prepare("SELECT body FROM agent_messages WHERE from_user = ? AND kind = 'reply'").all(mel.id).map((r) => r.body);
+    assert.deepEqual(sent, ["Melanie's asking how much a cabin would be — she's leaning toward rescheduling but hasn't decided."]);
+  });
+
+  test('what counts', () => {
+    const p = agent._relayProblem;
+    assert.match(p('probably need to reschedule', 'Melanie wants to reschedule.'), /wasn't certain/);
+    assert.equal(p('probably need to reschedule', 'Melanie is probably going to reschedule.'), null);
+    assert.equal(p('yes, the shiftpod works', 'The shiftpod works for Melanie.'), null);
+    assert.equal(p('how much is a cabin?', 'Melanie asks: how much is a cabin?'), null);
+    assert.equal(p('how much is a cabin?', 'Cabins are about $180/night — Melanie is checking.'), null, 'answered with a number');
+  });
+});
+

@@ -93,6 +93,7 @@ hard_rules:
   - never_reveal_where_someone_will_be_to_anyone_they_did_not_personally_include: true
   - never_claim_sent_unless_tool_returned_sent_true: true      # [LOCKED 2026-06-19] agent fabricated send confirmation — catastrophic trust failure
   - never_say_someone_isnt_in_contacts_or_ask_their_number_without_lookup: true   # [2026-10-09] three turns of "I need Alex's number" without looking; enforced in code (ACTION_CLAIMS)
+  - relaying_a_users_answer_keeps_its_meaning: true           # [2026-10-09] Melanie's "how much is a cabin? probably need to reschedule" → "she'd rather reschedule"; questions/hedges checked in code before reply_agent/message_agent
   - an_invite_to_someone_new_needs_no_prior_opt_in: true      # [2026-10-09] the first-contact invite (self-ID + STOP) IS the opt-in; one per person per 30 days; opt-outs respected
   - never_claim_done_unless_a_tool_did_it_this_turn: true      # [2026-10-09] "Added Bam Bam to the group" with no tool call; enforced in code (agent.js ACTION_CLAIMS)
   - never_invent_contact_rsvp_or_response: true                # contacts have not agreed to anything until they actually reply
