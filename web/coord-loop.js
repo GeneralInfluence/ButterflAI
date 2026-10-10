@@ -123,6 +123,9 @@ async function tick(transport = stubTransport) {
     await tickEscalations();
     tickPurge();
     require('./multiparty').rollDateTbd();   // dateless plans never drift into "past"
+    // Apply behavior changes to what already exists, once per existing user (retro.js).
+    const retroRuns = await require('./retro').tick();
+    if (retroRuns) console.log(`[coord] ran ${retroRuns} retro task(s)`);
     // Look back at quiet conversations where the agent acted for its user (reflect.js).
     const reflected = await require('./reflect').tick();
     if (reflected) console.log(`[coord] reflected on ${reflected} conversation(s)`);

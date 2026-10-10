@@ -470,6 +470,12 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-10: retro offers ("these plans from our recent chats aren't set up yet") → create on yes.
+  test('plans offered from earlier chats are created when the user agrees', () => {
+    assertContains('SETTING UP PLANS FROM EARLIER CHATS', 'retro offer rule');
+    assertContains("Don't create the ones they declined", 'only accepted ones');
+  });
+
   // 2026-10-09 (owner): every conversation is about a plan — new, existing, or combining two.
   test('every conversation is about a plan; create on first mention; ask before combining', () => {
     assertContains('EVERY CONVERSATION IS ABOUT A PLAN', 'plan rule');

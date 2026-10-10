@@ -350,6 +350,8 @@ npm run test:eval      # LLM agent evals (slow + costs credits — manual only)
 
 1. **Every new route, migration, or feature ships with tests.** No exceptions. If you add a table, add DB helper tests. If you add a route, add an integration test. If you add a tool to the agent, add an eval scenario.
 
+1b. **Every behavior change is applied retroactively, in perpetuity** (owner, 2026-10-10: "when we make updates to this app, we need to be retrospective about its applications"). Ship it with a task in `web/retro.js` that brings existing users' data in line — runs once per user who existed before it, from the coord loop. `internal` tasks fix our own data directly; `propose` tasks (anything that creates things or reaches people) only *offer* it to the user in chat. If no retro is needed, say why in the commit message. Test: `tests/integration/retro.test.js`.
+
 2. **Every bug fix ships with a regression test** that would have caught the bug. Bugs caught by tests in this project: static middleware auth bypass, phone validation, migration 018 duplicate column, updateContact missing nickname in allowlist, conversation_history CHECK constraint blocking system role, referral redirect expectation mismatch.
 
 3. **Run `npm test` before every commit.** CI does this automatically (push to main → tests → deploy), but always verify locally first.

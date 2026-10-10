@@ -191,4 +191,6 @@ async function backfill(userId, eventId) {
   }
 }
 
-module.exports = { GENERAL, route, discussionsFor, eventsFor, canSee, eventsTouched, tagSince, tagTurn, backfill, _setClient };
+function modelAvailable() { return !!client(); }
+
+module.exports = { modelAvailable, GENERAL, route, discussionsFor, eventsFor, canSee, eventsTouched, tagSince, tagTurn, backfill, _setClient };
