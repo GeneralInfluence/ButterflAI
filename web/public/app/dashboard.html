@@ -183,6 +183,7 @@
 
   // Tentative trips show the date only (times are placeholders until it's settled).
   function whenFor(i) {
+    if (i.date_tbd) return 'Date TBD';
     if (!i.tentative) return when(i.at);
     const d = new Date(i.at * 1000);
     return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });

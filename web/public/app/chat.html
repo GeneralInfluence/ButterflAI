@@ -422,7 +422,9 @@
         const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
         el.innerHTML = `<a class="tpill${topicEvent ? '' : ' active'}" href="/app/chat">All</a>`
           + discussions.map((d) => `<a class="tpill${d.event_id === topicEvent ? ' active' : ''}" href="/app/chat?event=${encodeURIComponent(d.event_id)}" title="${esc(d.title)}">`
-            + `<span>${d.tentative ? '🗓️' : '📅'} ${esc(d.title)}</span>${d.tentative ? '<span class="tent">tentative</span>' : ''}</a>`).join('');
+            + `<span>${d.tentative ? '🗓️' : '📅'} ${esc(d.title)}</span>${d.tentative ? '<span class="tent">tentative</span>' : ''}</a>`).join('')
+          // Standalone housekeeping that isn't about any plan (owner, 2026-10-09).
+          + `<a class="tpill${topicEvent === 'general' ? ' active' : ''}" href="/app/chat?event=general">💬 General</a>`;
         // The host can rename the plan they're in (✎ next to its pill) — for everyone.
         const current = discussions.find((d) => d.event_id === topicEvent);
         if (current && current.can_rename) {

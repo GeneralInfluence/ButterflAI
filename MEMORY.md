@@ -578,6 +578,16 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   `/api/chat/discussions`). A message sent inside a pill carries that plan
   (`inbound_messages.event_id`, migration 041): the agent gets a "Current discussion" section
   and the turn is filed there.
+- **Every conversation is about a plan (owner, 2026-10-09): a new one, an existing one, or
+  combining two.** Owner choices: related housekeeping attaches to its plan, else a
+  **General** pill; a plan is **created on first mention, no date needed** (`date_tbd`,
+  migration 043 — placeholder kept ~45 days ahead by `multiparty.rollDateTbd`, every display
+  says "date TBD"); **combining asks first**. In code: a user message outside a pill that no
+  tool tied to a plan is routed (`topics.route`: existing / NEW / general); NEW → the agent
+  is told to create the plan before replying. `merge_plans` only proposes on the first call
+  and runs only when called again in a later message (after the user said yes);
+  `multiparty.mergeEvents` moves invitations (more committed status wins), discussion, agent
+  threads, mentions, and fills group/notes/date gaps; the other plan is cancelled.
 - **Agent-to-agent:** "what is your user up to" is never answered from memory and never
   triggers a ping; agents answer only from what the user explicitly shared.
 - Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.

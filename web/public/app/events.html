@@ -376,7 +376,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}</div>
-              <div class="card-sub">Hosted by ${escHtml(e.host_name || '?')} · ${fmtDate(e.scheduled_at)} ${fmtTime(e.scheduled_at)}</div>
+              <div class="card-sub">Hosted by ${escHtml(e.host_name || '?')} · ${e.date_tbd ? 'Date TBD' : fmtDate(e.scheduled_at) + ' ' + fmtTime(e.scheduled_at)}</div>
               ${e.venue_name ? `<div class="card-sub" style="margin-top:2px">📍 ${escHtml(e.venue_name)}</div>` : ''}
             </div>
             <span class="badge">${statusLabel}</span>
@@ -396,7 +396,7 @@
         <div class="card-header" onclick="toggleManage('${e.id}', this)" style="cursor:pointer">
           <div>
             <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}${e.tentative ? ' <span style="display:inline-block;font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px;vertical-align:2px">Tentative</span>' : ''}</div>
-            <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${fmtDate(e.scheduled_at)} ${fmtTime(e.scheduled_at)}</div>
+            <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${e.date_tbd ? 'Date TBD' : fmtDate(e.scheduled_at) + ' ' + fmtTime(e.scheduled_at)}</div>
             ${rsvpLine ? `<div class="card-sub" style="margin-top:2px;font-size:13px">${rsvpLine}</div>` : ''}
             <a href="/app/chat?event=${encodeURIComponent(e.id)}" onclick="event.stopPropagation()" style="display:inline-block;margin-top:6px;font-size:13px;font-weight:600;color:#6c47ff;text-decoration:none">💬 Discussion</a>
           </div>
@@ -575,7 +575,7 @@
     el.innerHTML = events.map(e => {
       const dt = new Date((e.scheduled_at||0) * 1000);
       // Tentative plans (2026-10-09): date only, "Interested" rather than "Going".
-      const whenStr = e.flexible_time
+      const whenStr = e.date_tbd ? 'Date TBD' : e.flexible_time
         ? 'Open invite — come when you\'re ready'
         : e.tentative
           ? dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' (tentative)'
@@ -664,10 +664,11 @@
     // Build a map: "YYYY-M-D" → [events]
     // Include both hosted events AND accepted invitations
     const evMap = {};
+    // Plans with no date yet ("Date TBD") stay off the calendar — their date is a placeholder.
     const calEvents = [
-      ...allEvents,
+      ...allEvents.filter(e => !e.date_tbd),
       ...invitedEvents
-        .filter(e => e.rsvp_status === 'accepted' && e.scheduled_at && !e.flexible_time)
+        .filter(e => e.rsvp_status === 'accepted' && e.scheduled_at && !e.flexible_time && !e.date_tbd)
         .map(e => ({ ...e, _isInvite: true })),
     ];
     for (const e of calEvents) {

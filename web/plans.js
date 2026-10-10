@@ -201,7 +201,7 @@ function feedFor(userId) {
 
   // Events you host: who's interested, who hasn't answered.
   const hosted = db._raw().prepare(`
-    SELECT id, title, activity_type, venue_name, scheduled_at, flexible_time, tentative FROM social_events
+    SELECT id, title, activity_type, venue_name, scheduled_at, flexible_time, tentative, date_tbd FROM social_events
     WHERE host_user_id = ? AND COALESCE(status, 'open') != 'cancelled'
       AND scheduled_at BETWEEN ? AND ?`).all(userId, from, to);
   const shownEventIds = new Set();
@@ -220,7 +220,7 @@ function feedFor(userId) {
     shownEventIds.add(e.id);
     items.push({
       type: 'event', role: 'host', event_id: e.id, title: e.title, venue: e.venue_name, at: e.scheduled_at,
-      tentative: !!e.tentative, interested, waiting_on: waiting, out, deferring,
+      tentative: !!e.tentative, date_tbd: !!e.date_tbd, interested, waiting_on: waiting, out, deferring,
       // Everyone has answered and it's still tentative → the next step is yours.
       action: e.tentative && inv.length && !waiting.length && (interested.length || deferring.length) ? 'Lock in the plan — tell your agent the final details' : null,
     });
@@ -228,7 +228,7 @@ function feedFor(userId) {
 
   if (user?.phone) {
     const invited = db._raw().prepare(`
-      SELECT ei.id AS invitation_id, ei.status, se.id AS event_id, se.title, se.venue_name, se.scheduled_at, se.tentative, u.name AS host_name
+      SELECT ei.id AS invitation_id, ei.status, se.id AS event_id, se.title, se.venue_name, se.scheduled_at, se.tentative, se.date_tbd, u.name AS host_name
       FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
       JOIN social_events se ON se.id = ei.event_id JOIN users u ON u.id = se.host_user_id
       WHERE c.phone = ? AND se.host_user_id != ? AND ei.status IN ('invited','accepted')
@@ -239,7 +239,7 @@ function feedFor(userId) {
       const pending = e.status === 'invited';
       items.push({ type: pending ? 'invite' : 'event', role: 'guest', event_id: e.event_id,
         invitation_id: e.invitation_id, title: e.title, venue: e.venue_name, at: e.scheduled_at,
-        tentative: !!e.tentative, host: firstName({ name: e.host_name }),
+        tentative: !!e.tentative, date_tbd: !!e.date_tbd, host: firstName({ name: e.host_name }),
         action: pending ? (e.tentative ? 'Interested? Tap to answer' : 'Tap to respond') : null });
     }
   }

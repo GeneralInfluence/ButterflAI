@@ -427,6 +427,18 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'merge_plans',
+    description: 'Combine two of your user\'s plans that are really the same thing (e.g. "Grover camping" and "Melanie\'s birthday weekend"). The first call only proposes — ASK your user ("combine X and Y into one?"); call again with the same ids after they say yes. Everything (people, discussion, notes) moves into keep_event_id.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        keep_event_id:  { type: 'string', description: 'The plan to keep (eventId from Open events)' },
+        merge_event_id: { type: 'string', description: 'The plan to fold into it' },
+      },
+      required: ['keep_event_id', 'merge_event_id'],
+    },
+  },
+  {
     name: 'defer_on_plan',
     description: 'Your user is invited to a plan and says they don\'t want to weigh in — they\'ll go with whatever certain people decide ("whatever Melanie wants", "you and Sean figure it out", "I don\'t care, it\'s her birthday"). Records that they\'re in and who decides, for THIS plan only. From then on questions about it are answered for them (no reasons given) and they only get an FYI on big changes. undo: true if they want to be asked again.',
     input_schema: {
@@ -779,6 +791,7 @@ function openQuestionsFor(userId) {
 // — next time it's an exact match, and it wins over a namesake. In code, per user.
 const LOOKUP_MEMORY_SECS = 30 * 60;
 const recentLookups = new Map();   // userId → [{ query, ids, at }]
+const pendingMerges = new Map();   // "user:keep:drop" → { at, turnId } (merge_plans asks first)
 const ACTS_ON_CONTACT = new Set(['send_logistics_sms', 'draft_contact_message', 'message_agent', 'manage_contact_group',
   'create_social_event', 'send_contact_invite', 'check_contact_consent']);
 
@@ -1280,6 +1293,25 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       return { delivered: true, via: r.via, event_id: turn.threadEvent || undefined, note: 'Your user has it. When they answer (in a later message), the question is listed under "Open questions from friends\' ButterflAIs" — reply with reply_agent then.' };
     }
 
+    case 'merge_plans': {
+      // Ask first, enforced here: the first call records a proposal; it runs only when
+      // called again in a LATER message (after the user answered), within 30 minutes.
+      const { keep_event_id: keep, merge_event_id: drop } = toolInput;
+      const ev = (id) => db._raw().prepare('SELECT id, title, host_user_id FROM social_events WHERE id = ?').get(id);
+      const a = ev(keep), b = ev(drop);
+      if (!a || !b || a.host_user_id !== userId || b.host_user_id !== userId) return { error: 'NOT_YOUR_PLANS', message: 'Use two eventIds from your Open events.' };
+      const key = `${userId}:${keep}:${drop}`;
+      const prior = pendingMerges.get(key);
+      const turnId = currentTurn?.msgId;
+      if (!prior || prior.at < Date.now() - 30 * 60e3 || prior.turnId === turnId) {
+        pendingMerges.set(key, { at: Date.now(), turnId });
+        return { needs_confirmation: true, action_status: 'NOT_DONE',
+          message: `Ask your user: combine "${b.title}" into "${a.title}"? (people, discussion and notes move over). Call merge_plans again with the same ids after they say yes.` };
+      }
+      pendingMerges.delete(key);
+      return multiparty.mergeEvents(userId, keep, drop);
+    }
+
     case 'defer_on_plan': {
       return defer.deferOnPlan(userId, toolInput);
     }
@@ -1702,6 +1734,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         resolvedWhen = datetime.resolveEventDateTime(when, tz);
         if (resolvedWhen) eventData.scheduled_at = resolvedWhen.iso;
       }
+      // No date yet → a plan with "date TBD" (owner: plans exist from first mention).
+      if (!eventData.scheduled_at && !eventData.flexible_time) eventData.date_tbd = true;
       const eventId = multiparty.createEvent(userId, eventData);
       let inviteResult = { sent: 0, skipped: 0 };
       if (contact_ids?.length) {
@@ -1775,6 +1809,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         updates.scheduled_at = typeof scheduled_at === 'string'
           ? Math.floor(new Date(scheduled_at).getTime() / 1000)
           : scheduled_at;
+        updates.date_tbd = 0;   // it has a date now
       }
       if (flexible_time !== undefined) updates.flexible_time = flexible_time ? 1 : 0;
       if (notes !== undefined) updates.notes = notes;
@@ -2003,7 +2038,7 @@ async function processMessage(msg) {
       const events = multiparty.getEventsByHost(userId).filter(e => e.status === 'open');
       const rows = [];
       for (const e of events) {
-        const recency = eventRecency(e.scheduled_at, e.flexible_time);
+        const recency = e.date_tbd ? 'upcoming' : eventRecency(e.scheduled_at, e.flexible_time);
         if (recency === 'stale') continue;   // long-past events are noise — never surface them as current
         const invitations = db._raw
           ? db._raw().prepare(`
@@ -2015,7 +2050,7 @@ async function processMessage(msg) {
         const inviteeList = invitations.map(i => i.defers_to
           ? `${i.name} (in — goes with whatever ${defer.joinNames(defer.parseNames(i.defers_to))} decide; don't ask them about it)`
           : `${i.name} (${i.status})`).join(', ') || 'no invitees yet';
-        const ts = recency === 'flexible'
+        const ts = e.date_tbd ? 'date TBD (no date yet — ask or suggest one when it helps)' : recency === 'flexible'
           ? 'open invite (no fixed time)'
           : new Date(e.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
         const pastTag = recency === 'past' ? '  [ALREADY HAPPENED — do NOT present as upcoming]' : '';
@@ -2035,7 +2070,7 @@ async function processMessage(msg) {
       // Match on phone, not one contact row: each host has their own contact row for
       // this user, so a single getContactByPhone() lookup missed other hosts' invites.
       const rows = db._raw().prepare(`
-        SELECT ei.id as inv_id, ei.status, ei.needs_owner_decision, ei.defers_to, se.id as event_id, se.title,
+        SELECT ei.id as inv_id, ei.status, ei.needs_owner_decision, ei.defers_to, se.id as event_id, se.title, se.date_tbd,
                se.activity_type, se.scheduled_at, se.venue_name, u.name as host_name
         FROM event_invitations ei
         JOIN contacts c ON c.id = ei.contact_id
@@ -2047,7 +2082,7 @@ async function processMessage(msg) {
       `).all(user.phone, userId);
       if (!rows.length) return '';
       const lines = rows.map(r => {
-        const ts = new Date(r.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const ts = r.date_tbd ? 'date TBD' : new Date(r.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
         const venue = r.venue_name ? ` at ${r.venue_name}` : '';
         const ask = r.needs_owner_decision && r.status === 'invited' ? ' | ⚠ ASK YOUR USER before responding (never say why)' : '';
         const def = r.defers_to ? ` | your user deferred — goes with whatever ${defer.joinNames(defer.parseNames(r.defers_to))} decide` : '';
@@ -2301,6 +2336,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
 - GROUP PLANS: a plan with one of your user's groups → create_social_event with group set, so all members are invited. Your user won't say "group plan" — infer it: they named the group earlier, or the plan is with that group's people (a plan inviting everyone in a group is linked to it automatically). Adding someone to that group later (manage_contact_group add_member) automatically invites them to its upcoming plans and sends them one catch-up — tell your user who was caught up on what (caught_up_on).
 - DEFERRING ON A PLAN: if your user, about a plan they're invited to, says they don't want to weigh in and will go with what certain people decide ("whatever Melanie wants", "it's her birthday, not mine", "you guys figure it out"), call defer_on_plan with those names. That's for THIS plan only. Never pass along their reasons. If a friend's ButterflAI says someone deferred, don't ask that person about the plan — ask the people they defer to.
+- EVERY CONVERSATION IS ABOUT A PLAN: a new one, an existing one, or combining two. When your user brings up a plan that isn't in Open events — even with no date ("we should camp at Grover with the mamas") — create it right away (create_social_event, tentative: true, no date unless they gave one). Housekeeping for a plan (adding someone to a group for it) belongs to that plan. If two Open events are really the same thing, ask your user whether to combine them (merge_plans).
 - TRIPS AND PLANS STILL BEING FIGURED OUT: when your user is planning something with people (a trip, a weekend, a party) — even with dates or details unsettled — create it with create_social_event (tentative: true, best-known dates, contact_ids = everyone involved) BEFORE messaging anyone about it. That puts it on everyone's Home and calendars. When a friend (or their ButterflAI's reply) is clearly in, record_rsvp accepted (shown as interested); when someone is out, declined. When dates and details are settled, update_event tentative: false. message_agent with topic "coordination" requires the event_id.
 - CREATE THE EVENT BEFORE MESSAGING AGENTS: when your user says they're going somewhere and wants to invite people, ALWAYS call create_social_event first (use flexible_time: true for "come whenever" invites). Then message_agent each invitee. This creates the invite card and calendar entry on their end. If you only call message_agent without creating the event, there is no invite card, no calendar entry, and no RSVP tracking — which breaks the whole flow.
 - AGENT QUERY HANDLING — TWO TYPES, handled differently:
@@ -2661,7 +2697,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   // the message is scrubbed, so no plain-text copy is left at rest.
   const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
   const turnStart = Math.floor(Date.now() / 1000);   // chat rows from here on belong to this turn (topics.js)
-  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms' };
+  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id };
   if (msg.channel === 'agent_query') {
     // Who's asking (for tell_my_user's avoid-list check), from the queued "thread=<id>".
     const thread = /\bthread=([\w-]+)/.exec(msg.text || '')?.[1];
@@ -2693,6 +2729,8 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   let actionClaimChallenged = false;
   const toolLog = [];   // { name, input, result } for every tool run this turn
   let lastReplyText = '';
+  let planRouted = false;    // routed this turn to a plan (topics.route)
+  let routed;                // its result, reused when filing the turn
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
@@ -2750,6 +2788,23 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         }
         turnTrace.event('guard', `repeated unbacked claim (${unbacked.what}): ${replyText.slice(0, 200)}`);
         if (unbacked.fallback !== null) replyText = unbacked.fallback || NOT_DONE_FALLBACK;
+      }
+
+      // Every conversation is about a plan (owner, 2026-10-09): new, existing, or a merge.
+      // A user message outside any pill that isn't tied to a plan yet is routed; if it's
+      // about a plan that doesn't exist, the agent creates it before replying.
+      if (USER_CHANNELS.includes(msg.channel) && !msg.event_id && !isPrivate && !planRouted
+          && !topics.eventsTouched(userId, toolLog).length) {
+        planRouted = true;
+        routed = await topics.route(userId, msg.text, replyText).catch(() => null);
+        if (routed?.kind === 'new') {
+          turnTrace.event('route', `new plan: ${routed.title}`);
+          messages.push({ role: 'user', content:
+            `[System check — not from the user] Every conversation in ButterflAI is about a plan, and this one is about a plan that doesn't exist yet ("${routed.title}"). `
+            + 'Create it now with create_social_event — tentative: true, a short title, the people your user named in contact_ids (look them up), and NO date unless your user gave one (it will show "date TBD"). '
+            + 'If it is really the same as one of their Open events, use that one instead. Then reply to your user.' });
+          continue;
+        }
       }
 
       // Answering another agent: the final text goes to NO ONE (it mixes reasoning with
@@ -2860,7 +2915,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   }
 
   // Which discussion (event) this turn belongs to, so the chat can be filtered by it.
-  await topics.tagTurn({ userId, sinceTs: turnStart, toolLog, isPrivate, eventId: msg.event_id,
+  await topics.tagTurn({ userId, sinceTs: turnStart, toolLog, isPrivate, eventId: msg.event_id, routed: planRouted ? routed : undefined,
     userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', replyText: lastReplyText });
 }
 

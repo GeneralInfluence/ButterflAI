@@ -58,6 +58,7 @@ function upcomingPlans(ownerId, groupId, { exclude = null } = {}) {
 
 // "Fri, Oct 23 – Sun, Oct 25" for multi-day plans; date only while tentative.
 function whenText(e, tz) {
+  if (e.date_tbd) return 'date TBD';
   if (e.flexible_time) return 'open invite';
   const day = (ts) => new Date(ts * 1000).toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' });
   const end = e.scheduled_at + (e.duration_mins || 120) * 60;

@@ -470,6 +470,13 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-09 (owner): every conversation is about a plan — new, existing, or combining two.
+  test('every conversation is about a plan; create on first mention; ask before combining', () => {
+    assertContains('EVERY CONVERSATION IS ABOUT A PLAN', 'plan rule');
+    assertContains('create it right away (create_social_event, tentative: true, no date unless they gave one)', 'first mention');
+    assertContains('ask your user whether to combine them (merge_plans)', 'merge asks');
+  });
+
   // 2026-10-09: reflection follow-ups ("did I get that right?") — corrections get fixed.
   test('reflection follow-ups: a correction is fixed with the other side', () => {
     assertContains('REFLECTION FOLLOW-UPS', 'reflection rule');

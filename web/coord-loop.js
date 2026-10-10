@@ -122,6 +122,7 @@ async function tick(transport = stubTransport) {
     await tickRecurring();
     await tickEscalations();
     tickPurge();
+    require('./multiparty').rollDateTbd();   // dateless plans never drift into "past"
     // Look back at quiet conversations where the agent acted for its user (reflect.js).
     const reflected = await require('./reflect').tick();
     if (reflected) console.log(`[coord] reflected on ${reflected} conversation(s)`);

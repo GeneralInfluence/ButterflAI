@@ -1492,26 +1492,31 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   // ?event=<id>: only that plan's discussion (2026-10-09). Host or invitee only.
   let eventInfo = null;
   const eventId = req.query.event ? String(req.query.event) : null;
-  if (eventId) {
+  const general = eventId === topics.GENERAL;   // the General pill: messages about no plan
+  if (eventId && !general) {
     if (!topics.canSee(req.user.id, eventId)) return res.status(403).json({ error: 'Not your event' });
     await topics.backfill(req.user.id, eventId);   // sort older messages in, once
     eventInfo = db._raw().prepare('SELECT id, title, scheduled_at, tentative FROM social_events WHERE id = ?').get(eventId);
   }
   // Opening the chat counts as seeing messages delivered in the app — no SMS fallback.
   deliver.markSeen(req.user.id);
-  if (eventId) {
+  if (general) {
+    msgs = db._raw().prepare(
+      `SELECT ${cols} FROM conversation_history WHERE user_id = ? AND event_id IS NULL AND created_at > ?
+       ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(req.user.id, since, limit).reverse();
+  } else if (eventId) {
     msgs = db._raw().prepare(
       `SELECT ${cols} FROM conversation_history WHERE user_id = ? AND event_id = ? AND created_at > ?
-       ORDER BY created_at DESC LIMIT ?`).all(req.user.id, eventId, since, limit).reverse();
+       ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(req.user.id, eventId, since, limit).reverse();
   } else if (since > 0) {
     msgs = db._raw().prepare(
       `SELECT ${cols} FROM conversation_history
-       WHERE user_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?`
+       WHERE user_id = ? AND created_at > ? ORDER BY created_at ASC, rowid ASC LIMIT ?`
     ).all(req.user.id, since, limit);
   } else {
     msgs = db._raw().prepare(
       `SELECT ${cols} FROM conversation_history
-       WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`
+       WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`
     ).all(req.user.id, limit).reverse();
   }
   // Private-mode messages are decrypted only here, for their owner (the query is scoped
@@ -1570,7 +1575,9 @@ app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res)
   try {
     // Store as inbound message and let the agent loop process it
     // Sent from inside a plan's discussion (chat pills): the message belongs to that plan.
-    const eventId = req.body?.event_id && topics.canSee(req.user.id, String(req.body.event_id)) ? String(req.body.event_id) : null;
+    // The General pill sends 'general' (standalone housekeeping — not routed to a plan).
+    const asked = req.body?.event_id ? String(req.body.event_id) : null;
+    const eventId = asked === topics.GENERAL ? topics.GENERAL : asked && topics.canSee(req.user.id, asked) ? asked : null;
     db.storeInboundMessage({
       from_phone: req.user.phone,
       from_type: 'user',

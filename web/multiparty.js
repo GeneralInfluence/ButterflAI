@@ -93,6 +93,7 @@ function ensureEventTables() {
       host_attending INTEGER DEFAULT 1,   -- 0 = host bailed but event continues, migration 024
       tentative      INTEGER NOT NULL DEFAULT 0, -- 1 = details still being worked out, migration 035
       group_id       TEXT,                -- contact group this plan is for, migration 038
+      date_tbd       INTEGER NOT NULL DEFAULT 0, -- 1 = no date yet; scheduled_at is a placeholder, migration 043
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 
@@ -128,10 +129,14 @@ function ensureEventTables() {
  *   scheduled_at (ISO string or unix ts), duration_mins, notes
  * @returns {string} eventId
  */
-function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative, group_id }) {
-  // flexible_time=true → no fixed time ("come when you're ready"); use now as placeholder timestamp
-  const isFlexible = !scheduled_at || flexible_time;
-  const ts = isFlexible
+function createEvent(hostUserId, { title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative, group_id, date_tbd }) {
+  // date_tbd → a plan with no date yet: placeholder DATE_TBD_DAYS ahead (kept rolling by
+  // rollDateTbd), always tentative. flexible_time=true → no fixed time ("come when you're
+  // ready"); use now as placeholder timestamp.
+  const tbd = !!date_tbd && !scheduled_at && !flexible_time;
+  if (tbd) tentative = true;
+  const isFlexible = !tbd && (!scheduled_at || flexible_time);
+  const ts = tbd ? Math.floor(Date.now() / 1000) + DATE_TBD_DAYS * 86400 : isFlexible
     ? Math.floor(Date.now() / 1000)
     : typeof scheduled_at === 'string'
       ? Math.floor(new Date(scheduled_at).getTime() / 1000)
@@ -157,10 +162,10 @@ function createEvent(hostUserId, { title, activity_type, venue_name, venue_addre
 
   const id = uuidv4();
   db._raw().prepare(`
-    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative, group_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO social_events (id, host_user_id, title, activity_type, venue_name, venue_address, scheduled_at, duration_mins, notes, event_type, flexible_time, tentative, group_id, date_tbd)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, hostUserId, title, activity_type, venue_name || null, venue_address || null,
-         ts, duration_mins || 120, notes || null, type, isFlexible ? 1 : 0, tentative ? 1 : 0, group_id || null);
+         ts, duration_mins || 120, notes || null, type, isFlexible ? 1 : 0, tentative ? 1 : 0, group_id || null, tbd ? 1 : 0);
 
   return id;
 }
@@ -262,7 +267,7 @@ async function inviteContacts(eventId, contactIds, { quiet = false } = {}) {
   if (!host) throw new Error('Host not found');
 
   const hostTimezone = host.timezone || 'America/Los_Angeles';
-  const whenFor = (u) => event.flexible_time
+  const whenFor = (u) => event.date_tbd ? 'date TBD' : event.flexible_time
     ? 'open invite'
     : formatEventDate(event.scheduled_at, u?.timezone || hostTimezone);
 
@@ -340,7 +345,7 @@ async function inviteContacts(eventId, contactIds, { quiet = false } = {}) {
       // Quiet (groups.js sends one catch-up). Someone asked privately because of their
       // avoid list isn't in the catch-up — their own agent already asked them.
       if (quiet) { sent++; if (!(hostEntry || groupEntry)) invitedIds.push(contactId); continue; }
-      const whenStr = event.flexible_time
+      const whenStr = event.date_tbd ? 'date TBD' : event.flexible_time
         ? 'open invite — come whenever'
         : formatEventDate(event.scheduled_at, inviteeUser.timezone || hostTimezone);
       try {
@@ -361,7 +366,7 @@ async function inviteContacts(eventId, contactIds, { quiet = false } = {}) {
     // Non-user contact → SMS. Use sendUnchecked because the invite message includes a
     // mandatory STOP opt-out — this IS the first-touch consent mechanism. sms.send()
     // would block on ConsentRequired for new contacts, preventing the invite going out.
-    const dateStr = event.flexible_time ? 'whenever you\'re free' : formatEventDate(event.scheduled_at, hostTimezone);
+    const dateStr = event.date_tbd ? 'date TBD' : event.flexible_time ? 'whenever you\'re free' : formatEventDate(event.scheduled_at, hostTimezone);
     const venueStr = event.venue_name ? ` at ${event.venue_name}` : '';
     const message = buildInviteMessage(host.name, contact.name, event.activity_type, dateStr, venueStr, invId, !!event.flexible_time, !!event.tentative);
 
@@ -637,6 +642,55 @@ function wasInvited(contactPhone, eventId) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Combine two plans that turned out to be the same (owner, 2026-10-09: "…or to combine
+ * two events"). Everything moves to `keepId`: invitations (the more committed status wins
+ * when someone was invited to both), the discussion, agent threads, mentions; the group,
+ * notes and a real date fill gaps. `mergeId` is cancelled with a pointer. Host only.
+ */
+function mergeEvents(hostUserId, keepId, mergeId) {
+  const get = (id) => db._raw().prepare('SELECT * FROM social_events WHERE id = ?').get(id);
+  const keep = get(keepId), drop = get(mergeId);
+  if (!keep || !drop || keepId === mergeId) return { error: 'EVENT_NOT_FOUND' };
+  if (keep.host_user_id !== hostUserId || drop.host_user_id !== hostUserId) return { error: 'NOT_YOUR_PLANS', message: 'You can only combine plans you host.' };
+  if (keep.status === 'cancelled' || drop.status === 'cancelled') return { error: 'CANCELLED', message: 'One of these plans is cancelled.' };
+  const rank = { accepted: 3, invited: 2, no_response: 1, declined: 0 };
+  db._raw().transaction(() => {
+    for (const inv of db._raw().prepare('SELECT * FROM event_invitations WHERE event_id = ?').all(mergeId)) {
+      const dup = db._raw().prepare('SELECT * FROM event_invitations WHERE event_id = ? AND contact_id = ?').get(keepId, inv.contact_id);
+      if (!dup) { db._raw().prepare('UPDATE event_invitations SET event_id = ? WHERE id = ?').run(keepId, inv.id); continue; }
+      if ((rank[inv.status] ?? 0) > (rank[dup.status] ?? 0)) {
+        db._raw().prepare('UPDATE event_invitations SET status = ?, responded_at = ? WHERE id = ?').run(inv.status, inv.responded_at, dup.id);
+      }
+      if (inv.defers_to && !dup.defers_to) {
+        db._raw().prepare('UPDATE event_invitations SET defers_to = ?, deferred_at = ? WHERE id = ?').run(inv.defers_to, inv.deferred_at, dup.id);
+      }
+      db._raw().prepare('DELETE FROM event_invitations WHERE id = ?').run(inv.id);
+    }
+    db._raw().prepare('UPDATE conversation_history SET event_id = ? WHERE event_id = ?').run(keepId, mergeId);
+    db._raw().prepare('UPDATE inbound_messages SET event_id = ? WHERE event_id = ?').run(keepId, mergeId);
+    db._raw().prepare('UPDATE agent_messages SET thread_id = ? WHERE thread_id = ?').run(keepId, mergeId);
+    try { db._raw().prepare('UPDATE contact_mentions SET event_id = ? WHERE event_id = ?').run(keepId, mergeId); } catch (_) {}
+    const notes = [keep.notes, drop.notes && !String(keep.notes || '').includes(drop.notes) ? drop.notes : null].filter(Boolean).join(' · ') || null;
+    const takeDate = keep.date_tbd && !drop.date_tbd;
+    db._raw().prepare(`UPDATE social_events SET notes = ?, group_id = COALESCE(group_id, ?), venue_name = COALESCE(venue_name, ?),
+      scheduled_at = ?, date_tbd = ?, flexible_time = ? WHERE id = ?`)
+      .run(notes, drop.group_id, drop.venue_name, takeDate ? drop.scheduled_at : keep.scheduled_at,
+        takeDate ? 0 : keep.date_tbd, takeDate ? drop.flexible_time : keep.flexible_time, keepId);
+    db._raw().prepare(`UPDATE social_events SET status = 'cancelled', notes = ? WHERE id = ?`).run(`Combined into "${keep.title}"`, mergeId);
+  })();
+  return { merged: true, kept: { event_id: keepId, title: keep.title }, combined: { event_id: mergeId, title: drop.title } };
+}
+
+// Plans with no date yet keep a placeholder this far ahead, so nothing treats them as
+// past; rollDateTbd (coord loop) keeps it there.
+const DATE_TBD_DAYS = 45;
+function rollDateTbd() {
+  const t = Math.floor(Date.now() / 1000);
+  return db._raw().prepare(`UPDATE social_events SET scheduled_at = ? WHERE date_tbd = 1 AND scheduled_at < ?`)
+    .run(t + DATE_TBD_DAYS * 86400, t + 30 * 86400).changes;
+}
+
 function formatEventDate(ts, timezone = 'America/Los_Angeles') {
   const d = new Date(ts * 1000);
   return d.toLocaleString('en-US', {
@@ -672,6 +726,9 @@ function dismissInvitation(invitationId, userPhone) {
 
 module.exports = {
   createEvent,
+  mergeEvents,
+  rollDateTbd,
+  DATE_TBD_DAYS,
   inviteContacts,
   formatEventDate,
   queueHostRsvpNotice,

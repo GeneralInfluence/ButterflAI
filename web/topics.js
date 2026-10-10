@@ -15,6 +15,8 @@ const db = require('./db');
 const { createAnthropicClient, DEFAULT_MODEL } = require('./anthropic-client');
 
 const now = () => Math.floor(Date.now() / 1000);
+// The General pill: standalone housekeeping, not about any plan (owner, 2026-10-09).
+const GENERAL = 'general';
 const BACKFILL_DAYS = 14;
 const BACKFILL_MAX = 120;
 
@@ -112,21 +114,48 @@ const list = (events) => events.map((e, i) => `${i + 1}. ${e.title} (${new Date(
  * After a turn: tag it. Tools that worked on one event decide; otherwise ask the model
  * which of the user's events (if any) the exchange was about. Never throws.
  */
-async function tagTurn({ userId, sinceTs, toolLog, userText, replyText, isPrivate, eventId = null }) {
+/**
+ * Which plan a user's message is about (owner, 2026-10-09: "every conversation in
+ * ButterflAI is about an event — a new event, an existing event, or combining two"):
+ *   { kind: 'existing', eventId } | { kind: 'new', title } | { kind: 'general' } | null (no model)
+ * Housekeeping that serves a plan ("add Bam Bam to the mamas for Grover") belongs to it;
+ * only truly standalone things (sync contacts, the weather) are general.
+ */
+async function route(userId, userText, replyText = '') {
+  if (!userText || !client()) return null;
+  const events = eventsFor(userId);
+  const out = await ask(
+    `Every conversation in this social-planning app is about a plan (an outing, trip, dinner, party…).\n`
+    + `The person's current plans:\n${events.length ? list(events) : '(none)'}\n\n`
+    + `Person: ${String(userText).slice(0, 600)}\nAssistant: ${String(replyText || '').slice(0, 600)}\n\n`
+    + 'What is this exchange about?\n'
+    + '- One of the plans above → answer with its number.\n'
+    + '- A plan that is NOT in the list (a trip, dinner, hangout, party being suggested or discussed — even with no date yet) → answer NEW: <short name, e.g. "Grover Hot Springs camping">.\n'
+    + '- Housekeeping that serves a plan above (adding someone to a group for it, weather for it) → that plan\'s number.\n'
+    + '- Truly standalone housekeeping or chit-chat (sync contacts, settings, a general question) → 0.\n'
+    + 'Answer with only the number, 0, or NEW: name.', 30);
+  const txt = String(out || '').trim();
+  const isNew = /^NEW\s*:\s*(.+)$/i.exec(txt);
+  if (isNew) return { kind: 'new', title: isNew[1].replace(/^["'“]|["'”]$/g, '').trim().slice(0, 80) };
+  const n = parseInt(txt, 10);
+  if (n >= 1 && n <= events.length) return { kind: 'existing', eventId: events[n - 1].id };
+  return { kind: 'general' };
+}
+
+/**
+ * After a turn: file it under its plan. In order: sent from inside a pill; tools worked
+ * on exactly one plan; the routing decided during the turn (`routed`); else ask route().
+ * Never throws.
+ */
+async function tagTurn({ userId, sinceTs, toolLog, userText, replyText, isPrivate, eventId = null, routed = undefined }) {
   try {
-    // Sent from inside a plan's discussion: it belongs there.
+    if (eventId === GENERAL) return 0;   // sent from the General pill
     if (eventId && canSee(userId, eventId)) return tagSince(userId, sinceTs, eventId);
     const touched = eventsTouched(userId, toolLog || []);
     if (touched.length === 1) return tagSince(userId, sinceTs, touched[0]);
     if (touched.length > 1 || isPrivate) return 0;
-    const events = eventsFor(userId);
-    if (!events.length || !userText) return 0;
-    const out = await ask(
-      `A person is chatting with their assistant. Their current plans:\n${list(events)}\n\n`
-      + `Person: ${String(userText).slice(0, 600)}\nAssistant: ${String(replyText || '').slice(0, 600)}\n\n`
-      + 'Which plan is this exchange about? Answer with just the number, or 0 if none or unclear.', 5);
-    const n = parseInt(out, 10);
-    return n >= 1 && n <= events.length ? tagSince(userId, sinceTs, events[n - 1].id) : 0;
+    const r = routed !== undefined ? routed : await route(userId, userText, replyText);
+    return r?.kind === 'existing' && canSee(userId, r.eventId) ? tagSince(userId, sinceTs, r.eventId) : 0;
   } catch (err) {
     console.error('[topics] tagTurn failed:', err.message);
     return 0;
@@ -162,4 +191,4 @@ async function backfill(userId, eventId) {
   }
 }
 
-module.exports = { discussionsFor, eventsFor, canSee, eventsTouched, tagSince, tagTurn, backfill, _setClient };
+module.exports = { GENERAL, route, discussionsFor, eventsFor, canSee, eventsTouched, tagSince, tagTurn, backfill, _setClient };
