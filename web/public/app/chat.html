@@ -803,13 +803,17 @@
         return a + ' ' + b;
       }
 
-      const MAX_SILENT_PASSES = 2;            // two silent sessions (~15–20s) → stop
+      // Restart only when Android cut the session off while you were still talking (spoke
+      // in the last CUT_OFF_MS). After a real pause, stop once and say so. (2026-10-09:
+      // restarting after silence played start/stop tones over and over — Android's own
+      // sounds, which a web page can't turn off.)
+      const CUT_OFF_MS = 2500;
       const MAX_LISTEN_MS = 5 * 60 * 1000;    // hard cap
 
       let listening   = false;   // a recognition pass is running
       let wantOn      = false;   // the user wants to keep talking (tap again to stop)
       let discard     = false;   // message was sent mid-recording: ignore late results
-      let silentPasses = 0;
+      let lastSpeechAt = 0;      // when words last came in
       let startedAt   = 0;
       let baseText    = '';      // text already in the box before this pass started
       let finalSoFar  = '';      // final segments heard this pass
@@ -838,7 +842,7 @@
 
       recognition.onresult = e => {
         if (discard) return;
-        silentPasses = 0;
+        lastSpeechAt = Date.now();
         let interim = '';
         finalSoFar  = '';
         for (let i = 0; i < e.results.length; i++) {
@@ -862,9 +866,15 @@
           inputEl.value = committed;
           sendBtn.disabled = false;
         }
-        // Still talking? Start the next pass right away.
-        if (wantOn && silentPasses < MAX_SILENT_PASSES && Date.now() - startedAt < MAX_LISTEN_MS) {
+        // Cut off mid-sentence? Start the next pass right away. A real pause → stop.
+        const cutOff = Date.now() - lastSpeechAt < CUT_OFF_MS;
+        if (wantOn && cutOff && Date.now() - startedAt < MAX_LISTEN_MS) {
           try { recognition.start(); return; } catch (_) { /* fall through to stop */ }
+        }
+        if (wantOn) {   // stopped by a pause, not by a tap — say so (one tone, not several)
+          const st = document.getElementById('status-text');
+          st.textContent = committed ? '🎤 Paused — tap Voice to keep talking' : '🎤 Didn’t hear anything — tap Voice to try again';
+          setTimeout(() => { st.textContent = 'Your social assistant'; }, 4000);
         }
         wantOn = false;
         setMicUi(false);
@@ -872,7 +882,7 @@
       };
 
       recognition.onerror = e => {
-        if (e.error === 'no-speech') { silentPasses++; return; }   // a pause — onend decides
+        if (e.error === 'no-speech') return;   // a pause — onend decides
         if (e.error === 'aborted') return;
         wantOn = false;                                             // real failure: stop
         // Say why it failed — it used to fail silently for anything but a denied mic.
@@ -895,7 +905,7 @@
           return;
         }
         wantOn = true;
-        silentPasses = 0;
+        lastSpeechAt = 0;
         startedAt = Date.now();
         try { recognition.start(); } catch (_) { wantOn = false; }
       };

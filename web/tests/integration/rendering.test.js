@@ -838,8 +838,12 @@ describe('Voice input keeps listening until tapped again', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
   test('each pass that ends at a pause starts the next one while the user wants to talk', () => {
     assert.ok(html.includes('let wantOn      = false;'));
-    assert.match(html, /if \(wantOn && silentPasses < MAX_SILENT_PASSES && Date\.now\(\) - startedAt < MAX_LISTEN_MS\) \{\s*try \{ recognition\.start\(\); return; \}/);
-    assert.ok(html.includes("if (e.error === 'no-speech') { silentPasses++; return; }"), 'a pause is not an error');
+    // Since 2026-10-09 it restarts only when Android cut you off mid-speech (spoke in the
+    // last CUT_OFF_MS); restarting after real silence made Android play tone after tone.
+    assert.match(html, /const cutOff = Date\.now\(\) - lastSpeechAt < CUT_OFF_MS;\s*if \(wantOn && cutOff && Date\.now\(\) - startedAt < MAX_LISTEN_MS\) \{\s*try \{ recognition\.start\(\); return; \}/);
+    assert.ok(html.includes("if (e.error === 'no-speech') return;"), 'a pause is not an error');
+    assert.ok(html.includes('Paused — tap Voice to keep talking'), 'a pause stops once and says so');
+    assert.ok(!html.includes('silentPasses'), 'no restarting through silence');
   });
   // Regression (2026-10-09): restarting a short session at every pause made Android beep
   // (start + end tone per session) whenever Sean paused. One continuous session instead.
