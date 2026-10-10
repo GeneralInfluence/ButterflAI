@@ -570,7 +570,13 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   turn's tools work on one event, otherwise a small Haiku match against the user's current
   events; older messages are sorted in once when a discussion is first opened. Home event
   cards and Events → 💬 Discussion open `/app/chat?event=<id>` (host/invitee only, 403
-  otherwise) with "Show all".
+  otherwise).
+  **Plan pills (owner: "this makes it different than WhatsApp — it's not about people and
+  groups, it's about events"):** along the top of chat, "All" + one pill per plan (upcoming,
+  or discussed in the last 30 days; most recently active first; tentative marked —
+  `/api/chat/discussions`). A message sent inside a pill carries that plan
+  (`inbound_messages.event_id`, migration 041): the agent gets a "Current discussion" section
+  and the turn is filed there.
 - **Agent-to-agent:** "what is your user up to" is never answered from memory and never
   triggers a ping; agents answer only from what the user explicitly shared.
 - Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.

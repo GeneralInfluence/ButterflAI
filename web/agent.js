@@ -2040,6 +2040,14 @@ async function processMessage(msg) {
       + `\n- If your user's message answers one, call reply_agent with that message_id — it is the ONLY way the answer gets back. Never say you replied unless reply_agent returned replied: true.`
     : '';
 
+  // The user is writing from inside one plan's discussion (chat pills).
+  const currentDiscussion = (() => {
+    if (!msg.event_id || coordinationOnly || !topics.canSee(userId, msg.event_id)) return '';
+    const e = db._raw().prepare('SELECT id, title, scheduled_at, tentative FROM social_events WHERE id = ?').get(msg.event_id);
+    if (!e) return '';
+    return `\n## Current discussion\nYour user is writing in the discussion for "${e.title}"${e.tentative ? ' (tentative)' : ''} (eventId="${e.id}"). Take their message as being about this plan unless it's clearly about something else — "she", "the trip", "Saturday" refer to it.`;
+  })();
+
   const agentNotes = user.agent_notes?.trim();
   const inSensitiveMode = sensitive.isSensitiveMode(userId);
   const prefsSection = buildPrefsSection(prefs, { coordinationOnly });
@@ -2062,6 +2070,7 @@ async function processMessage(msg) {
     coordinationOnly ? '' : `\n## Open events\n${pendingEvents}`,
     pendingCoordination,
     openQuestionsSection,
+    currentDiscussion,
     (agentNotes && !coordinationOnly) ? `\n## Remembered facts (use these — don't ask again)\n${agentNotes}` : '',
   ].filter(Boolean).join('\n');
 
@@ -2821,7 +2830,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   }
 
   // Which discussion (event) this turn belongs to, so the chat can be filtered by it.
-  await topics.tagTurn({ userId, sinceTs: turnStart, toolLog, isPrivate,
+  await topics.tagTurn({ userId, sinceTs: turnStart, toolLog, isPrivate, eventId: msg.event_id,
     userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', replyText: lastReplyText });
 }
 

@@ -1519,6 +1519,12 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   });
 });
 
+// GET /api/chat/discussions — the plan pills along the top of chat (owner, 2026-10-09:
+// chat is organized by the plans you're making, not by people or groups like WhatsApp).
+app.get('/api/chat/discussions', webAuth.requireAuth, (req, res) => {
+  res.json({ discussions: topics.discussionsFor(req.user.id) });
+});
+
 // GET /api/chat/stream — SSE stream for real-time agent responses
 // Note: EventSource can't read 401 body, so we send a redirect event instead
 app.get('/api/chat/stream', (req, res) => {
@@ -1556,12 +1562,15 @@ app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res)
 
   try {
     // Store as inbound message and let the agent loop process it
+    // Sent from inside a plan's discussion (chat pills): the message belongs to that plan.
+    const eventId = req.body?.event_id && topics.canSee(req.user.id, String(req.body.event_id)) ? String(req.body.event_id) : null;
     db.storeInboundMessage({
       from_phone: req.user.phone,
       from_type: 'user',
       from_id: req.user.id,
       channel: 'webchat',
       text,
+      event_id: eventId,
     });
     // Immediately push a "thinking" status so the UI shows activity before the agent fires
     sse.push(req.user.id, { role: 'status', text: 'Thinking…' });

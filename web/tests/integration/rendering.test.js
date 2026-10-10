@@ -892,11 +892,15 @@ describe('Home feed + Events show tentative plans and what needs you', () => {
 // 2026-10-09: chat filtered to one plan's discussion, opened from Home / Events.
 describe('Chat: one discussion at a time', () => {
   const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8');
-  test('chat reads ?event=, shows the topic bar with Show all, falls back on 403', () => {
+  // The "Show all" bar became plan pills along the top (owner, 2026-10-09: chat is
+  // organized by plans, not people/groups): "All" + one pill per plan.
+  test('chat shows plan pills (All + each plan), reads ?event=, falls back on 403, sends within the plan', () => {
     const html = read('chat.html');
+    assert.ok(html.includes('<nav id="topic-pills" aria-label="Plans" hidden></nav>'));
+    assert.ok(html.includes("fetch('/api/chat/discussions')") && html.includes('href="/app/chat">All</a>'));
     assert.ok(html.includes("new URLSearchParams(location.search).get('event')"));
-    assert.ok(html.includes('id="topic-bar" hidden') && html.includes('href="/app/chat" class="topic-all">Show all'));
     assert.ok(html.includes("if (topicEvent && r.status === 403) { location.replace('/app/chat'); return; }"));
+    assert.ok(html.includes('JSON.stringify(topicEvent ? { text, event_id: topicEvent } : { text })'));
   });
   test('Home event cards and Events cards link to the discussion', () => {
     assert.ok(read('dashboard.html').includes('href="/app/chat?event=${esc(i.event_id)}"'));

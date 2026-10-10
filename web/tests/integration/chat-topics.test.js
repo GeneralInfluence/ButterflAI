@@ -122,3 +122,47 @@ describe('chat filtered by discussion', () => {
     assert.deepEqual(tagged(allie, eventId), ['Sean asks: shiftpod OK for everyone?']);
   });
 });
+
+// Owner, 2026-10-09: pills along the top of chat — one per plan — so chat is organized
+// by the plans you're making, not by people or groups.
+describe('plan pills', () => {
+  let sean, cookie, grover, tahoe;
+  before(async () => {
+    sean = mkUser('Sean Pills');
+    cookie = await cookieFor(sean);
+    grover = (await agent.executeTool('create_social_event', { title: 'Grover Hot Springs', activity_type: 'camping', tentative: true,
+      scheduled_at: new Date(Date.now() + 14 * 86400e3).toISOString() }, sean.id, sean.phone)).eventId;
+    tahoe = (await agent.executeTool('create_social_event', { title: 'Tahoe', activity_type: 'ski',
+      scheduled_at: new Date(Date.now() + 40 * 86400e3).toISOString() }, sean.id, sean.phone)).eventId;
+  });
+  after(() => topics._setClient(null));
+
+  test('lists each plan; the one talked about most recently first', async () => {
+    db._raw().prepare(`INSERT INTO conversation_history (id, user_id, role, text, event_id) VALUES (?, ?, 'user', 'tahoe chat', ?)`).run(uuidv4(), sean.id, tahoe);
+    const r = await request.get('/api/chat/discussions').set('Cookie', cookie);
+    assert.deepEqual(r.body.discussions.map((d) => d.title), ['Tahoe', 'Grover Hot Springs']);
+    assert.equal(r.body.discussions[1].tentative, true);
+  });
+
+  test('a message sent inside a pill is about that plan: the agent is told, and the turn is filed there', async () => {
+    topicModel(['0']);   // no model match needed — the pill decides
+    let system = '';
+    let i = 0;
+    agent._setAnthropic({ messages: { create: async (req) => { system = JSON.stringify(req.system); return { id: 'x' + i++, stop_reason: 'end_turn', content: [{ type: 'text', text: 'Saturday looks cold.' }] }; } } });
+    const res = await request.post('/api/chat/send').set('Cookie', cookie).send({ text: 'what about saturday?', event_id: grover });
+    assert.equal(res.status, 200);
+    await agent.tick();
+    assert.ok(system.includes('## Current discussion') && system.includes('Grover Hot Springs'));
+    assert.deepEqual(tagged(sean, grover), ['what about saturday?', 'Saturday looks cold.']);
+  });
+
+  test("someone else's plan id is ignored", async () => {
+    const other = mkUser('Other Pills');
+    const theirs = (await agent.executeTool('create_social_event', { title: 'Secret', activity_type: 'x',
+      scheduled_at: new Date(Date.now() + 5 * 86400e3).toISOString() }, other.id, other.phone)).eventId;
+    await request.post('/api/chat/send').set('Cookie', cookie).send({ text: 'hi', event_id: theirs });
+    const row = db._raw().prepare('SELECT event_id FROM inbound_messages WHERE from_id = ? ORDER BY rowid DESC LIMIT 1').get(sean.id);
+    assert.equal(row.event_id, null);
+  });
+});
+

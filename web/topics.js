@@ -42,6 +42,30 @@ function eventsFor(userId) {
     ORDER BY se.scheduled_at`).all(userId, user?.phone || '', t - 7 * 86400, t + 90 * 86400);
 }
 
+/**
+ * The plan pills along the top of chat: upcoming plans (yours and ones you're invited
+ * to) plus any plan discussed in the last 30 days. Most recently active first, then soonest.
+ */
+function discussionsFor(userId) {
+  const t = now();
+  const byId = new Map(eventsFor(userId).map((e) => [e.id, { ...e, messages: 0, last_at: 0 }]));
+  const talked = db._raw().prepare(`SELECT event_id, count(*) n, max(created_at) last_at FROM conversation_history
+    WHERE user_id = ? AND event_id IS NOT NULL AND created_at > ? GROUP BY event_id`).all(userId, t - 30 * 86400);
+  for (const r of talked) {
+    if (!byId.has(r.event_id)) {
+      if (!canSee(userId, r.event_id)) continue;
+      const e = db._raw().prepare(`SELECT id, title, scheduled_at FROM social_events WHERE id = ? AND COALESCE(status, 'open') != 'cancelled'`).get(r.event_id);
+      if (!e) continue;
+      byId.set(e.id, { ...e, messages: 0, last_at: 0 });
+    }
+    Object.assign(byId.get(r.event_id), { messages: r.n, last_at: r.last_at });
+  }
+  return [...byId.values()].map((e) => {
+    const x = db._raw().prepare('SELECT tentative FROM social_events WHERE id = ?').get(e.id);
+    return { event_id: e.id, title: e.title, scheduled_at: e.scheduled_at, tentative: !!x?.tentative, messages: e.messages, last_at: e.last_at || null };
+  }).sort((a, b) => (b.last_at || 0) - (a.last_at || 0) || a.scheduled_at - b.scheduled_at);
+}
+
 /** May this user see this event's discussion? (host or invited) */
 function canSee(userId, eventId) {
   const user = db.getUser(userId);
@@ -87,8 +111,10 @@ const list = (events) => events.map((e, i) => `${i + 1}. ${e.title} (${new Date(
  * After a turn: tag it. Tools that worked on one event decide; otherwise ask the model
  * which of the user's events (if any) the exchange was about. Never throws.
  */
-async function tagTurn({ userId, sinceTs, toolLog, userText, replyText, isPrivate }) {
+async function tagTurn({ userId, sinceTs, toolLog, userText, replyText, isPrivate, eventId = null }) {
   try {
+    // Sent from inside a plan's discussion: it belongs there.
+    if (eventId && canSee(userId, eventId)) return tagSince(userId, sinceTs, eventId);
     const touched = eventsTouched(userId, toolLog || []);
     if (touched.length === 1) return tagSince(userId, sinceTs, touched[0]);
     if (touched.length > 1 || isPrivate) return 0;
@@ -135,4 +161,4 @@ async function backfill(userId, eventId) {
   }
 }
 
-module.exports = { eventsFor, canSee, eventsTouched, tagSince, tagTurn, backfill, _setClient };
+module.exports = { discussionsFor, eventsFor, canSee, eventsTouched, tagSince, tagTurn, backfill, _setClient };

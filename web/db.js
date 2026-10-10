@@ -461,16 +461,17 @@ module.exports = {
 
   // ── Inbound messages (agent queue) ─────────────────────────────────────────
 
-  storeInboundMessage({ from_phone, from_telegram_id, from_type, from_id, channel, text }) {
+  storeInboundMessage({ from_phone, from_telegram_id, from_type, from_id, channel, text, event_id }) {
     return db.prepare(`
-      INSERT INTO inbound_messages (id, from_phone, from_telegram_id, from_type, from_id, channel, text)
-      VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)
+      INSERT INTO inbound_messages (id, from_phone, from_telegram_id, from_type, from_id, channel, text, event_id)
+      VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?)
     `).run(
       from_phone || null,
       from_telegram_id ? String(from_telegram_id) : null,
       from_type, from_id,
       channel || 'sms',
       text,
+      event_id || null,
     );
   },
 
