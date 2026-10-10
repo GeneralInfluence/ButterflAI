@@ -131,3 +131,25 @@ describe('the same name for two people: context decides, otherwise ask', () => {
   });
 });
 
+
+// Owner, 2026-10-09: "will that grow extremely fast?" — same mention within a day counts
+// once, and mentions expire after RETENTION_DAYS (passively accumulated data, §3.6).
+describe('mentions stay small', () => {
+  const mentions = require('../../mentions');
+  test('the same person, name and context within a day is one row', () => {
+    const u = mkUser('+12025559520', 'Sean Size');
+    const c = db.upsertContact({ invited_by_user_id: u.id, name: 'Allie Size', phone: '+12025559521', tier: 1 });
+    assert.equal(mentions.record(u.id, c, { nameUsed: 'Al', context: 'Grover camping' }), true);
+    for (let i = 0; i < 4; i++) assert.equal(mentions.record(u.id, c, { nameUsed: 'Al', context: 'Grover camping' }), false);
+    assert.equal(mentions.record(u.id, c, { nameUsed: 'Al', context: 'work drinks' }), true, 'a different context is new');
+    assert.equal(db._raw().prepare('SELECT count(*) n FROM contact_mentions WHERE user_id = ?').get(u.id).n, 2);
+  });
+  test('mentions past retention are deleted', () => {
+    const u = mkUser('+12025559522', 'Sean Old');
+    const c = db.upsertContact({ invited_by_user_id: u.id, name: 'Old Friend', phone: '+12025559523', tier: 1 });
+    mentions.record(u.id, c, { nameUsed: 'Oldie' });
+    db._raw().prepare('UPDATE contact_mentions SET created_at = ? WHERE user_id = ?').run(Math.floor(Date.now() / 1000) - (mentions.RETENTION_DAYS + 1) * 86400, u.id);
+    assert.ok(mentions.purgeOld() >= 1);
+    assert.equal(db._raw().prepare('SELECT count(*) n FROM contact_mentions WHERE user_id = ?').get(u.id).n, 0);
+  });
+});

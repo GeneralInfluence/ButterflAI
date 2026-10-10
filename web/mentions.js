@@ -20,6 +20,10 @@ const db = require('./db');
 const { norm } = require('./names');
 
 const HALF_LIFE_DAYS = 45;
+// Passively accumulated data must expire (MEMORY.md §3.6). At 180 days a mention counts
+// ~6% of a fresh one; past that it's deleted. Learned aliases on the contact stay until
+// the user removes them.
+const RETENTION_DAYS = 180;
 const STOP = new Set(['the', 'and', 'with', 'for', 'our', 'my', 'trip', 'plan', 'plans', 'about', 'this', 'that', 'some', 'tonight', 'today', 'tomorrow', 'weekend', 'party', 'thing']);
 const terms = (s) => [...new Set(norm(s).split(' ').filter((w) => w.length >= 3 && !STOP.has(w)))];
 
@@ -42,8 +46,20 @@ function describe({ eventId, groupId }) {
 function record(userId, contactId, { nameUsed = null, eventId = null, groupId = null, context = '' } = {}) {
   const d = describe({ eventId, groupId });
   d.words = [...new Set([...d.words.split(' '), ...terms(context)].filter(Boolean))].join(' ');
+  // Same person, same name, same context within a day counts once (five messages to Allie
+  // about Grover in an afternoon are one mention, not five).
+  const name = nameUsed ? String(nameUsed).slice(0, 40) : null;
+  const dup = db._raw().prepare(`SELECT 1 FROM contact_mentions WHERE user_id = ? AND contact_id = ? AND name_used IS ? AND context IS ?
+    AND created_at > strftime('%s','now') - 86400`).get(userId, contactId, name, d.words || null);
+  if (dup) return false;
   db._raw().prepare(`INSERT INTO contact_mentions (id, user_id, contact_id, name_used, event_id, group_id, context) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(uuidv4(), userId, contactId, nameUsed ? String(nameUsed).slice(0, 40) : null, eventId, d.groupId, d.words || null);
+    .run(uuidv4(), userId, contactId, name, eventId, d.groupId, d.words || null);
+  return true;
+}
+
+/** Hard-delete mentions past retention. */
+function purgeOld() {
+  return db._raw().prepare(`DELETE FROM contact_mentions WHERE created_at < strftime('%s','now') - ?`).run(RETENTION_DAYS * 86400).changes;
 }
 
 /**
@@ -86,4 +102,4 @@ function fit(userId, contact, query, context) {
   return { nameUses, contextHits, why: whyParts.join('; ') || undefined };
 }
 
-module.exports = { record, fit, terms };
+module.exports = { record, fit, terms, purgeOld, RETENTION_DAYS };

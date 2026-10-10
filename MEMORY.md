@@ -546,7 +546,8 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   and the Mama's — someday a different Al from work): each time the user acts on someone,
   the name used + context (plan, activity, place, group, what the conversation was about)
   is recorded (`contact_mentions`, migration 040, `web/mentions.js`, owner-only, 45-day
-  half-life). `lookup_contact` takes `context`; when an alias and a real name both fit, the
+  half-life; same person+name+context within a day = one row; deleted after 180 days by
+  the coord-loop purge — passively accumulated data, §3.6). `lookup_contact` takes `context`; when an alias and a real name both fit, the
   one whose past context matches wins; otherwise the agent asks and says why each fits.
 - **One Google connection (2026-10-09, owner: "everything Google should all be one"):**
   `/auth/google` asks for Calendar + Contacts in one consent (old calendar/contacts entry

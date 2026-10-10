@@ -152,6 +152,13 @@ function tickPurge() {
   } catch (err) {
     console.error('[coord] trace purge error:', err.message);
   }
+  // Name/context mentions are passively accumulated: kept mentions.RETENTION_DAYS (MEMORY.md §3.6).
+  try {
+    const m = require('./mentions').purgeOld();
+    if (m) console.log(`[coord] purged ${m} name mentions past retention`);
+  } catch (err) {
+    console.error('[coord] mentions purge error:', err.message);
+  }
 }
 
 /**
