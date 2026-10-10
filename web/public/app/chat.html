@@ -180,6 +180,9 @@
     .tpill span { overflow: hidden; text-overflow: ellipsis; }
     .tpill.active { background: #6c47ff; border-color: #6c47ff; color: #fff; font-weight: 600; }
     .tpill .tent { font-size: 11px; opacity: .75; }
+    .tpill-edit { cursor: pointer; font-size: 14px; padding: 0 10px; }
+    /* 16px so iPhone doesn't zoom when renaming */
+    .tpill-input { flex: 1; min-width: 140px; height: 32px; border: 1.5px solid #6c47ff; border-radius: 999px; padding: 0 12px; font-size: 16px; font-family: inherit; outline: none; }
 
     /* Typing indicator */
     .typing { display: none; align-self: flex-start; }
@@ -420,10 +423,41 @@
         el.innerHTML = `<a class="tpill${topicEvent ? '' : ' active'}" href="/app/chat">All</a>`
           + discussions.map((d) => `<a class="tpill${d.event_id === topicEvent ? ' active' : ''}" href="/app/chat?event=${encodeURIComponent(d.event_id)}" title="${esc(d.title)}">`
             + `<span>${d.tentative ? '🗓️' : '📅'} ${esc(d.title)}</span>${d.tentative ? '<span class="tent">tentative</span>' : ''}</a>`).join('');
+        // The host can rename the plan they're in (✎ next to its pill) — for everyone.
+        const current = discussions.find((d) => d.event_id === topicEvent);
+        if (current && current.can_rename) {
+          const active = el.querySelector('.tpill.active');
+          const edit = document.createElement('button');
+          edit.type = 'button'; edit.className = 'tpill tpill-edit'; edit.textContent = '✎'; edit.title = 'Rename this plan';
+          edit.addEventListener('click', () => renamePlan(current));
+          active.after(edit);
+        }
         el.hidden = false;
         const active = el.querySelector('.tpill.active');
         if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
       } catch (_) { /* pills are optional */ }
+    }
+
+    function renamePlan(plan) {
+      const el = document.getElementById('topic-pills');
+      el.innerHTML = '';
+      const input = document.createElement('input');
+      input.className = 'tpill-input'; input.value = plan.title; input.maxLength = 80; input.setAttribute('aria-label', 'Plan name');
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'tpill active'; save.textContent = 'Save';
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'tpill'; cancel.textContent = 'Cancel';
+      el.append(input, save, cancel);
+      input.focus(); input.select();
+      cancel.addEventListener('click', loadPills);
+      const go = async () => {
+        const title = input.value.replace(/\s+/g, ' ').trim();
+        if (!title || title === plan.title) return loadPills();
+        save.disabled = true;
+        const r = await fetch('/api/events/' + encodeURIComponent(plan.event_id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) });
+        if (!r.ok) { save.disabled = false; input.setCustomValidity('Couldn’t rename — 1–80 characters'); input.reportValidity(); return; }
+        loadPills();
+      };
+      save.addEventListener('click', go);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } if (e.key === 'Escape') loadPills(); });
     }
 
     async function loadHistory() {

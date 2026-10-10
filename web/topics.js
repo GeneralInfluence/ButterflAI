@@ -61,8 +61,9 @@ function discussionsFor(userId) {
     Object.assign(byId.get(r.event_id), { messages: r.n, last_at: r.last_at });
   }
   return [...byId.values()].map((e) => {
-    const x = db._raw().prepare('SELECT tentative FROM social_events WHERE id = ?').get(e.id);
-    return { event_id: e.id, title: e.title, scheduled_at: e.scheduled_at, tentative: !!x?.tentative, messages: e.messages, last_at: e.last_at || null };
+    const x = db._raw().prepare('SELECT tentative, host_user_id FROM social_events WHERE id = ?').get(e.id);
+    return { event_id: e.id, title: e.title, scheduled_at: e.scheduled_at, tentative: !!x?.tentative, messages: e.messages, last_at: e.last_at || null,
+      can_rename: x?.host_user_id === userId };   // the host renames a plan for everyone
   }).sort((a, b) => (b.last_at || 0) - (a.last_at || 0) || a.scheduled_at - b.scheduled_at);
 }
 

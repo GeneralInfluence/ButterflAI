@@ -166,3 +166,26 @@ describe('plan pills', () => {
   });
 });
 
+// Owner, 2026-10-09: "I would like to be able to change the name of an event topic."
+describe('renaming a plan', () => {
+  test('the host can rename (everyone sees it); invitees and strangers cannot; names are 1–80 chars', async () => {
+    const host = mkUser('Host Rename'); const guest = mkUser('Guest Rename');
+    const ev = (await agent.executeTool('create_social_event', { title: 'Grover', activity_type: 'camping', tentative: true,
+      scheduled_at: new Date(Date.now() + 14 * 86400e3).toISOString(), contact_ids: [knows(host, guest)] }, host.id, host.phone)).eventId;
+    const hc = await cookieFor(host); const gc = await cookieFor(guest);
+    assert.equal((await request.get('/api/chat/discussions').set('Cookie', hc)).body.discussions[0].can_rename, true);
+    assert.equal((await request.get('/api/chat/discussions').set('Cookie', gc)).body.discussions[0].can_rename, false);
+    assert.equal((await request.patch('/api/events/' + ev).set('Cookie', gc).send({ title: 'Mine now' })).status, 403);
+    assert.equal((await request.patch('/api/events/' + ev).set('Cookie', hc).send({ title: '   ' })).status, 400);
+    assert.equal((await request.patch('/api/events/' + ev).set('Cookie', hc).send({ title: 'x'.repeat(81) })).status, 400);
+    assert.equal((await request.patch('/api/events/' + ev).set('Cookie', hc).send({ title: "  Melanie's   birthday camping " })).status, 200);
+    assert.equal((await request.get('/api/chat/discussions').set('Cookie', gc)).body.discussions[0].title, "Melanie's birthday camping");
+  });
+
+  test('chat page: ✎ on the selected pill for the host, inline rename', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
+    assert.ok(html.includes("if (current && current.can_rename)") && html.includes('function renamePlan(plan)'));
+    assert.ok(html.includes("method: 'PATCH'") && html.includes('.tpill-input {') && html.includes('font-size: 16px'));
+  });
+});
+

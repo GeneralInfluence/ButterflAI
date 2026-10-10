@@ -2166,6 +2166,11 @@ app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => 
   for (const k of allowed) {
     if (req.body[k] !== undefined) updates[k] = req.body[k];
   }
+  // Renaming (chat pills, 2026-10-09): a real name, not empty or a paragraph.
+  if (updates.title !== undefined) {
+    updates.title = String(updates.title).replace(/\s+/g, ' ').trim();
+    if (!updates.title || updates.title.length > 80) return res.status(400).json({ error: 'Name must be 1–80 characters' });
+  }
   if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nothing to update' });
   const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
   db._raw().prepare(`UPDATE social_events SET ${sets} WHERE id = ?`).run(...Object.values(updates), event.id);
