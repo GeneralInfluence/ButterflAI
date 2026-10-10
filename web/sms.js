@@ -176,7 +176,11 @@ async function sendContactInvite(to, contactName, userName, context, ctaText, po
   if (portalUrl) lines.push(`View or erase your data anytime: ${portalUrl}`);
   lines.push(`Reply STOP and I won't message you again.`);
 
-  return send(to, lines.join('\n'));
+  // A first-contact invite IS the opt-in step (it self-identifies and offers STOP), so it
+  // can't require prior consent — that blocked every invite to someone new (2026-10-09,
+  // Alexandria Spargo). Same as event invites (multiparty.inviteContacts). Opt-outs are
+  // still checked by the caller (contacts-import.sendInvite).
+  return sendUnchecked(to, lines.join('\n'));
 }
 
 /**

@@ -336,3 +336,45 @@ describe('false "done" claims (group changes) are blocked', () => {
     assert.equal(agent._unbackedActionClaim('Added Bam Bam to your group.', [{ name: 'manage_contact_group', result: { added: true } }]), null);
   });
 });
+
+// Regression (Sean, 2026-10-09): "invite Alex Spargo" → "I need her number" / "I'm not
+// finding Alexandria Spargo in your contacts" for three turns without looking — she was
+// there. Then the invite was blocked: "No consent record" (the invite IS the opt-in).
+describe('"not in your contacts" needs a lookup; invites to someone new go out', () => {
+  test('exact regression: asks for the number without looking → made to look → finds her → invite sent with STOP', async () => {
+    const sean = mkUser('+12025558850', 'Sean Inv');
+    const alex = db.upsertContact({ invited_by_user_id: sean.id, name: 'Alexandria Spargo', phone: '+13105550199', tier: 0 });
+    texts.length = 0;
+    const calls = script([
+      say("I need Alex Spargo's phone number to send the invite. Do you have it?"),
+      use('lookup_contact', { query: 'Alex Spargo', context: 'invite to ButterflAI' }),
+      use('send_contact_invite', { contact_id: alex, context: 'camping with the favorite mamas' }),
+      say('Invite sent to Alexandria Spargo.'),
+    ]);
+    const reply = await turn(sean, 'invite Alex Spargo to butterflai');
+    assert.ok(JSON.stringify(calls[1]).includes("you haven't looked them up this turn"), 'the model was told to look first');
+    assert.equal(reply, 'Invite sent to Alexandria Spargo.');
+    assert.equal(texts.length, 1, 'sent although she had never opted in — the invite is the opt-in');
+    assert.match(texts[0].body, /^Hi Alexandria Spargo! This is Sean Inv's ButterflAI assistant\./);
+    assert.match(texts[0].body, /Reply STOP and I won't message you again\.$/);
+  });
+
+  test('one invite per person per 30 days; opted-out people are never invited', async () => {
+    const sean = mkUser('+12025558851', 'Sean Inv2');
+    const pat = db.upsertContact({ invited_by_user_id: sean.id, name: 'Pat Once', phone: '+13105550198', tier: 0 });
+    const first = await agent.executeTool('send_contact_invite', { contact_id: pat, context: 'hi' }, sean.id, sean.phone);
+    assert.equal(first.sent, true);
+    await assert.rejects(agent.executeTool('send_contact_invite', { contact_id: pat, context: 'hi again' }, sean.id, sean.phone), /Already invited/);
+    const out = db.upsertContact({ invited_by_user_id: sean.id, name: 'Opted Out', phone: '+13105550197', tier: 0 });
+    db._raw().prepare('INSERT INTO sms_optouts (phone) VALUES (?)').run('+13105550197');
+    await assert.rejects(agent.executeTool('send_contact_invite', { contact_id: out, context: 'hi' }, sean.id, sean.phone), /opted out/);
+  });
+
+  test('what counts as a "not found" claim', () => {
+    const claim = (t, log = []) => agent._unbackedActionClaim(t, log);
+    assert.ok(claim("I'm not finding Alexandria Spargo in your contacts."));
+    assert.ok(claim("What's her phone number so I can send the invite?"));
+    assert.equal(claim("I'm not finding her in your contacts.", [{ name: 'lookup_contact', result: { count: 0 } }]), null, 'fine after a lookup');
+    assert.equal(claim('Want me to look her up?'), null);
+  });
+});

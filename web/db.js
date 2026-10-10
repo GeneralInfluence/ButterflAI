@@ -320,11 +320,11 @@ module.exports = {
     return db.prepare('SELECT * FROM invites WHERE token = ?').get(token);
   },
 
-  createInvite({ token, created_by_user_id, contact_name, expires_at }) {
+  createInvite({ token, created_by_user_id, contact_name, expires_at, contact_id }) {
     return db.prepare(`
-      INSERT INTO invites (token, created_by_user_id, contact_name, expires_at)
-      VALUES (?, ?, ?, ?)
-    `).run(token, created_by_user_id, contact_name || null, expires_at || null);
+      INSERT INTO invites (token, created_by_user_id, contact_name, expires_at, contact_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(token, created_by_user_id, contact_name || null, expires_at || null, contact_id || null);
   },
 
   resolveInvite(token, status, contactId) {

@@ -264,9 +264,14 @@ async function sendInvite(userId, contactId, context) {
     );
   }
 
+  // Anti-spam: one invite per person per 30 days.
+  const recent = db._raw().prepare(`SELECT 1 FROM invites WHERE created_by_user_id = ? AND contact_id = ?
+    AND created_at > strftime('%s','now') - 30 * 86400`).get(userId, contactId);
+  if (recent) throw new Error(`Already invited ${contact.name} in the last 30 days — don't send another.`);
+
   // Create an invite token
   const token = uuidv4().replace(/-/g, '');
-  db.createInvite({ token, created_by_user_id: userId, contact_name: contact.name });
+  db.createInvite({ token, created_by_user_id: userId, contact_name: contact.name, contact_id: contactId });
 
   const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
   const inviteUrl = `${baseUrl}/invite/${token}`;

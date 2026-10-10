@@ -2342,6 +2342,7 @@ COORDINATING PLANS:
 - TIER CONFUSION — critical: a contact's tier in your contact list (0, 1, 2) reflects your SMS/contact permission, NOT whether they are a ButterflAI user. NEVER assume a Tier 1 contact is "not on ButterflAI" — they very likely ARE. Always call message_agent and let the tool tell you if they don't have an account. Only say they're "not on ButterflAI" if message_agent returns an explicit error saying so.
 - If message_agent succeeds for a contact: wait for their agent to reply via agent_reply channel, then reconcile availability and propose options to the host.
 - If message_agent returns "Contact is not a ButterflAI user": THEN and only then fall back to: ask the host to pick a proposed time, then use create_social_event which texts them asking if that time works.
+- AN INVITE NEEDS NO PRIOR OPT-IN: send_contact_invite IS the first message to someone new (it says it's from your user's ButterflAI and offers STOP) — never say they must opt in first, and never offer to "text them a heads-up first". If it fails, report the actual error.
 - Only offer send_contact_invite if message_agent confirmed the contact is not a ButterflAI user AND the host explicitly wants to invite them to join.
 - After create_social_event, tell the user: "I've invited [Name]. I'll let you know when they respond." Do NOT promise the invitee "a text" or "an SMS" — ButterflAI users are notified in the app, not by SMS; only non-users get a text. Say "I've invited [Name]" without naming the channel.
 - Once a contact responds, their RSVP is tracked and you'll be notified. Do not claim they responded until the system tells you they did.
@@ -2462,6 +2463,18 @@ const ACTION_CLAIMS = [
     done: (log, ctx) => !ctx.openQuestions || log.some((t) => ['reply_agent', 'message_agent', 'send_logistics_sms'].includes(t.name) && sendSucceeded(t.result)),
     how: 'reply_agent with the message_id listed under "Open questions from friends\' ButterflAIs"',
   },
+  {
+    // 2026-10-09: "invite Alex Spargo" → "I need her number" / "I'm not finding Alexandria
+    // Spargo in your contacts" — three turns without ever looking (she was there, number
+    // and all). Saying someone isn't there, or asking for their number, needs a lookup.
+    what: 'a claim that someone isn\'t in the contacts (or a request for their number)',
+    claim: /\b(?:not finding|(?:couldn'?t|can'?t|cannot|could not|did ?n'?t) find|(?:don'?t|do not) see|(?:isn'?t|is not|aren'?t|are not|not) in your (?:contacts|address book)|no (?:contact|one) (?:named|called)|(?:what'?s|what is|need|do you have|send me|give me|share)\b[^.?!\n]{0,40}\b(?:phone |cell |mobile )?number)\b/i,
+    negations: false,   // the claim itself is negative — don't skip it for containing "can't"
+    done: (log) => log.some((t) => t.name === 'lookup_contact'),
+    challenge: '[System check — not from the user] Your reply says the person isn\'t in their contacts (or asks for their number), but you haven\'t looked them up this turn. '
+      + 'Call lookup_contact with the name exactly as your user said it (it also syncs their Google contacts), and only then answer.',
+    fallback: null,     // if it still won't look, keep its reply rather than invent one
+  },
 ];
 const ACTION_NEGATED = /\b(not|n't|never|unable to|couldn't|can't|wasn't|haven't|hasn't|didn't|want me to|should i|shall i)\b/i;
 
@@ -2472,7 +2485,7 @@ function unbackedActionClaim(replyText, toolLog, ctx = {}) {
     if (!m) continue;
     // Look at the sentence the claim is in: "I couldn't add…" / "Want me to add…" aren't claims.
     const start = Math.max(replyText.lastIndexOf('.', m.index), replyText.lastIndexOf('\n', m.index), replyText.lastIndexOf('?', m.index)) + 1;
-    if (ACTION_NEGATED.test(replyText.slice(start, m.index + m[0].length))) continue;
+    if (c.negations !== false && ACTION_NEGATED.test(replyText.slice(start, m.index + m[0].length))) continue;
     if (!c.done(toolLog, ctx)) return c;
   }
   return null;
@@ -2691,13 +2704,13 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         if (!actionClaimChallenged) {
           actionClaimChallenged = true;
           turnTrace.event('guard', `blocked unbacked claim (${unbacked.what}): ${replyText.slice(0, 200)}`);
-          messages.push({ role: 'user', content:
+          messages.push({ role: 'user', content: unbacked.challenge ||
             `[System check — not from the user] Your reply says you made ${unbacked.what}, but no tool did that in this turn. `
             + `Do it now with ${unbacked.how}, or tell the user plainly it was NOT done. Never say something was done unless a tool confirmed it.` });
           continue;
         }
-        turnTrace.event('guard', `replaced repeated unbacked claim (${unbacked.what}): ${replyText.slice(0, 200)}`);
-        replyText = NOT_DONE_FALLBACK;
+        turnTrace.event('guard', `repeated unbacked claim (${unbacked.what}): ${replyText.slice(0, 200)}`);
+        if (unbacked.fallback !== null) replyText = unbacked.fallback || NOT_DONE_FALLBACK;
       }
 
       // Answering another agent: the final text goes to NO ONE (it mixes reasoning with

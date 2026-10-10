@@ -470,6 +470,12 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-09: the agent told Sean Alexandria "hasn't opted in" so it couldn't invite her.
+  test('an invite needs no prior opt-in', () => {
+    assertContains('AN INVITE NEEDS NO PRIOR OPT-IN', 'invite rule');
+    assertContains('never offer to "text them a heads-up first"', 'no heads-up text');
+  });
+
   // 2026-10-09: "Al" can mean Allie (what Sean calls her) or a friend actually named Al.
   test('lookups pass the conversation context; if several people fit, ask', () => {
     assertContains('exactly as your user said it — and with context', 'lookup with context');
