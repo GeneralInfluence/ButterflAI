@@ -29,6 +29,10 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: var(--bg);
       height: 100dvh;
+      /* Measured height (script below) wins: after an update reload, Android could size
+         100dvh too tall, hiding the composer's Voice/Private pills behind the bottom nav
+         until something resized the page (2026-10-09). */
+      height: var(--app-h, 100dvh);
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -929,6 +933,18 @@
     }
   </script>
 
+<script>
+  // Size the chat to the real window height, re-measured whenever it may have changed —
+  // including just after load / coming back to the app, when an update reload happens
+  // and the browser's own viewport height can be stale.
+  (function () {
+    function fit() { document.documentElement.style.setProperty('--app-h', window.innerHeight + 'px'); }
+    fit();
+    ['resize', 'orientationchange', 'pageshow', 'focus'].forEach((ev) => window.addEventListener(ev, fit));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { fit(); setTimeout(fit, 300); } });
+    [100, 500, 1500].forEach((ms) => setTimeout(fit, ms));   // let the screen settle
+  })();
+</script>
 <nav class="bottom-nav">
   <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
   <a href="/app/chat" class="active"><span class="tab-icon">💬</span>Chat</a>

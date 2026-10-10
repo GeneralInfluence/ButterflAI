@@ -197,6 +197,15 @@ describe('Chat page — mobile layout (Android PWA fix)', () => {
     );
   });
 
+  // Regression (2026-10-09): after an update reload the composer's pills were hidden
+  // behind the bottom nav — the page's height is now measured, with 100dvh as fallback.
+  test('chat height is measured (re-measured after load / returning to the app)', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
+    assert.ok(html.includes('height: var(--app-h, 100dvh);'));
+    assert.ok(html.includes("style.setProperty('--app-h', window.innerHeight + 'px')"));
+    assert.ok(html.includes("document.addEventListener('visibilitychange'") && html.includes('[100, 500, 1500].forEach((ms) => setTimeout(fit, ms))'));
+  });
+
   test('body uses 100dvh for dynamic viewport (not 100vh)', async () => {
     const res = await request.get('/app/chat').set('Cookie', cookie);
     assert.ok(
