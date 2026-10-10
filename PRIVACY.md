@@ -294,6 +294,15 @@ understood without pulling server logs (`web/trace.js`, table `agent_trace`).
 
 ---
 
+## Reflection `[2026-10-09]`
+
+The agent reviews its own quiet conversations to catch mistakes it made for its user
+(`web/reflect.js`, MEMORY.md §13). The review sees only that user's own conversation and
+what was sent for them — the same material their agent already has, sent to Anthropic like
+any agent turn; private-mode messages are excluded. Follow-ups go only to that user. What
+the review noticed is stored only for opted-in test users (like the agent trace); for
+everyone else only the outcome (asked / clear / unsure) is kept.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

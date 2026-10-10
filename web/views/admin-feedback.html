@@ -72,6 +72,7 @@
     <button class="tab" data-status="triaged">Triaged</button>
     <button class="tab" data-status="fixed">Fixed</button>
     <button class="tab" data-status="__activity">Activity</button>
+    <button class="tab" data-status="__reflections">Reflections</button>
   </div>
   <div id="list"><div class="empty">Loading…</div></div>
 </div>
@@ -177,6 +178,29 @@
     }
   }
 
+  // What the agent noticed looking back at quiet conversations (reflect.js), and whether it asked.
+  async function loadReflections() {
+    listEl.innerHTML = '<div class="empty">Loading…</div>';
+    const r = await fetch('/api/admin/reflections');
+    if (!r.ok) { listEl.innerHTML = '<div class="empty">Not authorized.</div>'; return; }
+    const { reflections } = await r.json();
+    if (!reflections.length) { listEl.innerHTML = '<div class="empty">No reflections yet (test users only).</div>'; return; }
+    listEl.innerHTML = '';
+    for (const x of reflections) {
+      let d = {}; try { d = JSON.parse(x.details || '{}'); } catch (_) {}
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="card-head">
+          <span class="pill ${x.outcome === 'asked' ? 'triaged' : 'new'}">${esc(x.outcome)}</span>
+          <span class="meta">${esc(x.user_name)} · ${ago(x.created_at)}${x.confidence != null ? ' · confidence ' + Number(x.confidence).toFixed(2) : ''}</span>
+        </div>
+        ${d.what_happened ? `<div class="note">${esc(d.what_happened)}</div>` : ''}
+        ${x.followup ? `<div class="label">Asked</div><div class="reply">${esc(x.followup)}</div>` : ''}`;
+      listEl.appendChild(card);
+    }
+  }
+
   function render(items) {
     if (!items.length) { listEl.innerHTML = '<div class="empty">Nothing here.</div>'; return; }
     listEl.innerHTML = '';
@@ -225,7 +249,7 @@
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     e.target.classList.add('active');
     current = e.target.dataset.status;
-    if (current === '__activity') loadActivity(); else load();
+    if (current === '__activity') loadActivity(); else if (current === '__reflections') loadReflections(); else load();
   });
 
   load();

@@ -122,6 +122,9 @@ async function tick(transport = stubTransport) {
     await tickRecurring();
     await tickEscalations();
     tickPurge();
+    // Look back at quiet conversations where the agent acted for its user (reflect.js).
+    const reflected = await require('./reflect').tick();
+    if (reflected) console.log(`[coord] reflected on ${reflected} conversation(s)`);
   } catch (err) {
     console.error('[coord] tick error:', err.message);
   }

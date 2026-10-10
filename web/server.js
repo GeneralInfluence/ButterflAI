@@ -1386,6 +1386,13 @@ app.get('/api/admin/trace', requireAdmin, (req, res) => {
     ORDER BY t.created_at DESC, t.id DESC LIMIT ?`).all(limit);
   res.json({ trace: rows.reverse(), retention_days: trace.RETENTION_DAYS });
 });
+// Reflections (reflect.js): what the agent noticed looking back — test users only.
+app.get('/api/admin/reflections', requireAdmin, (req, res) => {
+  const rows = db._raw().prepare(`SELECT r.*, u.name AS user_name FROM reflections r JOIN users u ON u.id = r.user_id
+    WHERE u.test_user = 1 ORDER BY r.created_at DESC LIMIT 200`).all();
+  res.json({ reflections: rows });
+});
+
 app.patch('/api/admin/feedback/:id', requireAdmin, express.json(), (req, res) => {
   const status = req.body?.status;
   if (!['new', 'triaged', 'fixed'].includes(status)) return res.status(400).json({ error: 'invalid status' });

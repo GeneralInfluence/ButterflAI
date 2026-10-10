@@ -470,6 +470,12 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-09: reflection follow-ups ("did I get that right?") — corrections get fixed.
+  test('reflection follow-ups: a correction is fixed with the other side', () => {
+    assertContains('REFLECTION FOLLOW-UPS', 'reflection rule');
+    assertContains('fix it with the other side right away', 'fix corrections');
+  });
+
   // 2026-10-09: Melanie's "how much is a cabin? probably need to reschedule" was relayed as a decision.
   test("passing the user's answer back keeps its meaning", () => {
     assertContains("PASSING YOUR USER'S ANSWER BACK: keep what they meant", 'relay meaning rule');

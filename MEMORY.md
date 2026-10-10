@@ -583,6 +583,23 @@ agent asked what he was up to — and my fix then had it ping him, which the own
 - Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.
   Tests: `tests/integration/plans-feed.test.js`.
 
+## 13. Reflection: looking back, checking in `[LOCKED 2026-10-09]`
+
+Owner, after Melanie's "how much is a cabin? probably need to reschedule" was passed on as a
+decision: honest mistakes will keep happening; in-turn guards catch known patterns, and the
+agent should also **reflect** — once a conversation goes quiet, look back and, if it may have
+got something wrong, ask: "I said this — maybe you meant that?"
+
+- `web/reflect.js`, run from the coord loop. A stretch where the agent acted for its user
+  (sent / passed something on) is reviewed once it's been quiet 45 min — never 9pm–8am
+  (user's time), each stretch once, at most one follow-up a day.
+- A short Haiku review compares what the user said, what was sent for them, and what came
+  back: meaning changed, a question dropped, a hedge hardened, something it couldn't know.
+- Only if confident (≥ 0.7) it asks — a friendly check-in **in the app** (push, never SMS).
+  A correction is fixed with the other side (prompt: REFLECTION FOLLOW-UPS).
+- `reflections` table (migration 042): outcome for everyone; what it noticed only for
+  opted-in test users → `/admin/feedback` → Reflections tab.
+
 ## 12. Research & planning tools `[2026-10-09]`
 
 - **Web search + reading pages:** Claude's built-in `web_search_20250305` / `web_fetch_20250910`
