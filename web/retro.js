@@ -182,8 +182,9 @@ const TASKS = [
       const lines = [];
       for (const e of plans) {
         await topics.backfill(user.id, e.id);   // make sure its older messages are filed under it
+        // The latest 40 messages (oldest first) — recent decisions, not superseded ones.
         const msgs = db._raw().prepare(`SELECT role, text FROM conversation_history WHERE user_id = ? AND event_id = ? AND private_ct IS NULL
-          ORDER BY created_at, rowid LIMIT 80`).all(user.id, e.id);
+          ORDER BY created_at DESC, rowid DESC LIMIT 40`).all(user.id, e.id).reverse();
         if (!msgs.length) continue;
         const missing = await plansync.missingDetails(e.id, msgs.map((m) => `${m.role === 'user' ? 'Person' : 'Assistant'}: ${String(m.text).slice(0, 400)}`).join('\n'));
         if (missing.length) lines.push(`• ${e.title}: ${missing.join('; ')}`);
@@ -191,6 +192,35 @@ const TASKS = [
       if (!lines.length) return 'nothing missing';
       await tellUser(user, `Some things we decided never made it onto your plans:\n${lines.join('\n')}\nWant me to save them? Say yes, or correct me.`);
       return `offered for ${lines.length}`;
+    },
+  },
+  {
+    // The first run of the task above read whole discussions and could offer a superseded
+    // detail (Sean's offer listed Grover Hot Springs, which he'd dropped). Re-check with the
+    // fixed logic (latest 40 messages, latest decision wins) and correct the offer.
+    id: '2026-10-12-store-plan-details-correction',
+    added: Date.UTC(2026, 9, 12) / 1000,
+    kind: 'propose',
+    about: 'Correct the first "never made it onto your plans" offer, which could include superseded details.',
+    async run(user) {
+      const prior = db._raw().prepare(`SELECT outcome FROM retro_runs WHERE task_id = '2026-10-12-store-plan-details-from-discussion' AND user_id = ?`).get(user.id);
+      if (!prior || !String(prior.outcome).startsWith('offered')) return 'not needed';
+      const plansync = require('./plansync');
+      if (!topics.modelAvailable()) return RETRY;
+      const plans = db._raw().prepare(`SELECT id, title FROM social_events WHERE host_user_id = ? AND COALESCE(status, 'open') != 'cancelled'
+        AND (scheduled_at > ? OR date_tbd = 1)`).all(user.id, now());
+      const lines = [];
+      for (const e of plans) {
+        const msgs = db._raw().prepare(`SELECT role, text FROM conversation_history WHERE user_id = ? AND event_id = ? AND private_ct IS NULL
+          ORDER BY created_at DESC, rowid DESC LIMIT 40`).all(user.id, e.id).reverse();
+        if (!msgs.length) continue;
+        const missing = await plansync.missingDetails(e.id, msgs.map((m) => `${m.role === 'user' ? 'Person' : 'Assistant'}: ${String(m.text).slice(0, 400)}`).join('\n'));
+        if (missing.length) lines.push(`• ${e.title}: ${missing.join('; ')}`);
+      }
+      await tellUser(user, lines.length
+        ? `Correction to my earlier message about details missing from your plans — it included things you'd already changed. Here's what's actually missing:\n${lines.join('\n')}\nSave these? Say yes, or correct me.`
+        : `Correction: ignore my earlier message about details missing from your plans — it included things you'd already changed.`);
+      return `corrected (${lines.length})`;
     },
   },
 ];

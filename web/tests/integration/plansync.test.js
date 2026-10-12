@@ -26,6 +26,7 @@ require('../../server');
 const db = require('../../db');
 const agent = require('../../agent');
 const plansync = require('../../plansync');
+const actioncheck = require('../../actioncheck');
 const retro = require('../../retro');
 const topics = require('../../topics');
 
@@ -49,24 +50,27 @@ function script(responses) {
   agent._setAnthropic({ messages: { create: async (req) => { calls.push(JSON.stringify(req.messages)); return { id: 'm' + i, ...responses[Math.min(i++, responses.length - 1)] }; } } });
   return calls;
 }
+// plansync's model (used by the retro task) and actioncheck's (the every-reply check,
+// which replaced the plan-only check in the agent loop on 2026-10-12).
 let checks = 0;
-function checker(missing) {
-  checks = 0;
-  plansync._setClient({ messages: { create: async () => { checks++; const m = Array.isArray(missing) ? missing : missing(); return { content: [{ type: 'text', text: JSON.stringify({ missing: m.map((d) => ({ detail: d })) }) }] }; } } });
+function stub(missing, key) {
+  return { messages: { create: async () => { checks++; const m = Array.isArray(missing) ? missing : missing(); return { content: [{ type: 'text', text: JSON.stringify({ missing: key ? m.map((d) => ({ detail: d })) : m }) }] }; } } };
 }
+function checker(missing) { checks = 0; plansync._setClient(stub(missing, true)); }
+function actions(missing) { checks = 0; actioncheck._setClient(stub(missing, false)); }
 async function turn(user, text, extra = {}) {
   db.storeInboundMessage({ from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'webchat', text, ...extra });
   await agent.tick();
 }
 
 describe('say it, store it', () => {
-  after(() => { plansync._setClient(null); retro._setClient(null); topics._setClient(null); });
+  after(() => { plansync._setClient(null); actioncheck._setClient(null); retro._setClient(null); topics._setClient(null); });
 
   test('exact regression: details stated in a plan\'s chat but not saved → the agent must save them before replying', async () => {
     const sean = mkUser('Sean Sync');
     const ev = (await agent.executeTool('create_social_event', { title: "Melanie's Birthday Weekend", activity_type: 'weekend' }, sean.id, sean.phone)).eventId;
     let stored = false;
-    checker(() => stored ? [] : ['dates: 2026-10-23 to 2026-10-24', 'place: Carson City Hot Springs']);
+    actions(() => stored ? [] : ['save dates 2026-10-23 to 2026-10-24 on the plan', 'save place Carson City Hot Springs']);
     const calls = script([
       say("Melanie's Birthday Weekend — Fri–Sat, Oct 23–24 at Carson City Hot Springs. Done."),
       use('update_event', { event_id: ev, proposed_dates: [{ from: '2026-10-23', to: '2026-10-24' }], venue_name: 'Carson City Hot Springs' }),
@@ -76,17 +80,17 @@ describe('say it, store it', () => {
     agent._setToolObserver((name) => { if (name === 'update_event') stored = true; });
     await turn(sean, "we're going to Carson City hot springs instead, Fri and Sat the 23rd", { event_id: ev });
     agent._setToolObserver(null);
-    assert.ok(calls[1].includes("aren't saved on it") && calls[1].includes('dates: 2026-10-23 to 2026-10-24') && calls[1].includes('place: Carson City Hot Springs'));
+    assert.ok(calls[1].includes("These still aren't done") && calls[1].includes('save dates 2026-10-23 to 2026-10-24') && calls[1].includes(ev));
     const e = db._raw().prepare('SELECT venue_name, proposed_dates FROM social_events WHERE id = ?').get(ev);
     assert.equal(e.venue_name, 'Carson City Hot Springs');
     assert.deepEqual(JSON.parse(e.proposed_dates), [{ from: '2026-10-23', to: '2026-10-24' }]);
     assert.ok(realUpdate);
   });
 
-  test('nothing missing → no extra step; someone else\'s plan (not host) → not checked', async () => {
+  test('nothing missing → no extra step (every reply is still checked)', async () => {
     const sean = mkUser('Sean Fine');
     const ev = (await agent.executeTool('create_social_event', { title: 'Dinner', activity_type: 'dinner' }, sean.id, sean.phone)).eventId;
-    checker([]);
+    actions([]);
     const calls = script([say('Sounds good.')]);
     await turn(sean, 'sounds good', { event_id: ev });
     assert.equal(calls.length, 1);
@@ -114,3 +118,48 @@ describe('say it, store it', () => {
     assert.equal(db._raw().prepare('SELECT venue_name FROM social_events WHERE id = ?').get(ev).venue_name, null, 'not saved without a yes');
   });
 });
+
+describe('every reply is checked for an action that should have happened (2026-10-12)', () => {
+  after(() => actioncheck._setClient(null));
+
+  test('a promised action outside any plan ("I\'ll text her") is sent back to be done', async () => {
+    const u = mkUser('Sean Promise');
+    actions(['send Allie the address']);
+    const calls = script([say("I'll text Allie the address."), say("I couldn't find Allie in your contacts — what's her number?")]);
+    await turn(u, 'send allie the address');
+    assert.ok(calls[1].includes("These still aren't done") && calls[1].includes('send Allie the address'));
+    assert.equal(checks, 1, 'checked once per turn');
+  });
+
+  test('a plan can be cancelled; delete_desires only runs when the user talks about desires', async () => {
+    const u = mkUser('Sean Cancel');
+    const ev = (await agent.executeTool('create_social_event', { title: 'Grover', activity_type: 'camping' }, u.id, u.phone)).eventId;
+    const r = await agent.executeTool('update_event', { event_id: ev, cancel: true }, u.id, u.phone);
+    assert.deepEqual(r.updated, ['status']);
+    assert.equal(db._raw().prepare('SELECT status FROM social_events WHERE id = ?').get(ev).status, 'cancelled');
+    actions([]);
+    const results = [];
+    let i = 0;
+    const steps = [use('delete_desires', { confirm: true }), say("There's no Grover plan.")];
+    agent._setAnthropic({ messages: { create: async (req) => {
+      const last = req.messages.at(-1);
+      if (Array.isArray(last.content)) for (const b of last.content) if (b.type === 'tool_result') results.push(JSON.parse(b.content));
+      return { id: 'd' + i, ...steps[Math.min(i++, steps.length - 1)] };
+    } } });
+    await turn(u, 'delete grover, it is not happening');
+    assert.equal(results[0].error, 'NOT_ABOUT_DESIRES');
+  });
+
+  test("Home's Creating: yours, then anyone's, then suggestions waiting to be kept", async () => {
+    const plans = require('../../plans');
+    const u = mkUser('Sean Home');
+    const ev = (await agent.executeTool('create_social_event', { title: 'Melanie weekend', activity_type: 'trip' }, u.id, u.phone)).eventId;
+    await agent.executeTool('manage_todos', { event_id: ev, action: 'suggest', items: ['Book a room', 'Plan dinner'] }, u.id, u.phone);
+    await agent.executeTool('manage_todos', { event_id: ev, action: 'add', items: ['Buy a cake'] }, u.id, u.phone);
+    await agent.executeTool('manage_todos', { event_id: ev, action: 'add', items: ['Call the spa'], assignee: 'me' }, u.id, u.phone);
+    const f = plans.feedFor(u.id);
+    assert.deepEqual(f.creating.map((i) => [i.text, i.who]), [['Call the spa', 'you'], ['Buy a cake', 'anyone']]);
+    assert.deepEqual(f.creating_suggestions.map((x) => [x.title, x.count]), [['Melanie weekend', 2]]);
+  });
+});
+

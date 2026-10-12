@@ -226,12 +226,16 @@
 
   // Creating (2026-10-12): what you're helping make happen — items from your plans'
   // shared lists assigned to you, soonest plan first. Check off right here.
-  function creatingHtml(list) {
-    if (!list || !list.length) return '<div class="empty-state">Nothing on your plate. Open a plan\'s chat to see what everyone\'s creating.</div>';
-    return list.map(i => `<div class="card feed-item"><span class="feed-icon">✨</span><div style="flex:1;min-width:0">
+  // Yours first, then anything unassigned (anyone can take it), then suggestions waiting
+  // to be kept, per plan (2026-10-12).
+  function creatingHtml(list, suggestions) {
+    const sug = (suggestions || []).map(s => `<a class="card feed-item" href="/app/chat?event=${esc(s.event_id)}"><span class="feed-icon">💡</span><div>
+      <div class="card-title">${s.count} suggestion${s.count === 1 ? '' : 's'} for ${esc(s.title)}</div><div class="card-sub">Keep the ones you want</div></div></a>`).join('');
+    if ((!list || !list.length) && !sug) return '<div class="empty-state">Nothing to do right now. Open a plan\'s chat to add what needs doing.</div>';
+    return (list || []).map(i => `<div class="card feed-item"><span class="feed-icon">✨</span><div style="flex:1;min-width:0">
       <a href="/app/chat?event=${esc(i.event_id)}" style="text-decoration:none;color:inherit"><div class="card-title">${esc(i.text)}</div>
-      <div class="card-sub">${esc(i.title)}${i.at ? ' · ' + whenFor(i) : ''}</div></a>
-      <button type="button" class="feed-action" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit" onclick="doneTodo('${esc(i.todo_id)}')">✓ Done</button></div></div>`).join('');
+      <div class="card-sub">${esc(i.title)}${i.at ? ' · ' + whenFor(i) : ''} · ${i.who === 'you' ? 'yours' : 'anyone can take it'}</div></a>
+      <button type="button" class="feed-action" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit" onclick="doneTodo('${esc(i.todo_id)}')">✓ Done</button></div></div>`).join('') + sug;
   }
   async function doneTodo(id) {
     await fetch('/api/todos/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ done: true }) }).catch(() => {});
@@ -241,8 +245,8 @@
   async function loadFeed() {
     const el = document.getElementById('feed');
     try {
-      const { items, my_plans, creating } = await fetch('/api/feed').then(r => r.json());
-      document.getElementById('creating').innerHTML = creatingHtml(creating);
+      const { items, my_plans, creating, creating_suggestions } = await fetch('/api/feed').then(r => r.json());
+      document.getElementById('creating').innerHTML = creatingHtml(creating, creating_suggestions);
       document.getElementById('my-plans').innerHTML = (my_plans || []).map(p =>
         `<div class="mine"><span>You: ${esc(p.text)} · until ${when(p.until)}</span><button title="Remove" onclick="removePlan('${esc(p.plan_id)}')">✕</button></div>`).join('');
       el.innerHTML = items && items.length

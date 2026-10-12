@@ -116,6 +116,32 @@ function mine(userId) {
     .filter((t) => topics.canSee(userId, t.event_id));
 }
 
+/**
+ * Home's "Creating" section (2026-10-12: Sean saw items in the plan's chat but nothing on
+ * Home — they were all suggestions, and Home only showed items assigned to him):
+ *  - mine: assigned to you · anyone: unassigned, open · suggestions: per plan, awaiting keep.
+ */
+function forHome(userId) {
+  const u = db.getUser(userId);
+  if (!u?.phone) return { items: [], suggestions: [] };
+  const plans = topics.eventsFor(userId).map((e) => e.id);
+  if (!plans.length) return { items: [], suggestions: [] };
+  const q = `SELECT t.*, se.title AS event_title, se.scheduled_at, se.date_tbd FROM event_todos t JOIN social_events se ON se.id = t.event_id
+    WHERE t.event_id IN (${plans.map(() => '?').join(',')}) AND t.done_at IS NULL AND COALESCE(se.status, 'open') != 'cancelled'`;
+  const rows = db._raw().prepare(q).all(...plans);
+  const item = (t, who) => ({ todo_id: t.id, event_id: t.event_id, text: t.text, title: t.event_title, at: t.date_tbd ? null : t.scheduled_at, who });
+  const items = [
+    ...rows.filter((t) => !t.suggested && t.assignee_phone === u.phone).map((t) => item(t, 'you')),
+    ...rows.filter((t) => !t.suggested && !t.assignee_phone).map((t) => item(t, 'anyone')),
+  ];
+  const by = new Map();
+  for (const t of rows.filter((x) => x.suggested)) {
+    const s = by.get(t.event_id) || { event_id: t.event_id, title: t.event_title, count: 0 };
+    s.count++; by.set(t.event_id, s);
+  }
+  return { items, suggestions: [...by.values()] };
+}
+
 /** { done, total } of kept to-dos per event id. */
 function progressFor(eventIds) {
   const out = {};
@@ -126,4 +152,4 @@ function progressFor(eventIds) {
   return out;
 }
 
-module.exports = { list, add, update, remove, mine, members, progressFor };
+module.exports = { list, add, update, remove, mine, forHome, members, progressFor };

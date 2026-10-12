@@ -42,6 +42,7 @@ const linktoken  = require('./linktoken');
 const groupPlans = require('./groups');
 const todos      = require('./todos');
 const plansync   = require('./plansync');
+const actioncheck = require('./actioncheck');
 const names      = require('./names');
 const mentions   = require('./mentions');
 const { toE164 } = require('./phoneUtils');
@@ -651,6 +652,7 @@ const TOOL_DEFINITIONS = [
         venue_name:    { type: 'string', description: 'Update venue if agreed during negotiation' },
         tentative:     { type: 'boolean', description: 'false once the plan is settled (dates/place agreed); true if it\'s back to being figured out' },
         proposed_dates:{ type: 'array', items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from'] }, description: 'Replace the date options still being decided ([{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}]); [] clears them. When a date is chosen, set scheduled_at and clear these.' },
+        cancel:        { type: 'boolean', description: 'true to cancel the plan (it\'s not happening). Only when your user says so.' },
         title:         { type: 'string' },
         duration_mins: { type: 'number' },
       },
@@ -1838,7 +1840,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'update_event': {
-      const { event_id, scheduled_at, flexible_time, notes, venue_name, tentative, title, duration_mins, proposed_dates } = toolInput;
+      const { event_id, scheduled_at, flexible_time, notes, venue_name, tentative, title, duration_mins, proposed_dates, cancel } = toolInput;
       // Verify ownership — agent can only update events they host
       const evCheck = db._raw().prepare('SELECT id, host_user_id FROM social_events WHERE id = ?').get(event_id);
       if (!evCheck) return { error: 'Event not found' };
@@ -1854,6 +1856,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (notes !== undefined) updates.notes = notes;
       if (venue_name !== undefined) updates.venue_name = venue_name;
       if (tentative !== undefined) updates.tentative = tentative ? 1 : 0;
+      if (cancel === true) updates.status = 'cancelled';   // there was no way to cancel a plan (2026-10-12)
       if (proposed_dates !== undefined) {
         let p;
         try { p = multiparty.normalizeProposals(proposed_dates); } catch (err) { return { error: 'BAD_PROPOSED_DATES', message: err.message }; }
@@ -1875,6 +1878,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       }
       if (updates.venue_name && updates.venue_name !== before.venue_name) changes.push(`it's now at ${updates.venue_name}`);
       if (updates.tentative === 0 && before.tentative) changes.push("it's locked in");
+      if (updates.status === 'cancelled') changes.push("it's cancelled");
       const fyi = changes.length ? defer.notifyDeferred(event_id, changes.join('; ')) : 0;
       return { ok: true, event_id, updated: Object.keys(updates), fyi_sent_to_deferred: fyi || undefined };
     }
@@ -1933,6 +1937,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'delete_desires': {
+      // Only when the user is actually talking about their desires (2026-10-12: "delete
+      // Grover" — a plan — made the agent delete 4 of Sean's desires instead).
+      if (!/\b(desires?|wish(es| list)?|what i want|my wants)\b/i.test(currentTurn?.userText || '')) {
+        return { error: 'NOT_ABOUT_DESIRES', message: 'delete_desires is only for the weekly desires your user told you ("work out twice", "a chill night"). To remove a plan, use update_event / cancel it, or tell your user there is no such plan.' };
+      }
       // transport is not available in executeTool scope — pass null; cancels are best-effort
       return desires.handleDeleteTool(toolInput, userId, null);
     }
@@ -2869,24 +2878,23 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         }
       }
 
-      // Say it, store it (2026-10-12): what was decided for the plan this turn must be saved
-      // on the plan — dates, place, people. Checked once per turn; anything missing goes
-      // back to the agent to store before it replies.
-      if (USER_CHANNELS.includes(msg.channel) && !isPrivate && !planSynced) {
+      // Every reply is checked for an action that should have happened (owner, 2026-10-12:
+      // "check the AI responses every time"): asked for, decided, promised or claimed, but
+      // not done — including plan details not saved ("say it, store it"). Once per turn;
+      // anything missing goes back to the agent to do before replying (actioncheck.js).
+      if (USER_CHANNELS.includes(msg.channel) && !planSynced) {
         planSynced = true;
         const touched = topics.eventsTouched(userId, toolLog);
         const planId = (msg.event_id && msg.event_id !== topics.GENERAL && topics.canSee(userId, msg.event_id)) ? msg.event_id
           : touched.length === 1 ? touched[0] : routed?.kind === 'existing' ? routed.eventId : null;
-        const host = planId && db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(planId)?.host_user_id === userId;
-        if (host) {
-          const missing = await plansync.missingDetails(planId, `Person: ${msg.text}\nAssistant: ${replyText}`).catch(() => []);
-          if (missing.length) {
-            turnTrace.event('guard', `plan details not stored: ${missing.join('; ')}`);
-            messages.push({ role: 'user', content:
-              `[System check — not from the user] These details were decided for the plan (eventId="${planId}") but aren't saved on it: ${missing.map((m) => `"${m}"`).join(', ')}. `
-              + 'Save them now — update_event (scheduled_at for a chosen date, proposed_dates for options, venue_name, notes, title), and invite anyone new with create_social_event contact_ids only if your user asked — then reply. Don\'t mention this check.' });
-            continue;
-          }
+        const missing = await actioncheck.missingActions({ userText: msg.text, replyText, toolLog, planId }).catch(() => []);
+        if (missing.length) {
+          turnTrace.event('guard', `actions not done: ${missing.join('; ')}`);
+          messages.push({ role: 'user', content:
+            `[System check — not from the user] These still aren't done: ${missing.map((m) => `"${m}"`).join(', ')}. `
+            + `Do them now with the right tools${planId ? ` (the plan is eventId="${planId}": update_event for dates — scheduled_at, or proposed_dates if not final — venue_name, notes, title)` : ''}. `
+            + 'If one truly can\'t be done, tell your user plainly instead of claiming it. Don\'t mention this check.' });
+          continue;
         }
       }
 

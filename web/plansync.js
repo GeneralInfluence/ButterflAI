@@ -61,7 +61,8 @@ async function missingDetails(eventId, exchange) {
     `Today is ${new Date().toISOString().slice(0, 10)}. A person and their planning assistant talked about this plan.\n\nWhat the plan has stored:\n${plan.lines.join('\n')}\n\n`
     + `Conversation:\n${String(exchange).slice(0, 4000)}\n\n`
     + 'List details that were DECIDED or stated as the plan (by the person, or by the assistant as the current plan) that the stored plan does NOT have or has differently: dates, place, who is coming, what it is, cancelled. '
-    + 'Ignore questions, options still being discussed (unless stored as proposed dates), and details that belong to a different plan.\n'
+    + 'Ignore questions, options still being discussed (unless stored as proposed dates), and details that belong to a different plan. '
+    + 'The MOST RECENT decision wins: if a detail was changed later in the conversation (a place dropped, dates moved), only the latest counts — never list a superseded one.\n'
     + 'Reply with JSON only: {"missing":[{"detail":"dates: 2026-10-23 to 2026-10-24"},{"detail":"place: Carson City Hot Springs"}]} — or {"missing":[]}.' }] });
   return parseMissing((r.content || []).map((b) => b.text || '').join(''));
 }

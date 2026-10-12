@@ -98,7 +98,7 @@ describe('plan to-dos', () => {
     // Home = Feeling · Creating · Happenings (owner, 2026-10-12)
     const dash = read('dashboard.html');
     assert.ok(dash.indexOf('<h2>Feeling</h2>') < dash.indexOf('<h2>Creating</h2>') && dash.indexOf('<h2>Creating</h2>') < dash.indexOf('<h2>Happenings</h2>'));
-    assert.ok(dash.includes('function creatingHtml(list)') && dash.includes('async function doneTodo('));
+    assert.ok(dash.includes('function creatingHtml(list, suggestions)') && dash.includes('async function doneTodo('));
     assert.ok(read('chat.html').includes('✨ Creating') && read('events.html').includes('✨ Creating'));
   });
 });

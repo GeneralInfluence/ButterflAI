@@ -601,6 +601,15 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   **Feeling**; the plans' shared lists are called **Creating** (Home section between them —
   items assigned to you, soonest plan first; the bar in a plan's chat; Events cards); "Your
   feed" → **Happenings**.
+- **Every reply is checked for an action that should have happened (owner, 2026-10-12: "we
+  need to check the AI responses every time").** `web/actioncheck.js`, after each user turn:
+  user message + reply + what tools actually did (+ the plan's stored details when the turn
+  is about a plan) → actions asked for / decided / promised / claimed but not done → sent back
+  to the agent once to do before replying. Replaced the plan-only check in the loop. Latest
+  decision wins (superseded details never count). Also: `update_event cancel` (there was no
+  way to cancel a plan, so "delete Grover" ran `delete_desires` and removed 4 desires);
+  `delete_desires` now refuses unless the user is talking about desires. Home's Creating shows
+  yours, then unassigned ("anyone can take it"), then suggestions waiting per plan.
 - **Say it, store it (2026-10-12):** the agent told Sean dates/place ("Oct 23–24 at Carson
   City Hot Springs", "Done", "Let me create both events…") and saved nothing. Now after a
   turn about a plan the user hosts, `plansync.missingDetails` compares what was decided with

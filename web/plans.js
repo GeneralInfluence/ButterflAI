@@ -246,9 +246,9 @@ function feedFor(userId) {
 
   // Creating (owner, 2026-10-12): list items assigned to you — their own Home section
   // between Feeling and Happenings, soonest plan first.
-  const creating = require('./todos').mine(userId)
-    .map((t) => ({ todo_id: t.id, event_id: t.event_id, text: t.text, title: t.event_title, at: t.date_tbd ? null : t.scheduled_at }))
-    .sort((a, b) => (a.at || Infinity) - (b.at || Infinity));
+  const home = require('./todos').forHome(userId);
+  const creating = home.items.sort((a, b) => (a.who === b.who ? 0 : a.who === 'you' ? -1 : 1) || (a.at || Infinity) - (b.at || Infinity));
+  const creatingSuggestions = home.suggestions;
 
   // Questions friends' ButterflAIs asked you that you haven't answered.
   const asked = db._raw().prepare(`
@@ -309,6 +309,7 @@ function feedFor(userId) {
     items,
     my_plans: myPlans(userId).map((p) => ({ plan_id: p.id, text: p.text, until: p.expires_at })),
     creating,
+    creating_suggestions: creatingSuggestions,
   };
 }
 
