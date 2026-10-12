@@ -218,8 +218,10 @@
           <span class="meta">#${fb.id} · ${ago(fb.created_at)} · ${esc(fb.model || 'model?')}</span>
         </div>
         <div class="note ${fb.user_note ? '' : 'empty-note'}">${fb.user_note ? esc(fb.user_note) : 'No note — just flagged.'}</div>
-        <div class="label">Flagged reply</div>
-        <div class="reply">${esc(fb.agent_message) || '(empty)'}</div>
+        <div class="meta">${esc(fb.user_name || '')}${fb.page ? ' · ' + esc(fb.page) : ''}${fb.app_version ? ' · v' + esc(fb.app_version) : ''}</div>
+        ${fb.has_screenshot ? `<a href="/api/admin/feedback/${fb.id}/screenshot" target="_blank"><img src="/api/admin/feedback/${fb.id}/screenshot" alt="Screenshot" loading="lazy" style="max-width:240px;max-height:420px;border:1px solid var(--line);border-radius:8px;margin:8px 0"></a>` : ''}
+        ${fb.agent_message ? `<div class="label">Flagged reply</div><div class="reply">${esc(fb.agent_message)}</div>` : ''}
+        ${fb.state_json ? `<details><summary>What the screen was showing${fb.device ? ' · ' + esc(fb.device).slice(0, 80) : ''}</summary><pre style="white-space:pre-wrap;font-size:12px;max-height:400px;overflow:auto">${esc(JSON.stringify(JSON.parse(fb.state_json), null, 2))}</pre></details>` : ''}
         <details><summary>Conversation context (${turns.length})</summary>${turnsHtml}</details>
         <details open><summary>What the agent did (${(fb.trace || []).length})</summary>${traceHtml(fb.trace)}</details>
         <div class="actions">

@@ -638,6 +638,17 @@ agent asked what he was up to — and my fix then had it ping him, which the own
 - Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.
   Tests: `tests/integration/plans-feed.test.js`.
 
+## 14. Feedback from any screen `[2026-10-12]`
+
+Owner: expand the chat 👎 to every screen — one tap captures the app's current state and a
+screenshot, then asks what they didn't like. `web/public/feedback.js` (on chat, Home, Events,
+People, Settings): a 👎 tab on the right edge → html2canvas screenshot of the visible screen
+(served from `/vendor/html2canvas.min.js`, not a CDN) + `window.bflyFeedbackState()` (each
+page reports what it shows) + version/device → "What didn't you like, or what should change?"
+(screenshot previewed, can be left out) → `/api/feedback` (4 MB limit for this route only).
+The server attaches the plan object when a plan is on screen. Admin: `/admin/feedback` shows
+the screenshot and state. Migration 047. Screenshots/state purged after 90 days (PRIVACY.md).
+
 ## 13. Reflection: looking back, checking in `[LOCKED 2026-10-09]`
 
 Owner, after Melanie's "how much is a cabin? probably need to reschedule" was passed on as a

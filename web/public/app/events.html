@@ -876,6 +876,9 @@
         fetch('/api/plans').then(r => r.json()).catch(() => ({ plans: [] })),
       ]);
       calPlans = plansRes.plans || [];
+      // What this screen was showing, for the feedback button (feedback.js).
+      window.bflyFeedbackState = () => ({ screen: 'events', month: `${calYear}-${calMonth + 1}`,
+        selected_day: selectedDay?.key || null, plans: calPlans.map((p) => ({ id: p.id, title: p.title, stage: p.stage, days: p.days, dates: p.dates.label })) });
       allEvents     = hosted.events  || [];
       invitedEvents = invited.events || [];
     } catch (_) {
@@ -914,6 +917,7 @@
   <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
   </script>
   <script src="/update-check.js"></script>
+  <script src="/feedback.js"></script>
   <script src="/notify-prompt.js"></script>
 </body>
 </html>

@@ -437,6 +437,14 @@
     // appear live while you talk; messages you send here belong to that plan.
     const topicEvent = new URLSearchParams(location.search).get('event');
 
+    // What this screen was showing, for the feedback button (feedback.js): the plan in view
+    // (the server attaches the plan object) and the last messages on screen.
+    window.bflyFeedbackState = () => ({
+      screen: 'chat', pill: topicEvent || 'all', event_id: topicEvent && topicEvent !== 'general' ? topicEvent : null,
+      last_messages: [...document.querySelectorAll('#messages .msg')].slice(-10).map((m) => ({
+        who: m.classList.contains('me') ? 'user' : 'assistant', text: (m.querySelector('.bubble')?.innerText || '').slice(0, 500) })),
+    });
+
     // Plan pills along the top: "All" + one per plan.
     async function loadPills() {
       try {
@@ -1108,6 +1116,7 @@
   }
   </script>
   <script src="/update-check.js"></script>
+  <script src="/feedback.js"></script>
   <script src="/notify-prompt.js"></script>
   </script>
 </body>

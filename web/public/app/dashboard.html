@@ -245,7 +245,10 @@
   async function loadFeed() {
     const el = document.getElementById('feed');
     try {
-      const { items, my_plans, creating, creating_suggestions } = await fetch('/api/feed').then(r => r.json());
+      const feed = await fetch('/api/feed').then(r => r.json());
+      // What Home was showing, for the feedback button (feedback.js).
+      window.bflyFeedbackState = () => ({ screen: 'home', feed });
+      const { items, my_plans, creating, creating_suggestions } = feed;
       document.getElementById('creating').innerHTML = creatingHtml(creating, creating_suggestions);
       document.getElementById('my-plans').innerHTML = (my_plans || []).map(p =>
         `<div class="mine"><span>You: ${esc(p.text)} · until ${when(p.until)}</span><button title="Remove" onclick="removePlan('${esc(p.plan_id)}')">✕</button></div>`).join('');
@@ -292,6 +295,7 @@
   <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
   </script>
   <script src="/update-check.js"></script>
+  <script src="/feedback.js"></script>
   <script src="/notify-prompt.js"></script>
   <script src="/install-prompt.js"></script>
 

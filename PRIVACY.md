@@ -303,6 +303,16 @@ any agent turn; private-mode messages are excluded. Follow-ups go only to that u
 the review noticed is stored only for opted-in test users (like the agent trace); for
 everyone else only the outcome (asked / clear / unsure) is kept.
 
+## Feedback from any screen `[2026-10-12]`
+
+A 👎 tab on every app screen lets a person report what they didn't like (`web/public/feedback.js`).
+It captures a screenshot of what's on screen (in the browser; the person sees it and can leave
+it out), the page and what it was showing, app version and device. When a plan is on screen,
+the server attaches that plan as the person sees it (`plan.js` — only plans they're in).
+Screenshots can show friends' names and plans, so: sent only when the person taps Send, viewable
+by the admin only (`/admin/feedback`), and **screenshots and screen state are deleted after 90
+days** (coord-loop purge); the written note is kept.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

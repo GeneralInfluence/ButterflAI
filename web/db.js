@@ -482,19 +482,23 @@ module.exports = {
   },
 
   // ── Feedback (Phase B dev-user loop) ───────────────────────────────────────
-  createFeedback({ user_id, rating, agent_message, user_note, context_json, model }) {
+  createFeedback({ user_id, rating, agent_message, user_note, context_json, model, page, state_json, screenshot, app_version, device }) {
     const info = db.prepare(`
-      INSERT INTO feedback (user_id, rating, agent_message, user_note, context_json, model)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(user_id, rating || 'down', agent_message || null, user_note || null, context_json || null, model || null);
+      INSERT INTO feedback (user_id, rating, agent_message, user_note, context_json, model, page, state_json, screenshot, app_version, device)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(user_id, rating || 'down', agent_message || null, user_note || null, context_json || null, model || null,
+      page || null, state_json || null, screenshot || null, app_version || null, device || null);
     return info.lastInsertRowid;
   },
 
+  // Screenshots are served separately (/api/admin/feedback/:id/screenshot), not in the list.
   getRecentFeedback(limit = 100, status = null) {
+    const cols = `f.id, f.user_id, f.rating, f.agent_message, f.user_note, f.context_json, f.model, f.status, f.created_at,
+      f.page, f.state_json, f.app_version, f.device, f.screenshot IS NOT NULL AS has_screenshot, u.name AS user_name`;
     if (status) {
-      return db.prepare(`SELECT * FROM feedback WHERE status = ? ORDER BY created_at DESC LIMIT ?`).all(status, limit);
+      return db.prepare(`SELECT ${cols} FROM feedback f LEFT JOIN users u ON u.id = f.user_id WHERE f.status = ? ORDER BY f.created_at DESC LIMIT ?`).all(status, limit);
     }
-    return db.prepare(`SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?`).all(limit);
+    return db.prepare(`SELECT ${cols} FROM feedback f LEFT JOIN users u ON u.id = f.user_id ORDER BY f.created_at DESC LIMIT ?`).all(limit);
   },
 
   updateFeedbackStatus(id, status) {

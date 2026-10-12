@@ -159,6 +159,14 @@ function tickPurge() {
   } catch (err) {
     console.error('[coord] trace purge error:', err.message);
   }
+  // Feedback screenshots and screen state hold friends' names and plans: kept 90 days.
+  try {
+    const f = require('./db')._raw().prepare(`UPDATE feedback SET screenshot = NULL, state_json = NULL
+      WHERE created_at < strftime('%s','now') - 90 * 86400 AND (screenshot IS NOT NULL OR state_json IS NOT NULL)`).run().changes;
+    if (f) console.log(`[coord] cleared ${f} old feedback screenshot(s)`);
+  } catch (err) {
+    console.error('[coord] feedback purge error:', err.message);
+  }
   // Name/context mentions are passively accumulated: kept mentions.RETENTION_DAYS (MEMORY.md §3.6).
   try {
     const m = require('./mentions').purgeOld();
@@ -344,6 +352,7 @@ function _humanizeReason(reason) {
 module.exports = {
   startCoordLoop,
   tick,
+  tickPurge,   // exposed so tests run the real retention step
   notifyUser,
   // Exported for testing
   processDesire,

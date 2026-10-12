@@ -93,7 +93,11 @@ app.use((req, res, next) => {
 });
 
 app.use(cookieParser());
-app.use(express.json());
+// Feedback can carry a screenshot (a few hundred KB) — its own larger limit; everything
+// else keeps the default.
+const jsonDefault = express.json();
+const jsonFeedback = express.json({ limit: '4mb' });
+app.use((req, res, next) => (req.path === '/api/feedback' ? jsonFeedback : jsonDefault)(req, res, next));
 app.use(express.urlencoded({ extended: true }));
 
 // All /api/* responses must never be cached
@@ -118,6 +122,8 @@ app.use('/app', (req, res, next) => {
   next();
 });
 
+// Screenshot library for the feedback button (served from our own server, not a CDN).
+app.get('/vendor/html2canvas.min.js', (req, res) => res.sendFile(require.resolve('html2canvas/dist/html2canvas.min.js')));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
@@ -1355,10 +1361,25 @@ function requireAdminPage(req, res, next) {
 // ── Feedback (Phase B dev-user loop) ────────────────────────────────────────
 // A tester flags an agent reply that missed expectations; we capture the message +
 // recent turns so it can be reproduced in the simulator (see web/tools/sim.js).
-app.post('/api/feedback', webAuth.requireAuth, express.json(), (req, res) => {
-  const { agent_message, note } = req.body || {};
+// Feedback from any screen (2026-10-12): the note, the page and what it was showing, an
+// optional screenshot, and — when a plan was on screen — the plan object itself (plan.js),
+// so a report shows exactly what the system thought that plan was.
+const FEEDBACK_SHOT_MAX = 3 * 1024 * 1024;
+app.post('/api/feedback', webAuth.requireAuth, (req, res) => {
+  const { agent_message, note, page, state, screenshot, app_version, device } = req.body || {};
   let context = null;
   try { context = JSON.stringify(db.getRecentConversation(req.user.id, 12) || []); } catch (_) {}
+  let stateObj = state && typeof state === 'object' ? state : null;
+  if (stateObj?.event_id && topics.canSee(req.user.id, String(stateObj.event_id))) {
+    try { stateObj = { ...stateObj, plan: plan.planFor(String(stateObj.event_id), req.user.id) }; } catch (_) {}
+  }
+  let shot = null;
+  if (typeof screenshot === 'string') {
+    const m = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(screenshot);
+    if (!m) return res.status(400).json({ error: 'Bad screenshot' });
+    shot = Buffer.from(m[2], 'base64');
+    if (shot.length > FEEDBACK_SHOT_MAX) return res.status(413).json({ error: 'Screenshot too large' });
+  }
   const id = db.createFeedback({
     user_id: req.user.id,
     rating: 'down',
@@ -1366,8 +1387,20 @@ app.post('/api/feedback', webAuth.requireAuth, express.json(), (req, res) => {
     user_note: (note || '').slice(0, 2000) || null,
     context_json: context,
     model: process.env.AGENT_MODEL || null,
+    page: page ? String(page).slice(0, 200) : null,
+    state_json: stateObj ? JSON.stringify(stateObj).slice(0, 200000) : null,
+    screenshot: shot,
+    app_version: app_version ? String(app_version).slice(0, 80) : null,
+    device: device ? String(device).slice(0, 300) : null,
   });
   res.json({ ok: true, id });
+});
+
+// Admin: a feedback screenshot.
+app.get('/api/admin/feedback/:id/screenshot', requireAdmin, (req, res) => {
+  const r = db._raw().prepare('SELECT screenshot FROM feedback WHERE id = ?').get(req.params.id);
+  if (!r?.screenshot) return res.status(404).end();
+  res.set('Content-Type', 'image/jpeg').set('Cache-Control', 'private, no-store').send(r.screenshot);
 });
 
 // Admin triage: list feedback and set its status.
