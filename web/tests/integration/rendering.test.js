@@ -919,3 +919,23 @@ test('chat waits for replies by the server clock returned from /api/chat/send', 
   assert.ok(html.includes('const { ts } = await r.json(); if (ts) pendingSince = ts;'));
 });
 
+
+// 2026-10-12 (owner): tapping a plan on Home landed on the Events tab with nothing about
+// that plan (it looked for a list card by the wrong id while the calendar was showing).
+describe('Events: plan summary opened from Home', () => {
+  const fs = require('node:fs'); const path = require('node:path');
+  const ev = fs.readFileSync(path.join(__dirname, '../../public/app/events.html'), 'utf8');
+  const home = fs.readFileSync(path.join(__dirname, '../../public/app/dashboard.html'), 'utf8');
+  test('Events reads ?event= (and old ?invite= links) and shows that plan’s summary from the plan object', () => {
+    assert.ok(ev.includes("summaryId = q.get('event') || q.get('invite');"));
+    assert.ok(ev.includes('<div id="plan-summary" hidden></div>'));
+    assert.ok(ev.includes('const p = calPlans.find(x => x.id === summaryId);'), 'reads plan.js object, no own logic');
+    for (const part of ['p.dates.label', 'p.place', 'p.host.is_you', 'p.people', 'p.notes', 'p.asked', 'p.next', 'p.invitation', '/app/chat?event=']) assert.ok(ev.includes(part), part);
+    assert.ok(ev.includes('renderSummary();\n  }'), 'refreshed after RSVP / changes');
+  });
+  test('Home: invites and plan icons open the summary', () => {
+    assert.ok(home.includes('href="/app/events?event=${esc(i.event_id)}"'));
+    assert.ok(home.includes("location.href='/app/events?event=${esc(i.event_id)}'"));
+    assert.ok(!home.includes('/app/events?invite='));
+  });
+});

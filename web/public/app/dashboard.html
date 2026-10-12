@@ -205,7 +205,7 @@
   const action = (i) => i.action ? `<div class="feed-action">${esc(i.action)}</div>` : '';
 
   function feedItemHtml(i) {
-    if (i.type === 'invite') return `<a class="card feed-item needs-you" href="/app/events?invite=${esc(i.event_id)}"><span class="feed-icon">📩</span><div><div class="card-title">${esc(i.host)} ${i.tentative ? 'is planning' : 'invited you'}: ${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''}</div>${action(i)}</div></a>`;
+    if (i.type === 'invite') return `<a class="card feed-item needs-you" href="/app/events?event=${esc(i.event_id)}"><span class="feed-icon">📩</span><div><div class="card-title">${esc(i.host)} ${i.tentative ? 'is planning' : 'invited you'}: ${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''}</div>${action(i)}</div></a>`;
     if (i.type === 'event') {
       const who = i.role === 'host'
         ? [i.interested && i.interested.length ? `${names(i.interested.map(esc))} ${i.tentative ? 'interested' : 'in'}` : '',
@@ -214,8 +214,9 @@
            i.out && i.out.length ? `${names(i.out.map(esc))} out` : '',
            ...(i.deferring || []).map((d) => `${esc(d.who)}: whatever ${names(d.to.map(esc))} decide${d.to.length === 1 && d.to[0] !== 'you' ? 's' : ''}`)].filter(Boolean).join(' · ') || 'you\'re hosting'
         : 'with ' + esc(i.host);
-      // Opens that plan's discussion in chat (2026-10-09).
-      return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="/app/chat?event=${esc(i.event_id)}"><span class="feed-icon">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
+      // The card opens that plan's discussion in chat (2026-10-09); its icon opens the plan's
+      // summary on the Events tab (2026-10-12).
+      return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="/app/chat?event=${esc(i.event_id)}"><span class="feed-icon" role="link" aria-label="Plan summary" title="Plan summary" onclick="event.preventDefault();event.stopPropagation();location.href='/app/events?event=${esc(i.event_id)}'">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
     }
     const chatLink = (i) => i.event_id ? `/app/chat?event=${esc(i.event_id)}` : '/app/chat';
     if (i.type === 'question') return `<a class="card feed-item needs-you" href="${chatLink(i)}"><span class="feed-icon">❓</span><div><div class="card-title">${esc(i.who)} asked</div><div class="card-sub">${esc(i.text)}</div>${action(i)}</div></a>`;

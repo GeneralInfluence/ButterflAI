@@ -227,6 +227,20 @@
       border-radius: 50%;
       flex-shrink: 0;
     }
+    /* Plan summary (2026-10-12): opened from Home — everything about one plan in one card. */
+    #plan-summary { background: #fff; border: 2px solid #6c47ff; border-radius: 16px; padding: 16px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    #plan-summary[hidden] { display: none; }
+    .ps-head { display: flex; align-items: flex-start; gap: 8px; }
+    .ps-title { flex: 1; min-width: 0; font-size: 18px; font-weight: 700; color: #1c1c1e; }
+    .ps-close { background: none; border: none; color: #8e8e93; font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1; }
+    .ps-rows { margin: 10px 0 0; display: grid; gap: 6px; font-size: 15px; color: #3a3a3c; }
+    .ps-label { font-size: 12px; font-weight: 600; color: #8e8e93; text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 6px; }
+    .ps-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 15px; }
+    .ps-next { margin-top: 12px; padding: 10px 12px; background: #ede9fe; color: #5a38d9; border-radius: 12px; font-size: 14px; font-weight: 600; }
+    .ps-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .ps-actions a, .ps-actions button { flex: 1; min-width: 120px; text-align: center; padding: 11px; border-radius: 12px; border: none; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer; text-decoration: none; }
+    .ps-primary { background: #6c47ff; color: #fff; }
+    .ps-secondary { background: #f2f2f7; color: #1c1c1e; }
     /* Plans by stage (2026-10-12): chips colored at a glance; proposed dates striped. */
     .cal-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
     .cal-legend .cal-chip { width: auto; font-size: 11px; line-height: 18px; padding: 0 8px; }
@@ -299,6 +313,9 @@
       <button class="view-btn active" id="vbtn-cal" onclick="setView('cal')">📅 Calendar</button>
     </div>
   </div>
+
+  <!-- Plan summary: shown when opened for one plan (?event=<id>) -->
+  <div id="plan-summary" hidden></div>
 
   <!-- List view -->
   <div id="view-list" style="display:none">
@@ -721,12 +738,66 @@
     renderMiniTodos(el.closest('.card-todos'));
   }
 
+  // ── Plan summary (owner, 2026-10-12): Home → Events opens one plan with everything about it.
+  // Reads the plan object (plan.js via /api/plans), so it says what every other screen says.
+  let summaryId = null;
+  const PEOPLE_STATUS = (p, tentative) => p.deferring_to && p.deferring_to.length
+    ? `🤝 whatever ${p.deferring_to.join(' & ')} decide${p.deferring_to.length === 1 && p.deferring_to[0] !== 'you' ? 's' : ''}`
+    : ({ accepted: tentative ? '⭐ interested' : '✅ going', invited: '⏳ hasn’t answered', declined: '❌ can’t make it' }[p.status] || p.status);
+  function renderSummary() {
+    const el = document.getElementById('plan-summary');
+    if (!summaryId) { el.hidden = true; return; }
+    const p = calPlans.find(x => x.id === summaryId);
+    el.hidden = false;
+    if (!p) {
+      el.innerHTML = `<div class="ps-head"><div class="ps-title">This plan isn’t available</div><button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>
+        <div class="ps-rows">It may have been cancelled, or you’re no longer in it.</div>`;
+      return;
+    }
+    const rows = [
+      `📅 ${escHtml(p.dates.label)}`,
+      p.place ? `📍 ${escHtml(p.place)}` : '',
+      `👤 ${p.host.is_you ? 'You’re hosting' : 'Hosted by ' + escHtml(p.host.name)}`,
+      p.group ? `👥 ${escHtml(p.group.name)}` : '',
+      p.what && p.what !== 'hangout' ? `✨ ${escHtml(p.what)}` : '',
+    ].filter(Boolean).map(r => `<div>${r}</div>`).join('');
+    const people = (p.people || []).length ? `<div class="ps-label">Who’s in</div><ul class="ps-people">${p.people.map(x =>
+      `<li><strong>${escHtml(x.name)}</strong> · ${PEOPLE_STATUS(x, p.tentative)}</li>`).join('')}</ul>` : '';
+    const asked = (p.asked || []).length ? `<div class="ps-rows">❓ Asked ${escHtml(p.asked.join(', '))} — no answer yet</div>` : '';
+    const notes = p.notes ? `<div class="ps-label">Plan so far</div><div class="ps-rows" style="white-space:pre-wrap">${escHtml(p.notes)}</div>` : '';
+    const creating = `<div class="ps-label">Creating</div><div class="card-todos" data-event="${escHtml(p.id)}">
+      <button type="button" class="todo-toggle" onclick="toggleTodos(this)">✨ Creating${p.creating.total ? ` ${p.creating.done}/${p.creating.total}` : ''}${p.creating.suggested ? ` · ${p.creating.suggested} suggested` : ''} ▾</button>
+      <ul class="todo-mini" hidden></ul></div>`;
+    const inv = p.invitation;
+    const answer = inv && inv.status === 'invited'
+      ? `<button class="ps-primary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted')">${p.tentative ? '⭐ I’m interested' : '✓ I’m in'}</button>
+         <button class="ps-secondary" onclick="summaryRsvp('${escHtml(inv.id)}','declined')">${p.tentative ? 'Not this time' : 'Can’t make it'}</button>` : '';
+    el.innerHTML = `<div class="ps-head"><div class="ps-title">${escHtml(p.title)}</div>
+        <span class="cal-chip stage-${p.stage}" style="width:auto;font-size:11px;line-height:20px;padding:0 8px;flex-shrink:0">${STAGE_LABEL[p.stage] || p.stage}</span>
+        <button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>
+      <div class="ps-rows">${rows}</div>${asked}${people}${notes}${creating}
+      ${p.next ? `<div class="ps-next">👉 ${escHtml(p.next)}</div>` : ''}
+      <div class="ps-actions">${answer}<a class="${answer ? 'ps-secondary' : 'ps-primary'}" href="/app/chat?event=${encodeURIComponent(p.id)}">💬 Discussion</a></div>`;
+  }
+  async function summaryRsvp(invitationId, status) {
+    document.querySelectorAll('#plan-summary .ps-actions button').forEach(b => { b.disabled = true; b.style.opacity = '.5'; });
+    await fetch('/api/events/rsvp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invitation_id: invitationId, status }) }).catch(() => {});
+    const ev = invitedEvents.find(e => e.invitation_id === invitationId);
+    if (ev) ev.rsvp_status = status;
+    await refreshPlans();
+  }
+  function closeSummary() {
+    summaryId = null; renderSummary();
+    history.replaceState(null, '', location.pathname);
+  }
+
   // ── Plan stages: computed on the server (plan.js) ──────────────────────
   const STAGE_LABEL = { idea: 'Idea', proposed: 'Proposed', invited: 'Invited', confirmed: 'Confirmed', past: 'Past', cancelled: 'Cancelled' };
   // After a change (cancel, RSVP), fetch the plans again so stages and days are current.
   async function refreshPlans() {
     try { calPlans = (await fetch('/api/plans').then(r => r.json())).plans || []; } catch (_) {}
     renderCalendar();
+    renderSummary();
   }
   // Plans with no date yet: listed above the calendar, each opens its discussion.
   function renderUndated(list) {
@@ -879,7 +950,7 @@
       calPlans = plansRes.plans || [];
       // What this screen was showing, for the feedback button (feedback.js).
       window.bflyFeedbackState = () => ({ screen: 'events', month: `${calYear}-${calMonth + 1}`,
-        selected_day: selectedDay?.key || null, plans: calPlans.map((p) => ({ id: p.id, title: p.title, stage: p.stage, days: p.days, dates: p.dates.label })) });
+        selected_day: selectedDay?.key || null, ...(summaryId ? { event_id: summaryId } : {}), plans: calPlans.map((p) => ({ id: p.id, title: p.title, stage: p.stage, days: p.days, dates: p.dates.label })) });
       allEvents     = hosted.events  || [];
       invitedEvents = invited.events || [];
     } catch (_) {
@@ -895,20 +966,14 @@
     if (pendingCount) {
       document.getElementById('tab-invited').textContent = `Invited (${pendingCount})`;
     }
-    // If arriving from an invite link (?invite=eventId), jump to Invited tab and highlight
-    const incomingInviteId = new URLSearchParams(window.location.search).get('invite');
-    if (incomingInviteId) {
-      showTab('invited');
-      requestAnimationFrame(() => {
-        const card = document.getElementById(`invite-${incomingInviteId}`);
-        if (card) {
-          card.style.outline = '2px solid #6c47ff';
-          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      });
-    } else {
-      showTab(pendingCount ? 'invited' : 'upcoming');
-    }
+    // Opened for one plan (?event=<id> from Home; ?invite=<id> from older links and texts):
+    // show its summary at the top. (Before 2026-10-12 this looked for a list card by the
+    // wrong id while the calendar was showing, so nothing happened.)
+    const q = new URLSearchParams(window.location.search);
+    summaryId = q.get('event') || q.get('invite');
+    renderSummary();
+    if (summaryId) window.scrollTo({ top: 0 });
+    showTab(pendingCount ? 'invited' : 'upcoming');
   }
 
   // Start in calendar view
