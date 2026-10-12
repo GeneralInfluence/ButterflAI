@@ -327,7 +327,7 @@
     <div id="todo-body" hidden>
       <ul id="todo-list"></ul>
       <div id="todo-suggested"></div>
-      <form id="todo-add"><input id="todo-new" maxlength="200" placeholder="Add a to-do…" aria-label="Add a to-do"><button type="submit" class="tpill">Add</button></form>
+      <form id="todo-add"><input id="todo-new" maxlength="200" placeholder="Add something to make happen…" aria-label="Add to Creating"><button type="submit" class="tpill">Add</button></form>
     </div>
   </section>
 
@@ -475,13 +475,14 @@
       const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       const kept = data.todos.filter(t => !t.suggested), sug = data.todos.filter(t => t.suggested);
       const toggle = document.getElementById('todo-toggle');
-      toggle.textContent = `☑ To-do ${kept.length ? `${data.progress.done}/${data.progress.total}` : ''}${sug.length ? ` · ${sug.length} suggested` : ''} ${todoOpen ? '▴' : '▾'}`;
+      // "Creating" — the plan's shared list (owner named it, 2026-10-12)
+      toggle.textContent = `✨ Creating ${kept.length ? `${data.progress.done}/${data.progress.total}` : ''}${sug.length ? ` · ${sug.length} suggested` : ''} ${todoOpen ? '▴' : '▾'}`;
       toggle.setAttribute('aria-expanded', String(todoOpen));
       document.getElementById('todo-body').hidden = !todoOpen;
       document.getElementById('todo-list').innerHTML = kept.map(t => `<li class="${t.done ? 'done' : ''}" data-id="${esc(t.id)}">
           <input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done"><span class="t">${esc(t.text)}</span>
           ${t.assignee ? `<span class="who">${esc(t.assignee)}</span>` : ''}<button type="button" class="todo-x" aria-label="Remove">✕</button></li>`).join('')
-        || '<li style="color:#8e8e93;font-size:13px">Nothing yet — add one, or ask your ButterflAI what this plan needs.</li>';
+        || '<li style="color:#8e8e93;font-size:13px">Nothing yet — add what needs doing, or ask your ButterflAI what this plan needs.</li>';
       document.getElementById('todo-suggested').innerHTML = sug.length ? '<div style="font-size:12px;color:#8e8e93;margin-top:4px">Suggested by ButterflAI</div>' + sug.map(t =>
         `<div class="sug" data-id="${esc(t.id)}"><span>${esc(t.text)}</span><button type="button" class="tpill keep">Keep</button><button type="button" class="todo-x" aria-label="Dismiss">✕</button></div>`).join('') : '';
       bar.hidden = false;

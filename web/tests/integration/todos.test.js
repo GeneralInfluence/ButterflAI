@@ -80,10 +80,11 @@ describe('plan to-dos', () => {
   });
 
   test('Home: to-dos assigned to you need you; Events: progress on the card', async () => {
-    const item = plans.feedFor(allie.id).items.find((i) => i.type === 'todo');
-    assert.equal(item.text, 'Bring the heater');
+    // Since 2026-10-12 they're Home's own "Creating" section (between Feeling and Happenings), not feed items.
+    const item = plans.feedFor(allie.id).creating.find((i) => i.text === 'Bring the heater');
     assert.equal(item.event_id, ev);
-    assert.ok(!plans.feedFor(sean.id).items.some((i) => i.type === 'todo' && i.text === 'Bring the heater'), 'not on Sean\'s Home');
+    assert.ok(!plans.feedFor(allie.id).items.some((i) => i.type === 'todo'));
+    assert.ok(!plans.feedFor(sean.id).creating.some((i) => i.text === 'Bring the heater'), 'not on Sean\'s Home');
     const hosted = await request.get(`/api/events/${sean.id}`).set('Cookie', sc);
     assert.deepEqual(hosted.body.events.find((e) => e.id === ev).todo_progress, { done: 2, total: 3 });
     const invited = await request.get('/api/events/invited/me').set('Cookie', ac);
@@ -94,6 +95,10 @@ describe('plan to-dos', () => {
     const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8');
     assert.ok(read('chat.html').includes('<section id="todo-bar" hidden>') && read('chat.html').includes('Suggested by ButterflAI'));
     assert.ok(read('events.html').includes('function todoLine(e)') && read('events.html').includes('function checkTodo('));
-    assert.ok(read('dashboard.html').includes("if (i.type === 'todo')") && read('dashboard.html').includes('async function doneTodo('));
+    // Home = Feeling · Creating · Happenings (owner, 2026-10-12)
+    const dash = read('dashboard.html');
+    assert.ok(dash.indexOf('<h2>Feeling</h2>') < dash.indexOf('<h2>Creating</h2>') && dash.indexOf('<h2>Creating</h2>') < dash.indexOf('<h2>Happenings</h2>'));
+    assert.ok(dash.includes('function creatingHtml(list)') && dash.includes('async function doneTodo('));
+    assert.ok(read('chat.html').includes('✨ Creating') && read('events.html').includes('✨ Creating'));
   });
 });

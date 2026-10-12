@@ -244,11 +244,11 @@ function feedFor(userId) {
     }
   }
 
-  // To-dos assigned to you on your plans (owner, 2026-10-12) — they need you.
-  for (const t of require('./todos').mine(userId)) {
-    items.push({ type: 'todo', todo_id: t.id, event_id: t.event_id, text: t.text, title: t.event_title,
-      at: t.date_tbd ? null : t.scheduled_at, action: 'To do' });
-  }
+  // Creating (owner, 2026-10-12): list items assigned to you — their own Home section
+  // between Feeling and Happenings, soonest plan first.
+  const creating = require('./todos').mine(userId)
+    .map((t) => ({ todo_id: t.id, event_id: t.event_id, text: t.text, title: t.event_title, at: t.date_tbd ? null : t.scheduled_at }))
+    .sort((a, b) => (a.at || Infinity) - (b.at || Infinity));
 
   // Questions friends' ButterflAIs asked you that you haven't answered.
   const asked = db._raw().prepare(`
@@ -293,7 +293,6 @@ function feedFor(userId) {
     // 1. Things waiting on you — soonest first.
     if (i.type === 'invite') return 3000 - daysOut(i.at) * 10;
     if (i.type === 'question') return 3000 - hoursAgo(i.created_at) * 0.1;
-    if (i.type === 'todo') return 2900 - (i.at ? daysOut(i.at) : 30) * 10;   // needs you; soonest plan first
     if (i.type === 'event' && i.action) return 3000 - daysOut(i.at) * 10;
     // 2. Happening in the next day.
     if (i.type === 'event' && daysOut(i.at) <= 1) return 2000 - daysOut(i.at) * 24;
@@ -309,6 +308,7 @@ function feedFor(userId) {
   return {
     items,
     my_plans: myPlans(userId).map((p) => ({ plan_id: p.id, text: p.text, until: p.expires_at })),
+    creating,
   };
 }
 

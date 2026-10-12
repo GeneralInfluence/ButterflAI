@@ -691,7 +691,7 @@
   function todoLine(e) {
     const p = e.todo_progress;
     return `<div class="card-todos" data-event="${escHtml(e.id)}" onclick="event.stopPropagation()">
-      <button type="button" class="todo-toggle" onclick="toggleTodos(this)">☑ ${p ? `${p.done}/${p.total} to-dos` : 'To-dos'} ▾</button>
+      <button type="button" class="todo-toggle" onclick="toggleTodos(this)">✨ Creating${p ? ` ${p.done}/${p.total}` : ''} ▾</button>
       <ul class="todo-mini" hidden></ul></div>`;
   }
   async function toggleTodos(btn) {
@@ -706,7 +706,7 @@
     if (!r || !r.ok) { ul.innerHTML = '<li>Couldn’t load</li>'; return; }
     const { todos, progress } = await r.json();
     const kept = todos.filter(t => !t.suggested);
-    box.querySelector('.todo-toggle').textContent = `☑ ${progress.total ? `${progress.done}/${progress.total} to-dos` : 'To-dos'} ▾`;
+    box.querySelector('.todo-toggle').textContent = `✨ Creating${progress.total ? ` ${progress.done}/${progress.total}` : ''} ▾`;
     ul.innerHTML = kept.map(t => `<li class="${t.done ? 'done' : ''}"><label><input type="checkbox" ${t.done ? 'checked' : ''}
         onchange="checkTodo('${escHtml(t.id)}', this.checked, this)"> ${escHtml(t.text)}</label>${t.assignee ? ` <span class="who">${escHtml(t.assignee)}</span>` : ''}</li>`).join('')
       + `<li><a href="/app/chat?event=${encodeURIComponent(id)}">${kept.length ? 'Add or change in the discussion' : 'Nothing yet — add in the discussion'} ›</a></li>`;

@@ -140,7 +140,7 @@ const TASKS = [
   },
   {
     id: '2026-10-12-suggest-todos-for-existing-plans',
-    added: Date.UTC(2026, 9, 12, 12) / 1000,
+    added: Date.UTC(2026, 9, 12) / 1000,
     kind: 'propose',
     about: 'Plan to-dos (migration 046): existing upcoming plans with no to-dos get a few SUGGESTED (kept only if someone keeps them).',
     async run(user) {
@@ -165,8 +165,32 @@ const TASKS = [
         if (added.length) lines.push(`• ${e.title}: ${added.join('; ')}`);
       }
       if (!lines.length) return 'none suggested';
-      await tellUser(user, `Each plan now has a to-do list everyone in it can see (top of the plan's chat, and on the Events page). I've suggested a few — keep the ones you want:\n${lines.join('\n')}`);
+      await tellUser(user, `Each plan now has a "Creating" list everyone in it can see (top of the plan's chat, and on the Events page). I've suggested a few — keep the ones you want:\n${lines.join('\n')}`);
       return `suggested for ${lines.length}`;
+    },
+  },
+  {
+    id: '2026-10-12-store-plan-details-from-discussion',
+    added: Date.UTC(2026, 9, 12) / 1000,
+    kind: 'propose',
+    about: 'Say it, store it (plansync.js): details decided in a plan\'s discussion but never saved (dates, place, people) are offered to the host to save.',
+    async run(user) {
+      const plansync = require('./plansync');
+      if (!topics.modelAvailable()) return RETRY;
+      const plans = db._raw().prepare(`SELECT id, title FROM social_events WHERE host_user_id = ? AND COALESCE(status, 'open') != 'cancelled'
+        AND (scheduled_at > ? OR date_tbd = 1)`).all(user.id, now());
+      const lines = [];
+      for (const e of plans) {
+        await topics.backfill(user.id, e.id);   // make sure its older messages are filed under it
+        const msgs = db._raw().prepare(`SELECT role, text FROM conversation_history WHERE user_id = ? AND event_id = ? AND private_ct IS NULL
+          ORDER BY created_at, rowid LIMIT 80`).all(user.id, e.id);
+        if (!msgs.length) continue;
+        const missing = await plansync.missingDetails(e.id, msgs.map((m) => `${m.role === 'user' ? 'Person' : 'Assistant'}: ${String(m.text).slice(0, 400)}`).join('\n'));
+        if (missing.length) lines.push(`• ${e.title}: ${missing.join('; ')}`);
+      }
+      if (!lines.length) return 'nothing missing';
+      await tellUser(user, `Some things we decided never made it onto your plans:\n${lines.join('\n')}\nWant me to save them? Say yes, or correct me.`);
+      return `offered for ${lines.length}`;
     },
   },
 ];

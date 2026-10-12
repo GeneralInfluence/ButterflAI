@@ -597,6 +597,16 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   `social_events.proposed_dates` (migration 045, `[{from,to}]`, ≤5 options, ≤14 days each,
   `multiparty.normalizeProposals`); the agent must use dates the user mentioned. Retro:
   undated plans get dates found in their discussion *offered* as proposed dates.
+- **Home = Feeling · Creating · Happenings (owner, 2026-10-12).** "What are you up to?" →
+  **Feeling**; the plans' shared lists are called **Creating** (Home section between them —
+  items assigned to you, soonest plan first; the bar in a plan's chat; Events cards); "Your
+  feed" → **Happenings**.
+- **Say it, store it (2026-10-12):** the agent told Sean dates/place ("Oct 23–24 at Carson
+  City Hot Springs", "Done", "Let me create both events…") and saved nothing. Now after a
+  turn about a plan the user hosts, `plansync.missingDetails` compares what was decided with
+  what's stored; anything missing goes back to the agent to save before replying. Claims of
+  creating/changing/cancelling a plan need a tool that did it (ACTION_CLAIMS). Retro: details
+  decided in older discussions are offered to the host.
 - **Plan to-dos (owner, 2026-10-12):** each plan has a to-do list (`event_todos`, migration
   046, `web/todos.js`). Owner choices: **everyone in the plan** (host + invitees) sees and
   changes it; items can be assigned to someone in the plan; **ButterflAI suggests, people

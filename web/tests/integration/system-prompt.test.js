@@ -470,6 +470,14 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-12: dates and place were told to Sean but never saved on the plans.
+  test('say it, store it; the shared list is called Creating', () => {
+    assertContains('SAY IT, STORE IT', 'store rule');
+    assertContains('Never say "done", "created" or "let me create" without doing it', 'no unbacked plan claims');
+    assertContains('shared list called "Creating"', 'Creating name');
+    assertContains('SAVING DETAILS FROM EARLIER CHATS', 'retro offer rule');
+  });
+
   // 2026-10-12: a to-do list for each plan; ButterflAI suggests, people keep.
   test('plan to-dos: suggest after creating a plan; never mark done unless told', () => {
     assertContains('PLAN TO-DOS', 'todo rule');

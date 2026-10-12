@@ -41,6 +41,7 @@ const defer      = require('./defer');
 const linktoken  = require('./linktoken');
 const groupPlans = require('./groups');
 const todos      = require('./todos');
+const plansync   = require('./plansync');
 const names      = require('./names');
 const mentions   = require('./mentions');
 const { toE164 } = require('./phoneUtils');
@@ -2382,8 +2383,10 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
 - GROUP PLANS: a plan with one of your user's groups → create_social_event with group set, so all members are invited. Your user won't say "group plan" — infer it: they named the group earlier, or the plan is with that group's people (a plan inviting everyone in a group is linked to it automatically). Adding someone to that group later (manage_contact_group add_member) automatically invites them to its upcoming plans and sends them one catch-up — tell your user who was caught up on what (caught_up_on).
 - DEFERRING ON A PLAN: if your user, about a plan they're invited to, says they don't want to weigh in and will go with what certain people decide ("whatever Melanie wants", "it's her birthday, not mine", "you guys figure it out"), call defer_on_plan with those names. That's for THIS plan only. Never pass along their reasons. If a friend's ButterflAI says someone deferred, don't ask that person about the plan — ask the people they defer to.
-- PLAN TO-DOS: every plan has a to-do list everyone in it can see (manage_todos). After you create a plan, or when its details change, SUGGEST 2–5 concrete to-dos (action suggest) and mention them in one line — your user keeps the ones they want (UI, or tell you → action keep). "What's left for X?" → list. "I booked the campsite" → done. "Allie's bringing the heater" → add + assign. Never mark something done that your user didn't say is done.
+- SAY IT, STORE IT: whatever you tell your user about a plan — dates, place, who's coming, cancelled — must be saved on the plan in the same turn (update_event / create_social_event). Never say "done", "created" or "let me create" without doing it.
+- PLAN TO-DOS: every plan has a shared list called "Creating" — what everyone is making happen together (manage_todos). Call it "Creating" when you talk about it. After you create a plan, or when its details change, SUGGEST 2–5 concrete to-dos (action suggest) and mention them in one line — your user keeps the ones they want (UI, or tell you → action keep). "What's left for X?" → list. "I booked the campsite" → done. "Allie's bringing the heater" → add + assign. Never mark something done that your user didn't say is done.
 - PROPOSED DATES: dates still being decided go in proposed_dates (calendar dates, e.g. [{"from":"2026-10-23","to":"2026-10-25"}]) — never leave a plan undated when your user has mentioned dates for it. If you offered to put dates found in earlier chats on the calendar and they agree, set them with update_event proposed_dates. When one is chosen, set scheduled_at and clear proposed_dates.
+- SAVING DETAILS FROM EARLIER CHATS: you may have offered ("Some things we decided never made it onto your plans: …"). If your user says yes, save each with update_event (dates → scheduled_at, or proposed_dates if not final; place → venue_name; other details → notes). Apply their corrections.
 - SETTING UP PLANS FROM EARLIER CHATS: you may have offered ("From our recent conversations, these aren't set up yet: …"). If your user says yes (to all or some), create each one with create_social_event — tentative: true, its people (look them up), its dates if known, else no date. Don't create the ones they declined.
 - EVERY CONVERSATION IS ABOUT A PLAN: a new one, an existing one, or combining two. When your user brings up a plan that isn't in Open events — even with no date ("we should camp at Grover with the mamas") — create it right away (create_social_event, tentative: true, no date unless they gave one). Housekeeping for a plan (adding someone to a group for it) belongs to that plan. If two Open events are really the same thing, ask your user whether to combine them (merge_plans).
 - TRIPS AND PLANS STILL BEING FIGURED OUT: when your user is planning something with people (a trip, a weekend, a party) — even with dates or details unsettled — create it with create_social_event (tentative: true, best-known dates, contact_ids = everyone involved) BEFORE messaging anyone about it. That puts it on everyone's Home and calendars. When a friend (or their ButterflAI's reply) is clearly in, record_rsvp accepted (shown as interested); when someone is out, declined. When dates and details are settled, update_event tentative: false. message_agent with topic "coordination" requires the event_id.
@@ -2588,6 +2591,15 @@ const ACTION_CLAIMS = [
     how: 'reply_agent with the message_id listed under "Open questions from friends\' ButterflAIs"',
   },
   {
+    // 2026-10-12: "Done. Grover Hot Springs is gone." / "Let me create both events…" — and
+    // nothing was changed. A claim that a plan was created/changed needs a tool that did it.
+    what: 'a change to a plan',
+    claim: /\b(?:created|set up|updated|changed|moved|rescheduled|cancell?ed|deleted|removed|locked in)\b[^.!?\n]{0,60}\b(?:event|plan|party|weekend|trip|dates?|calendar)\b|\b(?:event|plan|party|weekend|trip)\b[^.!?\n]{0,30}\bis gone\b|\blet me (?:create|update|set up|add|move|change)\b/i,
+    done: (log) => log.some((t) => ['create_social_event', 'update_event', 'merge_plans', 'manage_todos', 'record_rsvp', 'defer_on_plan'].includes(t.name) && !t.result?.error),
+    how: 'create_social_event / update_event (or merge_plans)',
+    fallback: null,     // after one nudge keep its reply (it may be describing an earlier change)
+  },
+  {
     // 2026-10-09: "invite Alex Spargo" → "I need her number" / "I'm not finding Alexandria
     // Spargo in your contacts" — three turns without ever looking (she was there, number
     // and all). Saying someone isn't there, or asking for their number, needs a lookup.
@@ -2779,6 +2791,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   const toolLog = [];   // { name, input, result } for every tool run this turn
   let lastReplyText = '';
   let planRouted = false;    // routed this turn to a plan (topics.route)
+  let planSynced = false;    // "say it, store it" checked this turn (plansync.js)
   let routed;                // its result, reused when filing the turn
 
   while (iterations < MAX_ITERATIONS) {
@@ -2853,6 +2866,27 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
             + 'Create it now with create_social_event — tentative: true, a short title, the people your user named in contact_ids (look them up), and NO date unless your user gave one (it will show "date TBD"). '
             + 'If it is really the same as one of their Open events, use that one instead. Then reply to your user.' });
           continue;
+        }
+      }
+
+      // Say it, store it (2026-10-12): what was decided for the plan this turn must be saved
+      // on the plan — dates, place, people. Checked once per turn; anything missing goes
+      // back to the agent to store before it replies.
+      if (USER_CHANNELS.includes(msg.channel) && !isPrivate && !planSynced) {
+        planSynced = true;
+        const touched = topics.eventsTouched(userId, toolLog);
+        const planId = (msg.event_id && msg.event_id !== topics.GENERAL && topics.canSee(userId, msg.event_id)) ? msg.event_id
+          : touched.length === 1 ? touched[0] : routed?.kind === 'existing' ? routed.eventId : null;
+        const host = planId && db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(planId)?.host_user_id === userId;
+        if (host) {
+          const missing = await plansync.missingDetails(planId, `Person: ${msg.text}\nAssistant: ${replyText}`).catch(() => []);
+          if (missing.length) {
+            turnTrace.event('guard', `plan details not stored: ${missing.join('; ')}`);
+            messages.push({ role: 'user', content:
+              `[System check — not from the user] These details were decided for the plan (eventId="${planId}") but aren't saved on it: ${missing.map((m) => `"${m}"`).join(', ')}. `
+              + 'Save them now — update_event (scheduled_at for a chosen date, proposed_dates for options, venue_name, notes, title), and invite anyone new with create_social_event contact_ids only if your user asked — then reply. Don\'t mention this check.' });
+            continue;
+          }
         }
       }
 

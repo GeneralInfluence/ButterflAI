@@ -785,7 +785,8 @@ describe('Home: feed replaces overdue check-ins / coming up / invite a friend (2
   test('home has the feed and plan sharing, not the old sections', () => {
     const html = read('dashboard.html');
     assert.ok(html.includes('id="feed"') && html.includes("fetch('/api/feed')"));
-    assert.ok(html.includes('What are you up to?') && html.includes("quickShare('Free tonight', 'tonight')"));
+    // Section renamed "Feeling" (owner, 2026-10-12: Home = Feeling · Creating · Happenings).
+    assert.ok(html.includes('<h2>Feeling</h2>') && html.includes("quickShare('Free tonight', 'tonight')"));
     for (const gone of ['Overdue check-ins', 'Coming up', 'Invite a friend']) assert.ok(!html.includes(gone), gone);
   });
   test('invite a friend lives in settings', () => {

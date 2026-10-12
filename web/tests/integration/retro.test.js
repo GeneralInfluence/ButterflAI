@@ -55,6 +55,9 @@ describe('retro tasks', () => {
       assert.ok(['internal', 'propose'].includes(t.kind), t.id);
       assert.ok(t.about && t.about.length > 20, t.id);
       assert.ok(t.added > 0, t.id);
+      // A task's start can't be in the future, or people who join before it would be treated
+      // as existing users (2026-10-12: one was set to later that day).
+      assert.ok(t.added <= Date.now() / 1000, `${t.id} starts in the future`);
     }
   });
 
