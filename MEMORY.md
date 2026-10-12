@@ -681,7 +681,7 @@ duplicate plans reached friends and Home kept a stale "Waiting on…").
   chars; a chosen date clears proposed options; options with no date = date TBD; FYI to deferrers
   on date / place / lock-in / cancel; host re-checked. Every change is logged to `plan_changes`
   (migration 048: who, via agent|app|retro, field, old → new) — `planops.history(eventId)`.
-- **Feedback on every screen:** `web/public/feedback.js` (👎 tab, screenshot + the screen's state
+- **Feedback on every screen:** `web/public/feedback.js` (🐛 tab, sheet labelled "Ideas & bugs", screenshot + the screen's state
   + the plan object when it's about a plan) → `/admin/feedback`. Screenshots/state kept 90 days.
 - Tests: `tests/integration/planops.test.js`, `plan-object.test.js`, `feedback-screens.test.js`.
 

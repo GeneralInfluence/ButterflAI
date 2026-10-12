@@ -20,6 +20,7 @@
     #bfly-fb-sheet[hidden] { display: none; }
     #bfly-fb-card { background: #fff; width: 100%; max-width: 520px; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1c1c1e; box-shadow: 0 -4px 24px rgba(0,0,0,.2); }
+    #bfly-fb-label { font-size: 13px; font-weight: 600; color: #6c47ff; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 6px; }
     #bfly-fb-card h3 { margin: 0 0 10px; font-size: 17px; }
     #bfly-fb-card textarea { width: 100%; box-sizing: border-box; min-height: 90px; border: 1.5px solid #e5e5e5; border-radius: 12px;
       padding: 10px 12px; font-family: inherit; font-size: 16px; resize: vertical; }
@@ -35,11 +36,12 @@
   const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style);
 
   const tab = document.createElement('button');
-  tab.id = 'bfly-fb-tab'; tab.type = 'button'; tab.textContent = '👎';
-  tab.title = 'Something wrong? Tell us'; tab.setAttribute('aria-label', 'Send feedback about this screen');
+  tab.id = 'bfly-fb-tab'; tab.type = 'button'; tab.textContent = '🐛';   // a caterpillar on most phones: help it become a butterfly
+  tab.title = 'Ideas & bugs'; tab.setAttribute('aria-label', 'Send feedback about this screen');
   const sheet = document.createElement('div');
   sheet.id = 'bfly-fb-sheet'; sheet.hidden = true;
   const TEMPLATE = `<div id="bfly-fb-card" role="dialog" aria-label="Feedback">
+      <div id="bfly-fb-label">🐛 Ideas &amp; bugs</div>
       <h3>What didn't you like, or what should change?</h3>
       <textarea id="bfly-fb-note" maxlength="2000" placeholder="e.g. My plan isn't on the calendar"></textarea>
       <div id="bfly-fb-shot" hidden><img alt="Screenshot of this screen"><label><input type="checkbox" id="bfly-fb-include" checked> Include this screenshot</label></div>
