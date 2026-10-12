@@ -740,7 +740,10 @@ describe('Chat messages can be copied; notices are shown (2026-10-08)', () => {
   });
   // 2026-10-09: Copy and 👎 sat side by side on the tiny timestamp line; Sean kept
   // hitting Copy instead of 👎, and the feedback box zoomed/jumped on iPhone.
-  test('replies: Copy and 👎 are stacked pills to the right of the bubble', () => {
+  test('replies: Copy and 🐛 are stacked pills to the right of the bubble', () => {
+    // 2026-10-12 (owner): the per-reply feedback button is a bug like the screen tab, not 👎.
+    assert.ok(html.includes('aria-label="Ideas and bugs about this reply">🐛</button>'));
+    assert.ok(!html.includes('>👎</button>'));
     assert.ok(html.includes('<div class="msg-row"><div class="bubble">${renderText(text)}</div><div class="msg-side"><button class="copy-btn"'));
     assert.match(html, /\.msg-side \{ display: flex; flex-direction: column; gap: 10px;/);
     assert.match(html, /\.msg-side button \{[\s\S]{0,120}height: 34px; min-width: 48px;/);

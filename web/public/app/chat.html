@@ -140,9 +140,9 @@
     .ts { font-size: 11px; color: #bbb; margin-top: 2px; padding: 0 4px; }
     .msg-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
     .msg-foot .ts { margin-top: 0; }
-    /* Replies: Copy and 👎 are pills to the RIGHT of the bubble, stacked with space
+    /* Replies: Copy and 🐛 (feedback, was 👎) are pills to the RIGHT of the bubble, stacked with space
        between them (2026-10-09: on the timestamp line they were tiny and side by side —
-       Sean kept hitting Copy instead of 👎). */
+       Sean kept hitting Copy instead of the feedback button). */
     .msg.bot { max-width: 92%; }
     .msg-row { display: flex; align-items: flex-start; gap: 8px; }
     .msg-row .bubble { min-width: 0; }
@@ -770,7 +770,7 @@
       div.className = `msg ${role}${['incoming', 'outgoing', 'notice'].includes(kind) ? ' ' + kind : ''}`;
       const time = ts ? fmtMsgTime(ts) : '';
       if (role === 'bot') {
-        div.innerHTML = `<div class="msg-row"><div class="bubble">${renderText(text)}</div><div class="msg-side"><button class="copy-btn" type="button" title="Copy" aria-label="Copy message">Copy</button><button class="fb-btn" type="button" title="Flag this reply as wrong" aria-label="Flag this reply">👎</button></div></div><div class="msg-foot"><span class="ts">${time}</span></div>`;
+        div.innerHTML = `<div class="msg-row"><div class="bubble">${renderText(text)}</div><div class="msg-side"><button class="copy-btn" type="button" title="Copy" aria-label="Copy message">Copy</button><button class="fb-btn" type="button" title="Ideas &amp; bugs about this reply" aria-label="Ideas and bugs about this reply">🐛</button></div></div><div class="msg-foot"><span class="ts">${time}</span></div>`;
         const fb = div.querySelector('.fb-btn');
         if (fb) fb.addEventListener('click', () => openFeedback(fb, text));
       } else {
@@ -800,7 +800,7 @@
       if (!div || div.querySelector('.fb-box')) return; // already open
       const box = document.createElement('div');
       box.className = 'fb-box';
-      box.innerHTML = `<textarea class="fb-note" rows="2" placeholder="What was wrong, or what did you expect? (optional)"></textarea>
+      box.innerHTML = `<textarea class="fb-note" rows="2" placeholder="🐛 Ideas &amp; bugs — what was wrong, or what did you expect? (optional)"></textarea>
         <div class="fb-actions"><button class="fb-send" type="button">Send feedback</button><button class="fb-cancel" type="button">Cancel</button></div>`;
       div.appendChild(box);
       const ta = box.querySelector('.fb-note');
