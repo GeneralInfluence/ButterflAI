@@ -210,11 +210,18 @@
       return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="/app/chat?event=${esc(i.event_id)}"><span class="feed-icon">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
     }
     const chatLink = (i) => i.event_id ? `/app/chat?event=${esc(i.event_id)}` : '/app/chat';
+    if (i.type === 'todo') return `<div class="card feed-item needs-you"><span class="feed-icon">☑</span><div style="flex:1;min-width:0"><a href="/app/chat?event=${esc(i.event_id)}" style="text-decoration:none;color:inherit"><div class="card-title">${esc(i.text)}</div><div class="card-sub">${esc(i.title)}${i.at ? ' · ' + whenFor(i) : ''}</div></a><button type="button" class="feed-action" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit" onclick="doneTodo('${esc(i.todo_id)}')">✓ Mark done</button></div></div>`;
     if (i.type === 'question') return `<a class="card feed-item needs-you" href="${chatLink(i)}"><span class="feed-icon">❓</span><div><div class="card-title">${esc(i.who)} asked</div><div class="card-sub">${esc(i.text)}</div>${action(i)}</div></a>`;
     if (i.type === 'waiting') return `<a class="card feed-item" href="${chatLink(i)}"><span class="feed-icon">⏳</span><div><div class="card-title">Waiting on ${names(i.who.map(esc))}</div><div class="card-sub">${esc(i.text)}</div></div></a>`;
     if (i.type === 'plan') return `<div class="card feed-item"><span class="feed-icon">🟢</span><div><div class="card-title">${esc(i.who)}: ${esc(i.text)}</div><div class="card-sub">until ${when(i.until)}</div></div></div>`;
     if (i.type === 'interest') return `<div class="card feed-item"><span class="feed-icon">👋</span><div><div class="card-title">${esc(i.who)}'s up for something ${esc(i.about)}</div><div class="card-sub">Share what you're up to above if you're in</div></div></div>`;
     return '';
+  }
+
+  // To-dos assigned to you (2026-10-12): check off right from Home.
+  async function doneTodo(id) {
+    await fetch('/api/todos/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ done: true }) }).catch(() => {});
+    loadFeed();
   }
 
   async function loadFeed() {

@@ -40,6 +40,7 @@ const topics     = require('./topics');
 const defer      = require('./defer');
 const linktoken  = require('./linktoken');
 const groupPlans = require('./groups');
+const todos      = require('./todos');
 const names      = require('./names');
 const mentions   = require('./mentions');
 const { toE164 } = require('./phoneUtils');
@@ -424,6 +425,21 @@ const TOOL_DEFINITIONS = [
         source: { type: 'string', description: 'How they confirmed, e.g. "in person", "phone call"' },
       },
       required: ['event_id', 'contact_phone', 'status'],
+    },
+  },
+  {
+    name: 'manage_todos',
+    description: 'A plan\'s to-do list (everyone in the plan sees it). list: what\'s left. suggest: propose to-dos (the user keeps the ones they want — use after creating a plan or when details change; 2–5 concrete items like "book the campsite", "who brings the heater?"). add: add one the user asked for. keep: keep a suggestion. done / undo: check off / reopen. assign: give it to someone in the plan (name, or "me"). remove: delete.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        event_id: { type: 'string', description: 'The plan (eventId)' },
+        action:   { type: 'string', enum: ['list', 'suggest', 'add', 'keep', 'done', 'undo', 'assign', 'remove'] },
+        items:    { type: 'array', items: { type: 'string' }, description: 'For suggest/add: the to-do texts' },
+        todo_id:  { type: 'string', description: 'For keep/done/undo/assign/remove (from list)' },
+        assignee: { type: 'string', description: 'For add/assign: a person in the plan, or "me"' },
+      },
+      required: ['event_id', 'action'],
     },
   },
   {
@@ -1293,6 +1309,24 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const online = sse.push(userId, { role: 'assistant', text, ts: Math.floor(Date.now() / 1000) });
       const r = await deliver.notifySelf(db.getUser(userId), text, { online });
       return { delivered: true, via: r.via, event_id: turn.threadEvent || undefined, note: 'Your user has it. When they answer (in a later message), the question is listed under "Open questions from friends\' ButterflAIs" — reply with reply_agent then.' };
+    }
+
+    case 'manage_todos': {
+      const { event_id, action, items = [], todo_id, assignee } = toolInput;
+      if (action === 'list') return todos.list(userId, event_id);
+      if (action === 'suggest' || action === 'add') {
+        const added = [], problems = [];
+        for (const text of items.slice(0, 8)) {
+          const r = todos.add(userId, event_id, { text, assignee, suggested: action === 'suggest' });
+          if (r.error) problems.push(`${text}: ${r.message || r.error}`); else added.push(r.todo.text);
+        }
+        return { [action === 'suggest' ? 'suggested' : 'added']: added, problems: problems.length ? problems : undefined,
+          note: action === 'suggest' ? 'Suggestions show at the top of the plan\'s chat with Keep / ✕. Mention them briefly; keep the ones your user wants with action keep.' : undefined };
+      }
+      const change = { keep: { keep: true }, done: { done: true }, undo: { done: false }, assign: { assignee } }[action];
+      if (change) return todos.update(userId, todo_id, change);
+      if (action === 'remove') return todos.remove(userId, todo_id);
+      return { error: 'UNKNOWN_ACTION' };
     }
 
     case 'merge_plans': {
@@ -2348,6 +2382,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
 - GROUP PLANS: a plan with one of your user's groups → create_social_event with group set, so all members are invited. Your user won't say "group plan" — infer it: they named the group earlier, or the plan is with that group's people (a plan inviting everyone in a group is linked to it automatically). Adding someone to that group later (manage_contact_group add_member) automatically invites them to its upcoming plans and sends them one catch-up — tell your user who was caught up on what (caught_up_on).
 - DEFERRING ON A PLAN: if your user, about a plan they're invited to, says they don't want to weigh in and will go with what certain people decide ("whatever Melanie wants", "it's her birthday, not mine", "you guys figure it out"), call defer_on_plan with those names. That's for THIS plan only. Never pass along their reasons. If a friend's ButterflAI says someone deferred, don't ask that person about the plan — ask the people they defer to.
+- PLAN TO-DOS: every plan has a to-do list everyone in it can see (manage_todos). After you create a plan, or when its details change, SUGGEST 2–5 concrete to-dos (action suggest) and mention them in one line — your user keeps the ones they want (UI, or tell you → action keep). "What's left for X?" → list. "I booked the campsite" → done. "Allie's bringing the heater" → add + assign. Never mark something done that your user didn't say is done.
 - PROPOSED DATES: dates still being decided go in proposed_dates (calendar dates, e.g. [{"from":"2026-10-23","to":"2026-10-25"}]) — never leave a plan undated when your user has mentioned dates for it. If you offered to put dates found in earlier chats on the calendar and they agree, set them with update_event proposed_dates. When one is chosen, set scheduled_at and clear proposed_dates.
 - SETTING UP PLANS FROM EARLIER CHATS: you may have offered ("From our recent conversations, these aren't set up yet: …"). If your user says yes (to all or some), create each one with create_social_event — tentative: true, its people (look them up), its dates if known, else no date. Don't create the ones they declined.
 - EVERY CONVERSATION IS ABOUT A PLAN: a new one, an existing one, or combining two. When your user brings up a plan that isn't in Open events — even with no date ("we should camp at Grover with the mamas") — create it right away (create_social_event, tentative: true, no date unless they gave one). Housekeeping for a plan (adding someone to a group for it) belongs to that plan. If two Open events are really the same thing, ask your user whether to combine them (merge_plans).

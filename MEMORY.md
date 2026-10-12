@@ -597,6 +597,13 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   `social_events.proposed_dates` (migration 045, `[{from,to}]`, ≤5 options, ≤14 days each,
   `multiparty.normalizeProposals`); the agent must use dates the user mentioned. Retro:
   undated plans get dates found in their discussion *offered* as proposed dates.
+- **Plan to-dos (owner, 2026-10-12):** each plan has a to-do list (`event_todos`, migration
+  046, `web/todos.js`). Owner choices: **everyone in the plan** (host + invitees) sees and
+  changes it; items can be assigned to someone in the plan; **ButterflAI suggests, people
+  keep** (`suggested` until kept; never counted in progress). Seen: a to-do bar at the top of
+  the plan's chat (check off, keep/dismiss suggestions, add), Home (to-dos assigned to you,
+  "needs you"), Events cards (progress + list), and the agent (`manage_todos`). Access is
+  checked in `todos.js` for every read/write. Retro: existing plans get suggestions offered.
 - **Agent-to-agent:** "what is your user up to" is never answered from memory and never
   triggers a ping; agents answer only from what the user explicitly shared.
 - Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.

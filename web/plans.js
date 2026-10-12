@@ -244,6 +244,12 @@ function feedFor(userId) {
     }
   }
 
+  // To-dos assigned to you on your plans (owner, 2026-10-12) — they need you.
+  for (const t of require('./todos').mine(userId)) {
+    items.push({ type: 'todo', todo_id: t.id, event_id: t.event_id, text: t.text, title: t.event_title,
+      at: t.date_tbd ? null : t.scheduled_at, action: 'To do' });
+  }
+
   // Questions friends' ButterflAIs asked you that you haven't answered.
   const asked = db._raw().prepare(`
     SELECT am.id, am.body, am.created_at, am.thread_id, u.name, u.phone FROM agent_messages am JOIN users u ON u.id = am.from_user
@@ -287,6 +293,7 @@ function feedFor(userId) {
     // 1. Things waiting on you — soonest first.
     if (i.type === 'invite') return 3000 - daysOut(i.at) * 10;
     if (i.type === 'question') return 3000 - hoursAgo(i.created_at) * 0.1;
+    if (i.type === 'todo') return 2900 - (i.at ? daysOut(i.at) : 30) * 10;   // needs you; soonest plan first
     if (i.type === 'event' && i.action) return 3000 - daysOut(i.at) * 10;
     // 2. Happening in the next day.
     if (i.type === 'event' && daysOut(i.at) <= 1) return 2000 - daysOut(i.at) * 24;

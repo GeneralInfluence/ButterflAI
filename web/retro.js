@@ -138,6 +138,37 @@ const TASKS = [
       return `proposed ${lines.length}`;
     },
   },
+  {
+    id: '2026-10-12-suggest-todos-for-existing-plans',
+    added: Date.UTC(2026, 9, 12, 12) / 1000,
+    kind: 'propose',
+    about: 'Plan to-dos (migration 046): existing upcoming plans with no to-dos get a few SUGGESTED (kept only if someone keeps them).',
+    async run(user) {
+      const c = client();
+      if (!c) return RETRY;
+      const todos = require('./todos');
+      const plans = db._raw().prepare(`SELECT id, title, activity_type, venue_name, notes FROM social_events se WHERE host_user_id = ?
+        AND COALESCE(status, 'open') != 'cancelled' AND (scheduled_at > ? OR date_tbd = 1)
+        AND NOT EXISTS (SELECT 1 FROM event_todos t WHERE t.event_id = se.id)`).all(user.id, now());
+      if (!plans.length) return 'no plans need it';
+      const r = await c.messages.create({ model: DEFAULT_MODEL, max_tokens: 600, messages: [{ role: 'user', content:
+        'Suggest 2–4 concrete to-dos for each plan (things someone has to do to make it happen: book, buy, decide, bring). Short, imperative.\n'
+        + plans.map((e, i) => `${i + 1}. ${e.title} (${e.activity_type}${e.venue_name ? ', ' + e.venue_name : ''})${e.notes ? ' — ' + String(e.notes).slice(0, 150) : ''}`).join('\n')
+        + '\nReply with JSON only: {"todos":[{"plan":1,"items":["Book the campsite"]}]}' }] });
+      let found = [];
+      try { found = JSON.parse(String((r.content || []).map((b) => b.text || '').join('')).match(/\{[\s\S]*\}/)[0]).todos || []; } catch (_) { return 'unreadable'; }
+      const lines = [];
+      for (const f of found) {
+        const e = plans[(f.plan | 0) - 1];
+        if (!e) continue;
+        const added = (f.items || []).slice(0, 4).map((t) => todos.add(user.id, e.id, { text: t, suggested: true })).filter((x) => x.ok).map((x) => x.todo.text);
+        if (added.length) lines.push(`• ${e.title}: ${added.join('; ')}`);
+      }
+      if (!lines.length) return 'none suggested';
+      await tellUser(user, `Each plan now has a to-do list everyone in it can see (top of the plan's chat, and on the Events page). I've suggested a few — keep the ones you want:\n${lines.join('\n')}`);
+      return `suggested for ${lines.length}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

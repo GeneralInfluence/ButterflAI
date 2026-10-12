@@ -36,6 +36,7 @@ const topics = require('./topics');
 const defer = require('./defer');
 const linktoken = require('./linktoken');
 const groupPlans = require('./groups');
+const todos = require('./todos');
 const names = require('./names');
 const plans = require('./plans');
 const webAuth  = require('./webapp-auth');
@@ -1531,6 +1532,26 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   });
 });
 
+// ── Plan to-dos (owner, 2026-10-12) — everyone in the plan; access checked in todos.js ──
+const todoStatus = (r) => (r.error === 'NOT_IN_PLAN' || r.error === 'NOT_FOUND' ? 404 : 400);
+app.get('/api/events/:id/todos', webAuth.requireAuth, (req, res) => {
+  const r = todos.list(req.user.id, req.params.id);
+  return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
+});
+app.post('/api/events/:id/todos', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = todos.add(req.user.id, req.params.id, { text: req.body?.text, assignee: req.body?.assignee });
+  return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
+});
+app.patch('/api/todos/:id', webAuth.requireAuth, express.json(), (req, res) => {
+  const { done, keep, text, assignee } = req.body || {};
+  const r = todos.update(req.user.id, req.params.id, { done, keep, text, assignee });
+  return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
+});
+app.delete('/api/todos/:id', webAuth.requireAuth, (req, res) => {
+  const r = todos.remove(req.user.id, req.params.id);
+  return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
+});
+
 // GET /api/chat/discussions — the plan pills along the top of chat (owner, 2026-10-09:
 // chat is organized by the plans you're making, not by people or groups like WhatsApp).
 app.get('/api/chat/discussions', webAuth.requireAuth, (req, res) => {
@@ -2109,9 +2130,11 @@ app.get('/api/events/:userId', webAuth.requireAuth, (req, res) => {
   if (!sameUser(req, res, req.params.userId)) return;
   const events = multiparty.getEventsByHost(req.params.userId);
   // Attach RSVP summary to each event so host can see who accepted/declined
+  const prog = todos.progressFor(events.map((e) => e.id));
   const withRsvp = events.map(e => ({
     ...e,
     rsvp: multiparty.getRsvpSummary(e.id),
+    todo_progress: prog[e.id],
   }));
   res.json({ events: withRsvp });
 });
@@ -2119,7 +2142,8 @@ app.get('/api/events/:userId', webAuth.requireAuth, (req, res) => {
 // GET /api/events/invited — events the logged-in user was invited to
 app.get('/api/events/invited/me', webAuth.requireAuth, (req, res) => {
   const events = multiparty.getInvitedEvents(req.user.phone);
-  res.json({ events });
+  const prog = todos.progressFor(events.map((e) => e.id));
+  res.json({ events: events.map((e) => ({ ...e, todo_progress: prog[e.id] })) });
 });
 
 // POST /api/events/invitations/:id/dismiss — hide an invitation from the events page

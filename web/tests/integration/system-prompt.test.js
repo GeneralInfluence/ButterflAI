@@ -470,6 +470,13 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-12: a to-do list for each plan; ButterflAI suggests, people keep.
+  test('plan to-dos: suggest after creating a plan; never mark done unless told', () => {
+    assertContains('PLAN TO-DOS', 'todo rule');
+    assertContains('SUGGEST 2–5 concrete to-dos', 'suggest');
+    assertContains("Never mark something done that your user didn't say is done", 'no false done');
+  });
+
   // 2026-10-12: plans created without the dates the user had mentioned (not on the calendar).
   test('proposed dates: never leave a plan undated when dates were mentioned', () => {
     assertContains('PROPOSED DATES', 'proposed dates rule');

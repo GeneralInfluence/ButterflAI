@@ -181,6 +181,21 @@
     .tpill.active { background: #6c47ff; border-color: #6c47ff; color: #fff; font-weight: 600; }
     .tpill .tent { font-size: 11px; opacity: .75; }
     .tpill-edit { cursor: pointer; font-size: 14px; padding: 0 10px; }
+    #todo-bar { background: #fff; border-bottom: 1px solid #e5e5e5; flex-shrink: 0; max-height: 45vh; overflow-y: auto; }
+    #todo-bar[hidden], #todo-body[hidden] { display: none; }
+    #todo-toggle { width: 100%; text-align: left; background: none; border: none; padding: 8px 14px; font-size: 13px; font-weight: 600; color: #3a3a3c; font-family: inherit; cursor: pointer; }
+    #todo-list { list-style: none; margin: 0; padding: 0 14px; }
+    #todo-list li { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 14px; }
+    #todo-list li.done span.t { text-decoration: line-through; color: #8e8e93; }
+    #todo-list input[type=checkbox] { width: 18px; height: 18px; accent-color: #6c47ff; flex-shrink: 0; }
+    #todo-list .who { font-size: 11px; color: #6c47ff; background: #ede9fe; border-radius: 999px; padding: 1px 7px; flex-shrink: 0; }
+    #todo-list .t { flex: 1; min-width: 0; }
+    .todo-x { background: none; border: none; color: #c7c7cc; font-size: 16px; cursor: pointer; padding: 0 4px; }
+    #todo-suggested { padding: 2px 14px; }
+    #todo-suggested .sug { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 13px; color: #3a3a3c; }
+    #todo-suggested .sug span { flex: 1; min-width: 0; }
+    #todo-add { display: flex; gap: 8px; padding: 6px 14px 10px; }
+    #todo-new { flex: 1; min-width: 0; height: 32px; border: 1.5px solid #e5e5e5; border-radius: 999px; padding: 0 12px; font-size: 16px; font-family: inherit; }
     /* 16px so iPhone doesn't zoom when renaming */
     .tpill-input { flex: 1; min-width: 140px; height: 32px; border: 1.5px solid #6c47ff; border-radius: 999px; padding: 0 12px; font-size: 16px; font-family: inherit; outline: none; }
 
@@ -306,6 +321,15 @@
   <!-- Plan pills (owner, 2026-10-09): chat is organized by the plans you're making —
        not by people or groups like WhatsApp. "All", then one pill per plan. -->
   <nav id="topic-pills" aria-label="Plans" hidden></nav>
+  <!-- The plan's to-do list (owner, 2026-10-12): everyone in the plan sees and edits it. -->
+  <section id="todo-bar" hidden>
+    <button type="button" id="todo-toggle" aria-expanded="false"></button>
+    <div id="todo-body" hidden>
+      <ul id="todo-list"></ul>
+      <div id="todo-suggested"></div>
+      <form id="todo-add"><input id="todo-new" maxlength="200" placeholder="Add a to-do…" aria-label="Add a to-do"><button type="submit" class="tpill">Add</button></form>
+    </div>
+  </section>
 
   <div id="messages">
     <div class="empty" id="empty-state">
@@ -440,6 +464,54 @@
       } catch (_) { /* pills are optional */ }
     }
 
+    // ── The plan's to-do list ───────────────────────────────────────────────────
+    let todoOpen = false;
+    try { todoOpen = localStorage.getItem('bfly-todo-open') === '1'; } catch (_) {}
+    async function loadTodos() {
+      if (!topicEvent || topicEvent === 'general') return;
+      const bar = document.getElementById('todo-bar');
+      let data;
+      try { const r = await fetch('/api/events/' + encodeURIComponent(topicEvent) + '/todos'); if (!r.ok) return; data = await r.json(); } catch (_) { return; }
+      const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const kept = data.todos.filter(t => !t.suggested), sug = data.todos.filter(t => t.suggested);
+      const toggle = document.getElementById('todo-toggle');
+      toggle.textContent = `☑ To-do ${kept.length ? `${data.progress.done}/${data.progress.total}` : ''}${sug.length ? ` · ${sug.length} suggested` : ''} ${todoOpen ? '▴' : '▾'}`;
+      toggle.setAttribute('aria-expanded', String(todoOpen));
+      document.getElementById('todo-body').hidden = !todoOpen;
+      document.getElementById('todo-list').innerHTML = kept.map(t => `<li class="${t.done ? 'done' : ''}" data-id="${esc(t.id)}">
+          <input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done"><span class="t">${esc(t.text)}</span>
+          ${t.assignee ? `<span class="who">${esc(t.assignee)}</span>` : ''}<button type="button" class="todo-x" aria-label="Remove">✕</button></li>`).join('')
+        || '<li style="color:#8e8e93;font-size:13px">Nothing yet — add one, or ask your ButterflAI what this plan needs.</li>';
+      document.getElementById('todo-suggested').innerHTML = sug.length ? '<div style="font-size:12px;color:#8e8e93;margin-top:4px">Suggested by ButterflAI</div>' + sug.map(t =>
+        `<div class="sug" data-id="${esc(t.id)}"><span>${esc(t.text)}</span><button type="button" class="tpill keep">Keep</button><button type="button" class="todo-x" aria-label="Dismiss">✕</button></div>`).join('') : '';
+      bar.hidden = false;
+    }
+    async function todoCall(method, url, body) {
+      await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).catch(() => {});
+      loadTodos();
+    }
+    document.getElementById('todo-toggle').addEventListener('click', () => {
+      todoOpen = !todoOpen;
+      try { localStorage.setItem('bfly-todo-open', todoOpen ? '1' : '0'); } catch (_) {}
+      loadTodos();
+    });
+    document.getElementById('todo-body').addEventListener('click', (e) => {
+      const row = e.target.closest('[data-id]');
+      if (!row) return;
+      const url = '/api/todos/' + encodeURIComponent(row.dataset.id);
+      if (e.target.matches('input[type=checkbox]')) todoCall('PATCH', url, { done: e.target.checked });
+      else if (e.target.matches('.keep')) todoCall('PATCH', url, { keep: true });
+      else if (e.target.matches('.todo-x')) todoCall('DELETE', url);
+    });
+    document.getElementById('todo-add').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = document.getElementById('todo-new');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      todoCall('POST', '/api/events/' + encodeURIComponent(topicEvent) + '/todos', { text });
+    });
+
     function renamePlan(plan) {
       const el = document.getElementById('topic-pills');
       el.innerHTML = '';
@@ -538,6 +610,7 @@
           if (emptyEl.parentNode) emptyEl.remove();
           appendMessage('bot', data.text, data.ts, true, data.kind);
         } else if (data.role === 'assistant') {
+          loadTodos();   // the agent may have changed the plan's to-dos
           pendingSince = 0;
           agentStatusEl.textContent = '';
           typingEl.classList.remove('visible');
@@ -977,6 +1050,7 @@
     }).catch(() => {});
     loadHistory();
     loadPills();
+    loadTodos();
     connectSSE();
     checkLocationNeeded();
 

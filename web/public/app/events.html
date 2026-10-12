@@ -238,6 +238,15 @@
     .stage-idea { background: #f2f2f7; border: 1px dashed #8e8e93; color: #3a3a3c; }
     .stage-past { background: #d1d5db; color: #4b5563; }
     .day-chips { display: flex; flex-direction: column; gap: 2px; width: 100%; }
+    .card-todos { margin-top: 6px; }
+    .card-todos .todo-toggle { background: #f5f3ff; border: none; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600; color: #6c47ff; cursor: pointer; font-family: inherit; }
+    .todo-mini { list-style: none; margin: 6px 0 0; padding: 0; font-size: 14px; }
+    .todo-mini[hidden] { display: none; }
+    .todo-mini li { padding: 3px 0; }
+    .todo-mini li.done label { text-decoration: line-through; color: #8e8e93; }
+    .todo-mini input { accent-color: #6c47ff; width: 16px; height: 16px; vertical-align: -3px; }
+    .todo-mini .who { font-size: 11px; color: #6c47ff; background: #ede9fe; border-radius: 999px; padding: 1px 7px; }
+    .todo-mini a { font-size: 12px; color: #6c47ff; text-decoration: none; }
     .dot.confirmed { background: #22c55e; }
     .dot.proposed  { background: #eab308; }
     .dot.cancelled { background: #ef4444; }
@@ -422,6 +431,7 @@
             <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}${e.tentative ? ' <span style="display:inline-block;font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px;vertical-align:2px">Tentative</span>' : ''}</div>
             <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${e.date_tbd ? 'Date TBD' : fmtDate(e.scheduled_at) + ' ' + fmtTime(e.scheduled_at)}</div>
             ${rsvpLine ? `<div class="card-sub" style="margin-top:2px;font-size:13px">${rsvpLine}</div>` : ''}
+            ${todoLine(e)}
             <a href="/app/chat?event=${encodeURIComponent(e.id)}" onclick="event.stopPropagation()" style="display:inline-block;margin-top:6px;font-size:13px;font-weight:600;color:#6c47ff;text-decoration:none">💬 Discussion</a>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
@@ -613,6 +623,7 @@
             <div class="card-title">${escHtml(e.title)}${e.tentative ? ' <span style="display:inline-block;font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px;vertical-align:2px">Tentative</span>' : ''}</div>
             <div class="card-sub">${escHtml(e.host_name || 'Unknown host')} · ${escHtml(whenStr)}</div>
             <a href="/app/chat?event=${encodeURIComponent(e.id)}" style="display:inline-block;margin-top:4px;font-size:13px;font-weight:600;color:#6c47ff;text-decoration:none">💬 Discussion</a>
+            ${todoLine(e)}
             ${e.venue_name ? `<div class="card-sub" style="margin-top:2px">📍 ${escHtml(e.venue_name)}</div>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;margin-left:8px">
@@ -674,6 +685,35 @@
     selectedDay = null;
     document.getElementById('day-panel').style.display = 'none';
     renderCalendar();
+  }
+
+  // ── Plan to-dos on each card (2026-10-12): progress, tap to see and check off ──
+  function todoLine(e) {
+    const p = e.todo_progress;
+    return `<div class="card-todos" data-event="${escHtml(e.id)}" onclick="event.stopPropagation()">
+      <button type="button" class="todo-toggle" onclick="toggleTodos(this)">☑ ${p ? `${p.done}/${p.total} to-dos` : 'To-dos'} ▾</button>
+      <ul class="todo-mini" hidden></ul></div>`;
+  }
+  async function toggleTodos(btn) {
+    const box = btn.closest('.card-todos'), ul = box.querySelector('.todo-mini');
+    if (!ul.hidden) { ul.hidden = true; return; }
+    await renderMiniTodos(box);
+    ul.hidden = false;
+  }
+  async function renderMiniTodos(box) {
+    const ul = box.querySelector('.todo-mini'), id = box.dataset.event;
+    const r = await fetch('/api/events/' + encodeURIComponent(id) + '/todos').catch(() => null);
+    if (!r || !r.ok) { ul.innerHTML = '<li>Couldn’t load</li>'; return; }
+    const { todos, progress } = await r.json();
+    const kept = todos.filter(t => !t.suggested);
+    box.querySelector('.todo-toggle').textContent = `☑ ${progress.total ? `${progress.done}/${progress.total} to-dos` : 'To-dos'} ▾`;
+    ul.innerHTML = kept.map(t => `<li class="${t.done ? 'done' : ''}"><label><input type="checkbox" ${t.done ? 'checked' : ''}
+        onchange="checkTodo('${escHtml(t.id)}', this.checked, this)"> ${escHtml(t.text)}</label>${t.assignee ? ` <span class="who">${escHtml(t.assignee)}</span>` : ''}</li>`).join('')
+      + `<li><a href="/app/chat?event=${encodeURIComponent(id)}">${kept.length ? 'Add or change in the discussion' : 'Nothing yet — add in the discussion'} ›</a></li>`;
+  }
+  async function checkTodo(id, done, el) {
+    await fetch('/api/todos/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ done }) }).catch(() => {});
+    renderMiniTodos(el.closest('.card-todos'));
   }
 
   // ── Plan stages (2026-10-12) ──────────────────────────────────────────────
