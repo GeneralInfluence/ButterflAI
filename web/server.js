@@ -1588,7 +1588,8 @@ app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res)
     });
     // Immediately push a "thinking" status so the UI shows activity before the agent fires
     sse.push(req.user.id, { role: 'status', text: 'Thinking…' });
-    res.json({ ok: true });
+    // Server time: the page waits for replies from here (its own clock can be off).
+    res.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
   } catch (err) {
     console.error('[chat/send] failed to store message:', err.message);
     res.status(500).json({ error: 'Failed to send message.' });

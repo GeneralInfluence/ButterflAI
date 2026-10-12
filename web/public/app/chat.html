@@ -609,6 +609,9 @@
         });
         if (r.status === 401) { location.href = '/app/login'; return; }
         if (!r.ok) throw new Error('send failed');
+        // Wait for replies by the SERVER's clock — the phone's can be off, and the backup
+        // poll then missed the reply (2026-10-12).
+        try { const { ts } = await r.json(); if (ts) pendingSince = ts; } catch (_) {}
 
         // Fallback polling: if SSE doesn't deliver within 5s, start polling
         // catchUpMessages will keep re-polling every 3s until answered or 90s timeout

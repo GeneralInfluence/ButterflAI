@@ -907,3 +907,10 @@ describe('Chat: one discussion at a time', () => {
     assert.ok(read('events.html').includes('💬 Discussion'));
   });
 });
+
+// Regression (2026-10-12): the backup poll after sending used the phone's clock.
+test('chat waits for replies by the server clock returned from /api/chat/send', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/chat.html'), 'utf8');
+  assert.ok(html.includes('const { ts } = await r.json(); if (ts) pendingSince = ts;'));
+});
+
