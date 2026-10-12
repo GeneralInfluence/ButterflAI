@@ -40,6 +40,7 @@ const topics     = require('./topics');
 const defer      = require('./defer');
 const linktoken  = require('./linktoken');
 const groupPlans = require('./groups');
+const planObj    = require('./plan');
 const todos      = require('./todos');
 const plansync   = require('./plansync');
 const actioncheck = require('./actioncheck');
@@ -1772,6 +1773,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         const tz = db.getUser(userId)?.timezone || 'America/New_York';
         resolvedWhen = datetime.resolveEventDateTime(when, tz);
         if (resolvedWhen) eventData.scheduled_at = resolvedWhen.iso;
+      }
+      // One plan per name: if your user already has this plan, update it — don't make a
+      // second one (2026-10-12: "Melanie's Birthday Weekend" was created twice, sending the
+      // whole group duplicate invites, while the original stayed undated).
+      const same = planObj.existingByName(userId, eventData.title);
+      if (same) {
+        return { error: 'PLAN_EXISTS', action_status: 'NOT_CREATED', eventId: same.id,
+          message: `"${same.title}" already exists (eventId="${same.id}"). Update it with update_event (dates → scheduled_at or proposed_dates, venue_name, notes) — don't create another.` };
       }
       // No date yet → a plan with "date TBD" (owner: plans exist from first mention).
       if (!eventData.scheduled_at && !eventData.flexible_time) eventData.date_tbd = true;

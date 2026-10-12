@@ -112,9 +112,13 @@ describe('chat filtered by discussion', () => {
   test("a friend's question passed on by their agent is filed under the event in their chat", async () => {
     topicModel(['0']);
     await agent.executeTool('create_social_event', { title: 'x', activity_type: 'x', scheduled_at: new Date(Date.now() + 86400e3).toISOString() }, sean.id, sean.phone);
+    // Creating a plan with the same name is refused since 2026-10-12 (one plan per name) —
+    // it points at the existing plan; invite Allie to that one.
     const inv = await agent.executeTool('create_social_event', { title: 'Grover Hot Springs', activity_type: 'camping trip', tentative: true,
-      scheduled_at: new Date(Date.now() + 20 * 86400e3).toISOString(), contact_ids: [db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(sean.id, allie.phone).id] }, sean.id, sean.phone);
-    assert.equal(inv.eventId, eventId, 'same trip (deduped)');
+      scheduled_at: new Date(Date.now() + 20 * 86400e3).toISOString() }, sean.id, sean.phone);
+    assert.equal(inv.error, 'PLAN_EXISTS');
+    assert.equal(inv.eventId, eventId);
+    await require('../../multiparty').inviteContacts(eventId, [db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(sean.id, allie.phone).id]);
     await agent.executeTool('message_agent', { contact_id: db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(sean.id, allie.phone).id,
       topic: 'coordination', event_id: eventId, message: 'Shiftpod OK for everyone?' }, sean.id, sean.phone);
     script([use('tell_my_user', { message: 'Sean asks: shiftpod OK for everyone?' }), say('')]);

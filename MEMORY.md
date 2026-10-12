@@ -601,6 +601,16 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   **Feeling**; the plans' shared lists are called **Creating** (Home section between them —
   items assigned to you, soonest plan first; the bar in a plan's chat; Events cards); "Your
   feed" → **Happenings**.
+- **The plan is ONE object (owner, 2026-10-12: "operate on single objects, not spaghetti").**
+  `web/plan.js` `planFor(eventId, viewerId)` computes a plan once — stage, dates (tbd /
+  proposed / set / open + label), days covered, people (in / waiting / out / deferring), who
+  was asked and hasn't answered, Creating progress, the viewer's next step; `plansFor(user)`
+  lists them; `/api/plans` serves them. The calendar and Home's plan cards read these (the
+  page no longer has its own stage logic); "waiting on…" exists only on a plan's card.
+  **One plan per name:** `create_social_event` refuses a name the host already has open
+  (`PLAN_EXISTS` → update_event) — Sean's plans were created twice, sending the group
+  duplicate invites. Retro (internal): duplicates folded into the original; old questions
+  tied to no plan closed. Still to move onto plan.js: the agent's own snapshot of events.
 - **Every reply is checked for an action that should have happened (owner, 2026-10-12: "we
   need to check the AI responses every time").** `web/actioncheck.js`, after each user turn:
   user message + reply + what tools actually did (+ the plan's stored details when the turn

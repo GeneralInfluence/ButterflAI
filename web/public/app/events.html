@@ -163,7 +163,7 @@
     }
     .cal-dow {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
+      grid-template-columns: repeat(7, minmax(0, 1fr));
       background: #f8f8fa;
       border-bottom: 1px solid #e5e5e5;
     }
@@ -178,7 +178,9 @@
     }
     .cal-days {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
+      /* minmax(0, 1fr): a long plan name must not widen its column (2026-10-12: "Melanie's
+         Birthday Weekend" stretched the grid and pushed day numbers out of view). */
+      grid-template-columns: repeat(7, minmax(0, 1fr));
     }
     .cal-day {
       min-height: 64px;
@@ -192,6 +194,8 @@
       align-items: center;
       gap: 3px;
       position: relative;
+      min-width: 0;
+      overflow: hidden;
     }
     .cal-day:hover { background: #f5f3ff; }
     .cal-day.other-month { opacity: 0.35; cursor: default; }
@@ -347,6 +351,7 @@
 <script>
   let allEvents = [];
   let invitedEvents = [];
+  let calPlans = [];   // /api/plans — each plan computed once on the server (plan.js)
   let currentTab  = 'upcoming';
   let currentView = 'cal';
   let calYear, calMonth;   // 0-indexed month
@@ -519,7 +524,7 @@
     if (r.ok) {
       allEvents = allEvents.filter(e => e.id !== eventId);
       showTab(currentTab);
-      renderCalendar();
+      refreshPlans();
     } else {
       btn.disabled = false; btn.textContent = '🚫 Cancel event';
       alert('Could not cancel. Try again.');
@@ -538,7 +543,7 @@
       const ev = invitedEvents.find(e => e.invitation_id === invitationId);
       if (ev) ev.rsvp_status = 'declined';
       renderInvited(invitedEvents.filter(e => e.rsvp_status === 'invited' || (e.scheduled_at||0) >= now));
-      renderCalendar();
+      refreshPlans();
     } else {
       btn.disabled = false; btn.textContent = 'Not going';
       alert('Could not update. Try again.');
@@ -669,7 +674,7 @@
       const ev = invitedEvents.find(e => e.invitation_id === invitationId);
       if (ev) ev.rsvp_status = status;
       renderInvited(invitedEvents);
-      renderCalendar(); // accepted events now appear on calendar
+      refreshPlans(); // accepted events now appear on calendar
     } else {
       if (btns) btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
       alert('Could not save your response. Try again.');
@@ -716,37 +721,11 @@
     renderMiniTodos(el.closest('.card-todos'));
   }
 
-  // ── Plan stages (2026-10-12) ──────────────────────────────────────────────
-  function proposalsOf(e) {
-    try { const p = typeof e.proposed_dates === 'string' ? JSON.parse(e.proposed_dates) : e.proposed_dates; return Array.isArray(p) ? p : []; }
-    catch (_) { return []; }
-  }
-  // idea (no date yet) · proposed (tentative, dates in play) · invited (waiting on your
-  // answer) · confirmed · past
-  function stageOf(e) {
-    const nowS = Date.now() / 1000;
-    const props = proposalsOf(e);
-    const lastProposed = props.length ? Date.parse(props[props.length - 1].to + 'T23:59:59') / 1000 : 0;
-    const end = (e.scheduled_at || 0) + (e.duration_mins || 120) * 60;
-    if (e.date_tbd ? (props.length && lastProposed < nowS) : (!e.flexible_time && end < nowS)) return 'past';
-    if (e._isInvite && e.rsvp_status === 'invited') return 'invited';
-    if (e.date_tbd && !props.length) return 'idea';
-    if (e.tentative) return 'proposed';
-    return 'confirmed';
-  }
-  // Calendar day keys ("YYYY-M-D", local) a plan covers.
-  function daysOf(e) {
-    const keys = [];
-    const add = (from, to) => {
-      const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
-      for (let i = 0; i < 15 && d <= to; i++) { keys.push(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`); d.setDate(d.getDate() + 1); }
-    };
-    const props = proposalsOf(e);
-    if (props.length) { for (const p of props) add(new Date(p.from + 'T12:00:00'), new Date(p.to + 'T12:00:00')); return keys; }
-    if (e.date_tbd || e.flexible_time || !e.scheduled_at) return keys;
-    const start = new Date(e.scheduled_at * 1000);
-    add(start, new Date((e.scheduled_at + Math.max(0, (e.duration_mins || 120) * 60 - 60)) * 1000));
-    return keys;
+  // ── Plan stages: computed on the server (plan.js) ──────────────────────
+  // After a change (cancel, RSVP), fetch the plans again so stages and days are current.
+  async function refreshPlans() {
+    try { calPlans = (await fetch('/api/plans').then(r => r.json())).plans || []; } catch (_) {}
+    renderCalendar();
   }
   // Plans with no date yet: listed above the calendar, each opens its discussion.
   function renderUndated(list) {
@@ -765,17 +744,17 @@
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
     const daysInPrev  = new Date(calYear, calMonth, 0).getDate();
 
-    // Build a map: "YYYY-M-D" → [events], each plan on every day it covers — its own
-    // dates, or for a tentative plan each proposed date range (2026-10-12).
+    // Each plan on every day it covers, colored by its stage — both computed once on the
+    // server (plan.js: days / stage), not re-derived here (owner, 2026-10-12).
     const evMap = {};
-    const calEvents = [
-      ...allEvents.map(e => ({ ...e })),
-      ...invitedEvents
-        .filter(e => ['accepted', 'invited'].includes(e.rsvp_status) && !e.flexible_time)
-        .map(e => ({ ...e, _isInvite: true })),
-    ].filter(e => e.status !== 'cancelled');
-    for (const e of calEvents) for (const day of daysOf(e)) (evMap[day] = evMap[day] || []).push(e);
-    renderUndated(calEvents.filter(e => stageOf(e) === 'idea'));
+    for (const p of calPlans) {
+      for (const d of p.days || []) {
+        const [y, m, day] = d.split('-').map(Number);
+        const key = `${y}-${m - 1}-${day}`;
+        (evMap[key] = evMap[key] || []).push(p);
+      }
+    }
+    renderUndated(calPlans.filter(p => p.stage === 'idea'));
 
     const grid = document.getElementById('cal-days');
     grid.innerHTML = '';
@@ -826,8 +805,8 @@
       chips.className = 'day-chips';
       events.slice(0, 2).forEach(e => {
         const chip = document.createElement('div');
-        chip.className = `cal-chip stage-${stageOf(e)}`;
-        chip.textContent = e.title || e.activity_type || 'Plan';
+        chip.className = `cal-chip stage-${e.stage}`;
+        chip.textContent = e.title || e.what || 'Plan';
         chips.appendChild(chip);
       });
       if (events.length > 2) {
@@ -862,22 +841,21 @@
     if (events.length === 0) {
       evEl.innerHTML = '<div class="day-panel-empty">No events on this day.</div>';
     } else {
-      evEl.innerHTML = events.map((e, i) => `
+      const label = { idea: 'Idea', proposed: 'Proposed', invited: 'Invited', confirmed: 'Confirmed', past: 'Past' };
+      evEl.innerHTML = events.map(p => `
         <div class="card" style="border-radius:0;box-shadow:none;border-top:1px solid #f0f0f0;margin:0;"
              onclick="this.querySelector('.detail').classList.toggle('open')">
           <div class="card-header">
             <div>
-              <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}</div>
-              <div class="card-sub">
-                ${e._isInvite ? `Hosted by ${escHtml(e.host_name || 'someone')} · ` : ''}${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${fmtTime(e.scheduled_at)}
-              </div>
+              <div class="card-title">${escHtml(p.title || p.what || 'Plan')}</div>
+              <div class="card-sub">${p.role === 'guest' ? `Hosted by ${escHtml(p.host.name)} · ` : ''}${escHtml(p.dates.label)}${p.place ? ' · ' + escHtml(p.place) : ''}</div>
+              <a href="/app/chat?event=${encodeURIComponent(p.id)}" onclick="event.stopPropagation()" style="font-size:13px;font-weight:600;color:#6c47ff;text-decoration:none">💬 Discussion</a>
             </div>
-            <span class="cal-chip stage-${stageOf(e)}" style="width:auto;font-size:11px;line-height:18px;padding:0 8px">${{ idea: 'Idea', proposed: 'Proposed', invited: 'Invited', confirmed: 'Confirmed', past: 'Past' }[stageOf(e)]}</span>
+            <span class="cal-chip stage-${p.stage}" style="width:auto;font-size:11px;line-height:18px;padding:0 8px">${label[p.stage] || p.stage}</span>
           </div>
           <div class="detail">
-            ${e.venue_name    ? `<div><strong>Venue:</strong> ${escHtml(e.venue_name)}</div>` : ''}
-            ${e.activity_type ? `<div><strong>Type:</strong> ${escHtml(e.activity_type)}</div>` : ''}
-            ${e.notes         ? `<div><strong>Notes:</strong> ${escHtml(e.notes)}</div>` : ''}
+            ${p.what  ? `<div><strong>What:</strong> ${escHtml(p.what)}</div>` : ''}
+            ${p.notes ? `<div><strong>Notes:</strong> ${escHtml(p.notes)}</div>` : ''}
           </div>
         </div>
       `).join('');
@@ -892,10 +870,12 @@
   async function load() {
     try {
       const me = await fetch('/api/user/me').then(r => r.json());
-      const [hosted, invited] = await Promise.all([
+      const [hosted, invited, plansRes] = await Promise.all([
         fetch(`/api/events/${me.id}`).then(r => r.json()),
         fetch('/api/events/invited/me').then(r => r.json()),
+        fetch('/api/plans').then(r => r.json()).catch(() => ({ plans: [] })),
       ]);
+      calPlans = plansRes.plans || [];
       allEvents     = hosted.events  || [];
       invitedEvents = invited.events || [];
     } catch (_) {

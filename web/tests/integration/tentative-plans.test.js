@@ -123,8 +123,9 @@ describe('questions on the feed', () => {
     assert.equal(bFeed[0].type, 'question');
     assert.equal(bFeed[0].who, 'Asker');
     assert.equal(bFeed[0].action, 'Answer in chat');
-    const waiting = plans.feedFor(a.id).items.find((i) => i.type === 'waiting');
-    assert.deepEqual(waiting.who, ['Bea']);
+    // Since 2026-10-12 there are no free-floating "waiting" items: who you're waiting on is
+    // shown on the plan's card (plan.js); a question tied to no plan isn't on the asker's Home.
+    assert.ok(!plans.feedFor(a.id).items.some((i) => i.type === 'waiting'));
     // Once answered, both go away.
     const q = db._raw().prepare("SELECT id FROM agent_messages WHERE from_user = ? AND kind = 'query'").get(a.id);
     await agent.executeTool('reply_agent', { message_id: q.id, body: 'Yes!' }, b.id, b.phone);

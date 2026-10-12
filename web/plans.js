@@ -189,7 +189,7 @@ const eventIdOf = (threadId) => threadId && db._raw().prepare('SELECT 1 FROM soc
  *   question — a friend's ButterflAI asked you something, unanswered   (needs you)
  *   event    — your events and ones you're going to (tentative ones say so; hosts see
  *              who's interested / not answered; "lock it in" when everyone's answered)
- *   waiting  — questions you sent that friends haven't answered yet
+ *   (who you're waiting on is part of each plan's card — plan.js)
  *   plan / interest — what friends shared / who's up for something
  */
 function feedFor(userId) {
@@ -199,53 +199,25 @@ function feedFor(userId) {
   const from = t - 3 * 3600, to = t + FEED_DAYS * 86400;
   const myAvoid = (() => { try { return avoid.listAvoid(userId, { context: 'home feed' }); } catch (_) { return []; } })();
 
-  // Events you host: who's interested, who hasn't answered.
-  const hosted = db._raw().prepare(`
-    SELECT id, title, activity_type, venue_name, scheduled_at, flexible_time, tentative, date_tbd, proposed_dates FROM social_events
-    WHERE host_user_id = ? AND COALESCE(status, 'open') != 'cancelled'
-      AND scheduled_at BETWEEN ? AND ?`).all(userId, from, to);
+  // Plans you're in — one object each (plan.js), not re-derived here (owner, 2026-10-12).
+  // Who's in / waiting / asked-but-no-answer is part of each plan's card; there are no
+  // free-floating "waiting on" items any more.
   const shownEventIds = new Set();
-  for (const e of hosted) {
-    const inv = db._raw().prepare(`
-      SELECT ei.status, ei.defers_to, COALESCE(c.nickname, c.name) AS name FROM event_invitations ei
-      JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ?`).all(e.id);
-    const names = (st) => inv.filter((i) => i.status === st && !i.defers_to).map((i) => firstName({ name: i.name }));
-    const interested = names('accepted'), waiting = names('invited'), out = names('declined');
-    // In, going with whatever others decide (defer.js) — never "waiting on" them.
-    const meName = firstName(user);
-    const deferring = inv.filter((i) => i.defers_to).map((i) => ({
-      who: firstName({ name: i.name }),
-      to: (() => { try { return JSON.parse(i.defers_to); } catch (_) { return []; } })().map((n) => (n === meName ? 'you' : n)),
-    }));
-    shownEventIds.add(e.id);
-    items.push({
-      type: 'event', role: 'host', event_id: e.id, title: e.title, venue: e.venue_name, at: e.scheduled_at,
-      tentative: !!e.tentative, date_tbd: !!e.date_tbd, proposed_dates: e.proposed_dates ? JSON.parse(e.proposed_dates) : undefined, interested, waiting_on: waiting, out, deferring,
-      // Everyone has answered and it's still tentative → the next step is yours.
-      action: e.tentative && inv.length && !waiting.length && (interested.length || deferring.length) ? 'Lock in the plan — tell your agent the final details' : null,
-    });
-  }
-
-  if (user?.phone) {
-    const invited = db._raw().prepare(`
-      SELECT ei.id AS invitation_id, ei.status, se.id AS event_id, se.title, se.venue_name, se.scheduled_at, se.tentative, se.date_tbd, se.proposed_dates, u.name AS host_name
-      FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
-      JOIN social_events se ON se.id = ei.event_id JOIN users u ON u.id = se.host_user_id
-      WHERE c.phone = ? AND se.host_user_id != ? AND ei.status IN ('invited','accepted')
-        AND ei.dismissed_at IS NULL AND COALESCE(se.status, 'open') != 'cancelled'
-        AND se.scheduled_at BETWEEN ? AND ?`).all(user.phone, userId, from, to);
-    for (const e of invited) {
-      shownEventIds.add(e.event_id);
-      const pending = e.status === 'invited';
-      items.push({ type: pending ? 'invite' : 'event', role: 'guest', event_id: e.event_id,
-        invitation_id: e.invitation_id, title: e.title, venue: e.venue_name, at: e.scheduled_at,
-        tentative: !!e.tentative, date_tbd: !!e.date_tbd, proposed_dates: e.proposed_dates ? JSON.parse(e.proposed_dates) : undefined, host: firstName({ name: e.host_name }),
-        action: pending ? (e.tentative ? 'Interested? Tap to answer' : 'Tap to respond') : null });
+  for (const p of require('./plan').plansFor(userId)) {
+    if (p.at && (p.at < from || p.at > to)) continue;
+    shownEventIds.add(p.id);
+    const base = { event_id: p.id, title: p.title, venue: p.place, at: p.at, tentative: p.tentative,
+      date_tbd: p.dates.kind === 'tbd', proposed_dates: p.dates.proposals.length ? p.dates.proposals : undefined };
+    if (p.stage === 'invited') {
+      items.push({ ...base, type: 'invite', role: 'guest', invitation_id: p.invitation.id, host: p.host.name, action: p.next });
+    } else {
+      items.push({ ...base, type: 'event', role: p.role, host: p.host.name, interested: p.interested, waiting_on: p.waiting_on,
+        asked: p.asked, out: p.out, deferring: p.deferring, action: p.role === 'host' ? p.next : null });
     }
   }
 
-  // Creating (owner, 2026-10-12): list items assigned to you — their own Home section
-  // between Feeling and Happenings, soonest plan first.
+  // Creating (owner, 2026-10-12): items from your plans' shared lists — their own Home
+  // section between Feeling and Happenings: yours, then unassigned, then suggestions.
   const home = require('./todos').forHome(userId);
   const creating = home.items.sort((a, b) => (a.who === b.who ? 0 : a.who === 'you' ? -1 : 1) || (a.at || Infinity) - (b.at || Infinity));
   const creatingSuggestions = home.suggestions;
@@ -260,23 +232,6 @@ function feedFor(userId) {
     items.push({ type: 'question', who: firstName(q), text: String(q.body).slice(0, 200), created_at: q.created_at,
       event_id: eventIdOf(q.thread_id), action: 'Answer in chat' });
   }
-
-  // Questions you sent that haven't been answered — one item per thread. Ones about an
-  // event already on the feed are shown on that event card instead.
-  const sent = db._raw().prepare(`
-    SELECT am.thread_id, am.body, am.created_at, u.name FROM agent_messages am JOIN users u ON u.id = am.to_user
-    WHERE am.from_user = ? AND am.kind = 'query' AND am.processed = 0 AND am.created_at > ?
-    ORDER BY am.created_at DESC`).all(userId, t - 7 * 86400);
-  const threads = new Map();
-  for (const m of sent) {
-    if (m.thread_id && shownEventIds.has(m.thread_id)) continue;
-    const key = m.thread_id || m.body;
-    const th = threads.get(key) || { type: 'waiting', who: [], text: String(m.body).slice(0, 200), created_at: m.created_at, event_id: eventIdOf(m.thread_id) };
-    const name = firstName(m);
-    if (!th.who.includes(name)) th.who.push(name);
-    threads.set(key, th);
-  }
-  items.push(...threads.values());
 
   for (const p of plansVisibleTo(user)) {
     items.push({ type: 'plan', plan_id: p.id, who: firstName({ name: p.owner_name, nickname: p.owner_nickname }), text: p.text, until: p.expires_at, created_at: p.created_at });
@@ -300,7 +255,6 @@ function feedFor(userId) {
     if (i.type === 'plan') return 1500 - hoursAgo(i.created_at);
     if (i.type === 'interest') return 1400 - hoursAgo(i.created_at);
     // 4. Waiting on others, then everything else by how soon.
-    if (i.type === 'waiting') return 1200 - hoursAgo(i.created_at);
     return 1000 - daysOut(i.at) * 10;
   };
   items.sort((a, b) => score(b) - score(a));

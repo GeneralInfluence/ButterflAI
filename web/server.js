@@ -37,6 +37,7 @@ const defer = require('./defer');
 const linktoken = require('./linktoken');
 const groupPlans = require('./groups');
 const todos = require('./todos');
+const plan = require('./plan');
 const names = require('./names');
 const plans = require('./plans');
 const webAuth  = require('./webapp-auth');
@@ -1530,6 +1531,12 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
       catch (_) { return { ...m, private: true }; }
     }),
   });
+});
+
+// GET /api/plans — every plan you're in, as one object each (plan.js). The calendar and
+// Home read these instead of re-deriving stage / dates / people (owner, 2026-10-12).
+app.get('/api/plans', webAuth.requireAuth, (req, res) => {
+  res.json({ plans: plan.plansFor(req.user.id, { includePast: true }) });
 });
 
 // ── Plan to-dos (owner, 2026-10-12) — everyone in the plan; access checked in todos.js ──

@@ -223,6 +223,37 @@ const TASKS = [
       return `corrected (${lines.length})`;
     },
   },
+  {
+    id: '2026-10-12-merge-duplicate-plans',
+    added: Date.UTC(2026, 9, 12) / 1000,
+    kind: 'internal',
+    about: 'One plan per name (plan.existingByName): fold duplicates a host created twice into the original — dates, place, people and discussion kept; duplicate invite cards collapse.',
+    run(user) {
+      const multiparty = require('./multiparty');
+      const { sameName } = require('./plan');
+      const open = db._raw().prepare(`SELECT id, title FROM social_events WHERE host_user_id = ? AND COALESCE(status, 'open') != 'cancelled'
+        ORDER BY created_at, rowid`).all(user.id);
+      let merged = 0;
+      const kept = [];
+      for (const e of open) {
+        const original = kept.find((k) => sameName(k.title, e.title));
+        if (!original) { kept.push(e); continue; }
+        if (multiparty.mergeEvents(user.id, original.id, e.id).merged) merged++;
+      }
+      return `merged ${merged}`;
+    },
+  },
+  {
+    id: '2026-10-12-close-orphan-questions',
+    added: Date.UTC(2026, 9, 12) / 1000,
+    kind: 'internal',
+    about: 'Questions belong to plans (plan.js): close old agent questions not tied to any plan (they showed as "Waiting on …" forever).',
+    run(user) {
+      const n = db._raw().prepare(`UPDATE agent_messages SET processed = 1 WHERE from_user = ? AND kind = 'query' AND processed = 0
+        AND created_at < ? AND (thread_id IS NULL OR thread_id NOT IN (SELECT id FROM social_events))`).run(user.id, now() - 2 * 86400).changes;
+      return `closed ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

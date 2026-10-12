@@ -880,7 +880,8 @@ describe('Home feed + Events show tentative plans and what needs you', () => {
   const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8');
   test('dashboard renders question, waiting, tentative badge and next action', () => {
     const html = read('dashboard.html');
-    assert.ok(html.includes("i.type === 'question'") && html.includes("i.type === 'waiting'"));
+    // "waiting" items are gone since 2026-10-12 — who you're waiting on is part of each plan's card (plan.js).
+    assert.ok(html.includes("i.type === 'question'") && !html.includes("i.type === 'waiting'") && html.includes('no answer yet'));
     assert.ok(html.includes('badge-tentative') && html.includes('feed-action') && html.includes('needs-you'));
   });
   test('events page: Tentative badge, "Interested" instead of "Going"', () => {

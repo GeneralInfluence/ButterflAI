@@ -136,7 +136,8 @@ function createEvent(hostUserId, { title, activity_type, venue_name, venue_addre
   // date_tbd → a plan with no date yet: placeholder DATE_TBD_DAYS ahead (kept rolling by
   // rollDateTbd), always tentative. flexible_time=true → no fixed time ("come when you're
   // ready"); use now as placeholder timestamp.
-  const tbd = !!date_tbd && !scheduled_at && !flexible_time;
+  // Proposed options but no chosen date is "date TBD" too (not an open invite).
+  const tbd = (!!date_tbd || !!proposals) && !scheduled_at && !flexible_time;
   if (tbd) tentative = true;
   const isFlexible = !tbd && (!scheduled_at || flexible_time);
   const ts = tbd ? Math.floor(Date.now() / 1000) + DATE_TBD_DAYS * 86400 : isFlexible
@@ -676,11 +677,14 @@ function mergeEvents(hostUserId, keepId, mergeId) {
     db._raw().prepare('UPDATE agent_messages SET thread_id = ? WHERE thread_id = ?').run(keepId, mergeId);
     try { db._raw().prepare('UPDATE contact_mentions SET event_id = ? WHERE event_id = ?').run(keepId, mergeId); } catch (_) {}
     const notes = [keep.notes, drop.notes && !String(keep.notes || '').includes(drop.notes) ? drop.notes : null].filter(Boolean).join(' · ') || null;
-    const takeDate = keep.date_tbd && !drop.date_tbd;
+    const takeDate = keep.date_tbd && !drop.date_tbd && !drop.flexible_time;   // a real chosen date only
+    // Proposed date options fill the gap too (a duplicate often carries the dates).
+    const takeProposals = !keep.proposed_dates && drop.proposed_dates && !takeDate && keep.date_tbd;
     db._raw().prepare(`UPDATE social_events SET notes = ?, group_id = COALESCE(group_id, ?), venue_name = COALESCE(venue_name, ?),
-      scheduled_at = ?, date_tbd = ?, flexible_time = ? WHERE id = ?`)
-      .run(notes, drop.group_id, drop.venue_name, takeDate ? drop.scheduled_at : keep.scheduled_at,
-        takeDate ? 0 : keep.date_tbd, takeDate ? drop.flexible_time : keep.flexible_time, keepId);
+      venue_address = COALESCE(venue_address, ?), scheduled_at = ?, date_tbd = ?, flexible_time = ?, proposed_dates = ? WHERE id = ?`)
+      .run(notes, drop.group_id, drop.venue_name, drop.venue_address, takeDate ? drop.scheduled_at : keep.scheduled_at,
+        takeDate ? 0 : keep.date_tbd, takeDate ? drop.flexible_time : keep.flexible_time,
+        takeProposals ? drop.proposed_dates : keep.proposed_dates, keepId);
     db._raw().prepare(`UPDATE social_events SET status = 'cancelled', notes = ? WHERE id = ?`).run(`Combined into "${keep.title}"`, mergeId);
   })();
   return { merged: true, kept: { event_id: keepId, title: keep.title }, combined: { event_id: mergeId, title: drop.title } };
