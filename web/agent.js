@@ -612,6 +612,7 @@ const TOOL_DEFINITIONS = [
         flexible_time: { type: 'boolean', description: 'Set true when the user explicitly says no fixed time — "come when you\'re ready", "open invite", "whenever works". Omit or false when a specific time is set.' },
         group:         { type: 'string', description: 'The contact group this plan is for ("my favorite mamas"). Its members are invited, and anyone added to the group later is caught up on it automatically.' },
         tentative:     { type: 'boolean', description: 'true while the group is still working out details (dates, where to stay, who\'s in) — e.g. a trip being planned. Use the best-known dates. Set false with update_event once it\'s settled.' },
+        proposed_dates:{ type: 'array', items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from'] }, description: 'Date OPTIONS still being decided, as calendar dates: [{"from":"2026-10-23","to":"2026-10-25"}, {"from":"2026-11-06","to":"2026-11-08"}]. Shown striped on the calendar. Use when there are dates in play but none is final; ALWAYS use dates your user mentioned rather than leaving the plan undated.' },
         duration_mins: { type: 'number', description: 'Length in minutes. A weekend trip Fri–Sun is about 2880.' },
         notes:         { type: 'string' },
         event_type:    { type: 'string', enum: ['private', 'public'], description: '"private" (default) = user is hosting their own event. "public" = ONLY use this if the user explicitly says to make it public or open to anyone beyond their contacts — e.g. "make this public", "share this openly", "anyone can join". Do NOT infer public just because the venue is a public place.' },
@@ -632,6 +633,7 @@ const TOOL_DEFINITIONS = [
         notes:         { type: 'string', description: 'Free-text: time window agreed ("Sean arriving 7–9pm"), special context, etc.' },
         venue_name:    { type: 'string', description: 'Update venue if agreed during negotiation' },
         tentative:     { type: 'boolean', description: 'false once the plan is settled (dates/place agreed); true if it\'s back to being figured out' },
+        proposed_dates:{ type: 'array', items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from'] }, description: 'Replace the date options still being decided ([{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}]); [] clears them. When a date is chosen, set scheduled_at and clear these.' },
         title:         { type: 'string' },
         duration_mins: { type: 'number' },
       },
@@ -1736,7 +1738,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       }
       // No date yet → a plan with "date TBD" (owner: plans exist from first mention).
       if (!eventData.scheduled_at && !eventData.flexible_time) eventData.date_tbd = true;
-      const eventId = multiparty.createEvent(userId, eventData);
+      let eventId;
+      try { eventId = multiparty.createEvent(userId, eventData); }
+      catch (err) { return { error: 'BAD_PROPOSED_DATES', message: err.message }; }
       let inviteResult = { sent: 0, skipped: 0 };
       if (contact_ids?.length) {
         inviteResult = await multiparty.inviteContacts(eventId, contact_ids);
@@ -1799,7 +1803,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'update_event': {
-      const { event_id, scheduled_at, flexible_time, notes, venue_name, tentative, title, duration_mins } = toolInput;
+      const { event_id, scheduled_at, flexible_time, notes, venue_name, tentative, title, duration_mins, proposed_dates } = toolInput;
       // Verify ownership — agent can only update events they host
       const evCheck = db._raw().prepare('SELECT id, host_user_id FROM social_events WHERE id = ?').get(event_id);
       if (!evCheck) return { error: 'Event not found' };
@@ -1815,6 +1819,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (notes !== undefined) updates.notes = notes;
       if (venue_name !== undefined) updates.venue_name = venue_name;
       if (tentative !== undefined) updates.tentative = tentative ? 1 : 0;
+      if (proposed_dates !== undefined) {
+        let p;
+        try { p = multiparty.normalizeProposals(proposed_dates); } catch (err) { return { error: 'BAD_PROPOSED_DATES', message: err.message }; }
+        updates.proposed_dates = p ? JSON.stringify(p) : null;
+        if (p && updates.tentative === undefined) updates.tentative = 1;
+      }
       if (title) updates.title = String(title).slice(0, 200);
       if (duration_mins !== undefined && Number(duration_mins) > 0) updates.duration_mins = Math.round(Number(duration_mins));
       if (!Object.keys(updates).length) return { ok: true, note: 'No fields to update' };
@@ -2050,7 +2060,9 @@ async function processMessage(msg) {
         const inviteeList = invitations.map(i => i.defers_to
           ? `${i.name} (in — goes with whatever ${defer.joinNames(defer.parseNames(i.defers_to))} decide; don't ask them about it)`
           : `${i.name} (${i.status})`).join(', ') || 'no invitees yet';
-        const ts = e.date_tbd ? 'date TBD (no date yet — ask or suggest one when it helps)' : recency === 'flexible'
+        const props = (() => { try { return JSON.parse(e.proposed_dates || 'null'); } catch (_) { return null; } })();
+        const ts = e.date_tbd && props ? `proposed dates: ${props.map((p) => p.from === p.to ? p.from : `${p.from}–${p.to}`).join(' or ')} (not chosen yet)`
+          : e.date_tbd ? 'date TBD (no date yet — ask or suggest one when it helps)' : recency === 'flexible'
           ? 'open invite (no fixed time)'
           : new Date(e.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
         const pastTag = recency === 'past' ? '  [ALREADY HAPPENED — do NOT present as upcoming]' : '';
@@ -2336,6 +2348,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - For planning a group event: call check_invitee_locations first → route per recommendation → message_agent only when needed → only then suggest a plan to the user.
 - GROUP PLANS: a plan with one of your user's groups → create_social_event with group set, so all members are invited. Your user won't say "group plan" — infer it: they named the group earlier, or the plan is with that group's people (a plan inviting everyone in a group is linked to it automatically). Adding someone to that group later (manage_contact_group add_member) automatically invites them to its upcoming plans and sends them one catch-up — tell your user who was caught up on what (caught_up_on).
 - DEFERRING ON A PLAN: if your user, about a plan they're invited to, says they don't want to weigh in and will go with what certain people decide ("whatever Melanie wants", "it's her birthday, not mine", "you guys figure it out"), call defer_on_plan with those names. That's for THIS plan only. Never pass along their reasons. If a friend's ButterflAI says someone deferred, don't ask that person about the plan — ask the people they defer to.
+- PROPOSED DATES: dates still being decided go in proposed_dates (calendar dates, e.g. [{"from":"2026-10-23","to":"2026-10-25"}]) — never leave a plan undated when your user has mentioned dates for it. If you offered to put dates found in earlier chats on the calendar and they agree, set them with update_event proposed_dates. When one is chosen, set scheduled_at and clear proposed_dates.
 - SETTING UP PLANS FROM EARLIER CHATS: you may have offered ("From our recent conversations, these aren't set up yet: …"). If your user says yes (to all or some), create each one with create_social_event — tentative: true, its people (look them up), its dates if known, else no date. Don't create the ones they declined.
 - EVERY CONVERSATION IS ABOUT A PLAN: a new one, an existing one, or combining two. When your user brings up a plan that isn't in Open events — even with no date ("we should camp at Grover with the mamas") — create it right away (create_social_event, tentative: true, no date unless they gave one). Housekeeping for a plan (adding someone to a group for it) belongs to that plan. If two Open events are really the same thing, ask your user whether to combine them (merge_plans).
 - TRIPS AND PLANS STILL BEING FIGURED OUT: when your user is planning something with people (a trip, a weekend, a party) — even with dates or details unsettled — create it with create_social_event (tentative: true, best-known dates, contact_ids = everyone involved) BEFORE messaging anyone about it. That puts it on everyone's Home and calendars. When a friend (or their ButterflAI's reply) is clearly in, record_rsvp accepted (shown as interested); when someone is out, declined. When dates and details are settled, update_event tentative: false. message_agent with topic "coordination" requires the event_id.

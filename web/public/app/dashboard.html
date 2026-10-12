@@ -183,6 +183,11 @@
 
   // Tentative trips show the date only (times are placeholders until it's settled).
   function whenFor(i) {
+    // Proposed dates (tentative options): "Oct 23–25 or Nov 6–8 (proposed)".
+    if (i.proposed_dates && i.proposed_dates.length) {
+      const d = (s) => new Date(s + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+      return i.proposed_dates.map(p => p.from === p.to ? d(p.from) : `${d(p.from)}–${d(p.to)}`).join(' or ') + ' (proposed)';
+    }
     if (i.date_tbd) return 'Date TBD';
     if (!i.tentative) return when(i.at);
     const d = new Date(i.at * 1000);

@@ -470,6 +470,12 @@ describe('Agent message invisibility and tone', () => {
     assertContains('COORDINATION INVITES / PLANS', 'coordination invites label');
   });
 
+  // 2026-10-12: plans created without the dates the user had mentioned (not on the calendar).
+  test('proposed dates: never leave a plan undated when dates were mentioned', () => {
+    assertContains('PROPOSED DATES', 'proposed dates rule');
+    assertContains('never leave a plan undated when your user has mentioned dates for it', 'use known dates');
+  });
+
   // 2026-10-10: retro offers ("these plans from our recent chats aren't set up yet") → create on yes.
   test('plans offered from earlier chats are created when the user agrees', () => {
     assertContains('SETTING UP PLANS FROM EARLIER CHATS', 'retro offer rule');

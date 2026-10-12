@@ -103,6 +103,41 @@ const TASKS = [
       return `proposed ${found.length}`;
     },
   },
+  {
+    id: '2026-10-12-dates-for-undated-plans',
+    added: Date.UTC(2026, 9, 12) / 1000,
+    kind: 'propose',
+    about: 'Calendar by stage + proposed dates (migration 045): plans created with no date get the dates found in their discussion offered as proposed dates.',
+    async run(user) {
+      const c = client();
+      if (!c) return RETRY;
+      const undated = db._raw().prepare(`SELECT id, title FROM social_events WHERE host_user_id = ? AND date_tbd = 1
+        AND proposed_dates IS NULL AND COALESCE(status, 'open') != 'cancelled'`).all(user.id);
+      if (!undated.length) return 'none undated';
+      const msgs = db._raw().prepare(`SELECT role, text FROM conversation_history WHERE user_id = ? AND private_ct IS NULL
+        AND created_at > ? ORDER BY created_at, rowid LIMIT 200`).all(user.id, now() - 30 * 86400);
+      const year = new Date().getUTCFullYear();
+      const r = await c.messages.create({ model: DEFAULT_MODEL, max_tokens: 500, messages: [{ role: 'user', content:
+        `Today is ${new Date().toISOString().slice(0, 10)}. For each plan below, find the dates mentioned for it in the chat (only dates clearly about that plan, upcoming). `
+        + `Plans:\n${undated.map((e, i) => `${i + 1}. ${e.title}`).join('\n')}\n\nChat:\n`
+        + msgs.map((m) => `[${m.role}] ${String(m.text).replace(/\s+/g, ' ').slice(0, 300)}`).join('\n')
+        + `\n\nReply with JSON only: {"dates":[{"plan":1,"from":"${year}-MM-DD","to":"${year}-MM-DD"}]} — omit plans with no clear dates.` }] });
+      let found = [];
+      try { found = JSON.parse(String((r.content || []).map((b) => b.text || '').join('')).match(/\{[\s\S]*\}/)[0]).dates || []; } catch (_) { return 'unreadable'; }
+      const fmt = (s) => new Date(s + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+      const lines = [];
+      for (const d of found) {
+        const e = undated[(d.plan | 0) - 1];
+        let p;
+        try { p = require('./multiparty').normalizeProposals([{ from: d.from, to: d.to }]); } catch (_) { continue; }
+        if (!e || !p || Date.parse(p[0].to) < Date.now() - 86400e3) continue;
+        lines.push(`• ${e.title}: ${p[0].from === p[0].to ? fmt(p[0].from) : `${fmt(p[0].from)}–${fmt(p[0].to)}`}`);
+      }
+      if (!lines.length) return 'no dates found';
+      await tellUser(user, `Your plans now show on the calendar by stage. ${lines.length === 1 ? 'This one has' : 'These have'} no date yet, but our chats mention ${lines.length === 1 ? 'one' : 'some'}:\n${lines.join('\n')}\nPut ${lines.length === 1 ? 'it' : 'them'} on the calendar as proposed dates? Say yes, or correct me.`);
+      return `proposed ${lines.length}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

@@ -590,6 +590,13 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   and runs only when called again in a later message (after the user said yes);
   `multiparty.mergeEvents` moves invitations (more committed status wins), discussion, agent
   threads, mentions, and fills group/notes/date gaps; the other plan is cancelled.
+- **Calendar by stage (owner, 2026-10-12):** every plan is on the calendar, colored by stage —
+  Idea (no date: "Undated" strip above the grid), Proposed (tentative: amber stripes, on each
+  proposed date range), Invited (waiting on you: outline), Confirmed (solid purple), Past
+  (faded); multi-day plans span their days; pending invites included. Proposed dates =
+  `social_events.proposed_dates` (migration 045, `[{from,to}]`, ≤5 options, ≤14 days each,
+  `multiparty.normalizeProposals`); the agent must use dates the user mentioned. Retro:
+  undated plans get dates found in their discussion *offered* as proposed dates.
 - **Agent-to-agent:** "what is your user up to" is never answered from memory and never
   triggers a ping; agents answer only from what the user explicitly shared.
 - Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.

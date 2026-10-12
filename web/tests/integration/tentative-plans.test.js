@@ -132,3 +132,24 @@ describe('questions on the feed', () => {
     assert.ok(!plans.feedFor(a.id).items.some((i) => i.type === 'waiting'));
   });
 });
+
+// Owner, 2026-10-12: tentative plans show on their proposed dates.
+describe('proposed dates', () => {
+  test('create with options → tentative, stored sorted; bad input → a fixable error; update sets/clears', async () => {
+    const u = mkUser('Sean Dates');
+    const r = await agent.executeTool('create_social_event', { title: "Melanie's birthday weekend", activity_type: 'trip',
+      proposed_dates: [{ from: '2026-11-06', to: '2026-11-08' }, { from: '2026-10-23', to: '2026-10-25' }] }, u.id, u.phone);
+    const e = db._raw().prepare('SELECT tentative, date_tbd, proposed_dates FROM social_events WHERE id = ?').get(r.eventId);
+    assert.equal(e.tentative, 1);
+    assert.equal(e.date_tbd, 1, 'no single date chosen yet');
+    assert.deepEqual(JSON.parse(e.proposed_dates), [{ from: '2026-10-23', to: '2026-10-25' }, { from: '2026-11-06', to: '2026-11-08' }]);
+    assert.ok(plans.feedFor(u.id).items.find((i) => i.event_id === r.eventId).proposed_dates.length === 2, 'Home shows them');
+    const bad = await agent.executeTool('create_social_event', { title: 'x', activity_type: 'x', proposed_dates: [{ from: 'next friday' }] }, u.id, u.phone);
+    assert.equal(bad.error, 'BAD_PROPOSED_DATES');
+    const long = await agent.executeTool('update_event', { event_id: r.eventId, proposed_dates: [{ from: '2026-10-01', to: '2026-11-30' }] }, u.id, u.phone);
+    assert.equal(long.error, 'BAD_PROPOSED_DATES');
+    await agent.executeTool('update_event', { event_id: r.eventId, proposed_dates: [] }, u.id, u.phone);
+    assert.equal(db._raw().prepare('SELECT proposed_dates FROM social_events WHERE id = ?').get(r.eventId).proposed_dates, null);
+  });
+});
+

@@ -223,6 +223,21 @@
       border-radius: 50%;
       flex-shrink: 0;
     }
+    /* Plans by stage (2026-10-12): chips colored at a glance; proposed dates striped. */
+    .cal-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+    .cal-legend .cal-chip { width: auto; font-size: 11px; line-height: 18px; padding: 0 8px; }
+    #cal-undated { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; font-size: 12px; color: #3a3a3c; }
+    #cal-undated[hidden] { display: none; }
+    #cal-undated a { text-decoration: none; }
+    #cal-undated .cal-chip { width: auto; font-size: 12px; line-height: 22px; padding: 0 10px; }
+    .cal-chip { display: block; width: 100%; box-sizing: border-box; font-size: 9px; line-height: 14px; border-radius: 4px; padding: 0 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; text-align: left; }
+    .stage-confirmed { background: #6c47ff; }
+    .stage-proposed { background: repeating-linear-gradient(135deg, #f59e0b 0 4px, #fcd34d 4px 8px); color: #1c1c1e; }
+    .stage-invited { background: #fff; border: 1px solid #6c47ff; color: #6c47ff; }
+    .stage-idea { background: #f2f2f7; border: 1px dashed #8e8e93; color: #3a3a3c; }
+    .stage-past { background: #d1d5db; color: #4b5563; }
+    .day-chips { display: flex; flex-direction: column; gap: 2px; width: 100%; }
     .dot.confirmed { background: #22c55e; }
     .dot.proposed  { background: #eab308; }
     .dot.cancelled { background: #ef4444; }
@@ -289,6 +304,15 @@
       <div class="cal-month" id="cal-month-label">—</div>
       <button class="cal-nav-btn" onclick="changeMonth(1)">›</button>
     </div>
+    <!-- Stages at a glance (owner, 2026-10-12) -->
+    <div class="cal-legend">
+      <span class="cal-chip stage-idea">Idea</span>
+      <span class="cal-chip stage-proposed">Proposed</span>
+      <span class="cal-chip stage-invited">Invited</span>
+      <span class="cal-chip stage-confirmed">Confirmed</span>
+      <span class="cal-chip stage-past">Past</span>
+    </div>
+    <div id="cal-undated" hidden></div>
     <div class="cal-grid">
       <div class="cal-dow">
         <span>Sun</span><span>Mon</span><span>Tue</span>
@@ -652,6 +676,46 @@
     renderCalendar();
   }
 
+  // ── Plan stages (2026-10-12) ──────────────────────────────────────────────
+  function proposalsOf(e) {
+    try { const p = typeof e.proposed_dates === 'string' ? JSON.parse(e.proposed_dates) : e.proposed_dates; return Array.isArray(p) ? p : []; }
+    catch (_) { return []; }
+  }
+  // idea (no date yet) · proposed (tentative, dates in play) · invited (waiting on your
+  // answer) · confirmed · past
+  function stageOf(e) {
+    const nowS = Date.now() / 1000;
+    const props = proposalsOf(e);
+    const lastProposed = props.length ? Date.parse(props[props.length - 1].to + 'T23:59:59') / 1000 : 0;
+    const end = (e.scheduled_at || 0) + (e.duration_mins || 120) * 60;
+    if (e.date_tbd ? (props.length && lastProposed < nowS) : (!e.flexible_time && end < nowS)) return 'past';
+    if (e._isInvite && e.rsvp_status === 'invited') return 'invited';
+    if (e.date_tbd && !props.length) return 'idea';
+    if (e.tentative) return 'proposed';
+    return 'confirmed';
+  }
+  // Calendar day keys ("YYYY-M-D", local) a plan covers.
+  function daysOf(e) {
+    const keys = [];
+    const add = (from, to) => {
+      const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+      for (let i = 0; i < 15 && d <= to; i++) { keys.push(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`); d.setDate(d.getDate() + 1); }
+    };
+    const props = proposalsOf(e);
+    if (props.length) { for (const p of props) add(new Date(p.from + 'T12:00:00'), new Date(p.to + 'T12:00:00')); return keys; }
+    if (e.date_tbd || e.flexible_time || !e.scheduled_at) return keys;
+    const start = new Date(e.scheduled_at * 1000);
+    add(start, new Date((e.scheduled_at + Math.max(0, (e.duration_mins || 120) * 60 - 60)) * 1000));
+    return keys;
+  }
+  // Plans with no date yet: listed above the calendar, each opens its discussion.
+  function renderUndated(list) {
+    const el = document.getElementById('cal-undated');
+    el.hidden = !list.length;
+    el.innerHTML = list.length ? 'Undated: ' + list.map(e =>
+      `<a href="/app/chat?event=${encodeURIComponent(e.id)}"><span class="cal-chip stage-idea">${escHtml(e.title || 'Plan')}</span></a>`).join('') : '';
+  }
+
   function renderCalendar() {
     const monthNames = ['January','February','March','April','May','June',
                         'July','August','September','October','November','December'];
@@ -661,22 +725,17 @@
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
     const daysInPrev  = new Date(calYear, calMonth, 0).getDate();
 
-    // Build a map: "YYYY-M-D" → [events]
-    // Include both hosted events AND accepted invitations
+    // Build a map: "YYYY-M-D" → [events], each plan on every day it covers — its own
+    // dates, or for a tentative plan each proposed date range (2026-10-12).
     const evMap = {};
-    // Plans with no date yet ("Date TBD") stay off the calendar — their date is a placeholder.
     const calEvents = [
-      ...allEvents.filter(e => !e.date_tbd),
+      ...allEvents.map(e => ({ ...e })),
       ...invitedEvents
-        .filter(e => e.rsvp_status === 'accepted' && e.scheduled_at && !e.flexible_time && !e.date_tbd)
+        .filter(e => ['accepted', 'invited'].includes(e.rsvp_status) && !e.flexible_time)
         .map(e => ({ ...e, _isInvite: true })),
-    ];
-    for (const e of calEvents) {
-      if (!e.scheduled_at) continue;
-      const d = new Date(e.scheduled_at * 1000);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      (evMap[key] = evMap[key] || []).push(e);
-    }
+    ].filter(e => e.status !== 'cancelled');
+    for (const e of calEvents) for (const day of daysOf(e)) (evMap[day] = evMap[day] || []).push(e);
+    renderUndated(calEvents.filter(e => stageOf(e) === 'idea'));
 
     const grid = document.getElementById('cal-days');
     grid.innerHTML = '';
@@ -721,22 +780,23 @@
     num.textContent = day;
     cell.appendChild(num);
 
-    // Event dots (max 4 visible)
+    // Plan chips, colored by stage (max 2 visible)
     if (events.length > 0) {
-      const dots = document.createElement('div');
-      dots.className = 'day-dots';
-      events.slice(0, 4).forEach(e => {
-        const dot = document.createElement('div');
-        dot.className = `dot ${statusClass(e.status)}`;
-        dots.appendChild(dot);
+      const chips = document.createElement('div');
+      chips.className = 'day-chips';
+      events.slice(0, 2).forEach(e => {
+        const chip = document.createElement('div');
+        chip.className = `cal-chip stage-${stageOf(e)}`;
+        chip.textContent = e.title || e.activity_type || 'Plan';
+        chips.appendChild(chip);
       });
-      if (events.length > 4) {
+      if (events.length > 2) {
         const more = document.createElement('div');
         more.style.cssText = 'font-size:9px;color:#888;line-height:1;';
-        more.textContent = `+${events.length - 4}`;
-        dots.appendChild(more);
+        more.textContent = `+${events.length - 2}`;
+        chips.appendChild(more);
       }
-      cell.appendChild(dots);
+      cell.appendChild(chips);
     }
 
     if (!otherMonth) {
@@ -772,7 +832,7 @@
                 ${e._isInvite ? `Hosted by ${escHtml(e.host_name || 'someone')} · ` : ''}${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${fmtTime(e.scheduled_at)}
               </div>
             </div>
-            <span class="badge ${e._isInvite ? '' : statusClass(e.status)}">${e._isInvite ? '✅ Going' : escHtml(e.status || '')}</span>
+            <span class="cal-chip stage-${stageOf(e)}" style="width:auto;font-size:11px;line-height:18px;padding:0 8px">${{ idea: 'Idea', proposed: 'Proposed', invited: 'Invited', confirmed: 'Confirmed', past: 'Past' }[stageOf(e)]}</span>
           </div>
           <div class="detail">
             ${e.venue_name    ? `<div><strong>Venue:</strong> ${escHtml(e.venue_name)}</div>` : ''}
