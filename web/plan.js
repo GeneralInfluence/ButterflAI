@@ -53,7 +53,7 @@ function planFor(eventId, viewerId) {
   if (!viewer) return null;
   const tz = viewer.timezone || 'America/Los_Angeles';
   const host = db.getUser(e.host_user_id);
-  const invitations = db._raw().prepare(`SELECT ei.id, ei.status, ei.defers_to, ei.dismissed_at, c.phone, COALESCE(c.nickname, c.name) AS name
+  const invitations = db._raw().prepare(`SELECT ei.id, ei.status, ei.defers_to, ei.dismissed_at, ei.needs_owner_decision, c.phone, COALESCE(c.nickname, c.name) AS name
     FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ?`).all(e.id);
   const isHost = e.host_user_id === viewerId;
   const mine = invitations.find((i) => i.phone && i.phone === viewer.phone);
@@ -92,7 +92,8 @@ function planFor(eventId, viewerId) {
   return {
     id: e.id, title: e.title, what: e.activity_type, place: e.venue_name || null, notes: e.notes || null,
     host: { name: first(host?.name), is_you: isHost }, role: isHost ? 'host' : 'guest',
-    invitation: mine ? { id: mine.id, status: mine.status } : null,
+    invitation: mine ? { id: mine.id, status: mine.status, must_ask: !!mine.needs_owner_decision && mine.status === 'invited',
+      deferred_to: parseJson(mine.defers_to, []) } : null,
     tentative: !!e.tentative, stage, dates, days: dates.days, at: dates.kind === 'set' ? dates.start : null,
     group: e.group_id ? (db._raw().prepare('SELECT id, name FROM contact_groups WHERE id = ?').get(e.group_id) || null) : null,
     people, interested, waiting_on: waiting, out: plain.filter((p) => p.status === 'declined').map((p) => p.name),
@@ -103,15 +104,15 @@ function planFor(eventId, viewerId) {
 }
 
 /** Every plan the user is in (hosting, or invited and not declined), excluding cancelled. */
-function plansFor(userId, { includePast = false } = {}) {
+function plansFor(userId, { includePast = false, includeDeclined = false } = {}) {
   const u = db.getUser(userId);
   if (!u) return [];
   const ids = db._raw().prepare(`
     SELECT id FROM social_events WHERE host_user_id = ? AND COALESCE(status, 'open') != 'cancelled'
     UNION
     SELECT se.id FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id JOIN social_events se ON se.id = ei.event_id
-    WHERE c.phone = ? AND se.host_user_id != ? AND ei.status != 'declined' AND ei.dismissed_at IS NULL AND COALESCE(se.status, 'open') != 'cancelled'`)
-    .all(userId, u.phone || '', userId).map((r) => r.id);
+    WHERE c.phone = ? AND se.host_user_id != ? AND (ei.status != 'declined' OR ?) AND ei.dismissed_at IS NULL AND COALESCE(se.status, 'open') != 'cancelled'`)
+    .all(userId, u.phone || '', userId, includeDeclined ? 1 : 0).map((r) => r.id);
   return ids.map((id) => planFor(id, userId)).filter(Boolean).filter((p) => includePast || p.stage !== 'past');
 }
 

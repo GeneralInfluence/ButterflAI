@@ -49,24 +49,18 @@ function eventsFor(userId) {
  * to) plus any plan discussed in the last 30 days. Most recently active first, then soonest.
  */
 function discussionsFor(userId) {
+  // From the plan objects (plan.js) — the same plans the calendar and Home show: upcoming
+  // ones, plus any plan talked about in the last 30 days.
   const t = now();
-  const byId = new Map(eventsFor(userId).map((e) => [e.id, { ...e, messages: 0, last_at: 0 }]));
-  const talked = db._raw().prepare(`SELECT event_id, count(*) n, max(created_at) last_at FROM conversation_history
-    WHERE user_id = ? AND event_id IS NOT NULL AND created_at > ? GROUP BY event_id`).all(userId, t - 30 * 86400);
-  for (const r of talked) {
-    if (!byId.has(r.event_id)) {
-      if (!canSee(userId, r.event_id)) continue;
-      const e = db._raw().prepare(`SELECT id, title, scheduled_at FROM social_events WHERE id = ? AND COALESCE(status, 'open') != 'cancelled'`).get(r.event_id);
-      if (!e) continue;
-      byId.set(e.id, { ...e, messages: 0, last_at: 0 });
-    }
-    Object.assign(byId.get(r.event_id), { messages: r.n, last_at: r.last_at });
-  }
-  return [...byId.values()].map((e) => {
-    const x = db._raw().prepare('SELECT tentative, host_user_id FROM social_events WHERE id = ?').get(e.id);
-    return { event_id: e.id, title: e.title, scheduled_at: e.scheduled_at, tentative: !!x?.tentative, messages: e.messages, last_at: e.last_at || null,
-      can_rename: x?.host_user_id === userId };   // the host renames a plan for everyone
-  }).sort((a, b) => (b.last_at || 0) - (a.last_at || 0) || a.scheduled_at - b.scheduled_at);
+  const talked = new Map(db._raw().prepare(`SELECT event_id, count(*) n, max(created_at) last_at FROM conversation_history
+    WHERE user_id = ? AND event_id IS NOT NULL AND created_at > ? GROUP BY event_id`).all(userId, t - 30 * 86400).map((r) => [r.event_id, r]));
+  return require('./plan').plansFor(userId, { includePast: true })
+    .filter((p) => p.stage !== 'past' || talked.has(p.id))
+    .map((p) => ({ event_id: p.id, title: p.title, stage: p.stage, dates: p.dates.label, tentative: p.tentative,
+      messages: talked.get(p.id)?.n || 0, last_at: talked.get(p.id)?.last_at || null, scheduled_at: p.at || Infinity,
+      can_rename: p.role === 'host' }))   // the host renames a plan for everyone
+    .sort((a, b) => (b.last_at || 0) - (a.last_at || 0) || a.scheduled_at - b.scheduled_at)
+    .map(({ scheduled_at, ...d }) => d);
 }
 
 /** May this user see this event's discussion? (host or invited) */

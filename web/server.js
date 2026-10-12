@@ -38,6 +38,7 @@ const linktoken = require('./linktoken');
 const groupPlans = require('./groups');
 const todos = require('./todos');
 const plan = require('./plan');
+const planops = require('./planops');
 const names = require('./names');
 const plans = require('./plans');
 const webAuth  = require('./webapp-auth');
@@ -2154,16 +2155,10 @@ app.post('/api/events', webAuth.requireAuth, async (req, res) => {
   if (!sameUser(req, res, claimed)) return;
   const userId = req.user.id;
   if (!eventData.title) return res.status(400).json({ error: 'title required' });
-  try {
-    const eventId = multiparty.createEvent(userId, eventData);
-    let inviteResult = { sent: 0, skipped: 0 };
-    if (contactIds?.length) {
-      inviteResult = await multiparty.inviteContacts(eventId, contactIds);
-    }
-    res.json({ ok: true, eventId, ...inviteResult });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+  // Every plan change goes through planops.js (one plan per name, dates, invites).
+  const r = await planops.create(userId, { ...eventData, contact_ids: contactIds }, { via: 'app' });
+  if (r.error) return res.status(r.error === 'PLAN_EXISTS' ? 409 : 400).json(r);
+  res.json({ ok: true, eventId: r.eventId, ...r.invites });
 });
 
 app.get('/api/events/:userId', webAuth.requireAuth, (req, res) => {
@@ -2175,6 +2170,7 @@ app.get('/api/events/:userId', webAuth.requireAuth, (req, res) => {
     ...e,
     rsvp: multiparty.getRsvpSummary(e.id),
     todo_progress: prog[e.id],
+    plan: plan.planFor(e.id, req.user.id),   // stage + dates as computed once (plan.js)
   }));
   res.json({ events: withRsvp });
 });
@@ -2183,7 +2179,7 @@ app.get('/api/events/:userId', webAuth.requireAuth, (req, res) => {
 app.get('/api/events/invited/me', webAuth.requireAuth, (req, res) => {
   const events = multiparty.getInvitedEvents(req.user.phone);
   const prog = todos.progressFor(events.map((e) => e.id));
-  res.json({ events: events.map((e) => ({ ...e, todo_progress: prog[e.id] })) });
+  res.json({ events: events.map((e) => ({ ...e, todo_progress: prog[e.id], plan: plan.planFor(e.id, req.user.id) })) });
 });
 
 // POST /api/events/invitations/:id/dismiss — hide an invitation from the events page
@@ -2231,34 +2227,23 @@ app.get('/api/events/:id/manage', webAuth.requireAuth, (req, res) => {
 
 // PATCH /api/events/:id — update event_type or status
 app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => {
-  const event = multiparty.getEvent(req.params.id);
-  if (!event || event.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
+  // Every plan change goes through planops.js — the same rules as the agent's tools.
   const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address', 'host_attending'];
-  const updates = {};
-  for (const k of allowed) {
-    if (req.body[k] !== undefined) updates[k] = req.body[k];
-  }
-  // Renaming (chat pills, 2026-10-09): a real name, not empty or a paragraph.
-  if (updates.title !== undefined) {
-    updates.title = String(updates.title).replace(/\s+/g, ' ').trim();
-    if (!updates.title || updates.title.length > 80) return res.status(400).json({ error: 'Name must be 1–80 characters' });
-  }
-  if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nothing to update' });
-  const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-  db._raw().prepare(`UPDATE social_events SET ${sets} WHERE id = ?`).run(...Object.values(updates), event.id);
-  // People who deferred on this plan get an FYI on big changes (defer.js).
-  if (updates.status === 'cancelled' && event.status !== 'cancelled') defer.notifyDeferred(event.id, "it's cancelled");
-  else if (updates.venue_name && updates.venue_name !== event.venue_name) defer.notifyDeferred(event.id, `it's now at ${updates.venue_name}`);
-  res.json({ ok: true });
+  const changes = {};
+  for (const k of allowed) if (req.body[k] !== undefined) changes[k] = req.body[k];
+  if (!Object.keys(changes).length) return res.status(400).json({ error: 'Nothing to update' });
+  const r = planops.update(req.user.id, req.params.id, changes, { via: 'app' });
+  if (r.error === 'EVENT_NOT_FOUND' || r.error === 'NOT_HOST') return res.status(403).json({ error: 'Not your event' });
+  if (r.error) return res.status(400).json(r);
+  res.json({ ok: true, updated: r.updated });
 });
 
 // POST /api/events/:id/invite — invite additional contacts
 app.post('/api/events/:id/invite', webAuth.requireAuth, express.json(), async (req, res) => {
-  const event = multiparty.getEvent(req.params.id);
-  if (!event || event.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
   const { contact_ids } = req.body;
   if (!Array.isArray(contact_ids) || !contact_ids.length) return res.status(400).json({ error: 'contact_ids required' });
-  const result = await multiparty.inviteContacts(event.id, contact_ids);
+  const result = await planops.invite(req.user.id, req.params.id, contact_ids, { via: 'app' });
+  if (result.error) return res.status(403).json({ error: 'Not your event' });
   res.json({ ok: true, ...result });
 });
 

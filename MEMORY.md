@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_382_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_844_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -665,6 +665,25 @@ got something wrong, ask: "I said this — maybe you meant that?"
   A correction is fixed with the other side (prompt: REFLECTION FOLLOW-UPS).
 - `reflections` table (migration 042): outcome for everyone; what it noticed only for
   opted-in test users → `/admin/feedback` → Reflections tab.
+
+## 14. One plan object: read in plan.js, change in planops.js `[LOCKED 2026-10-12]`
+
+Owner: "operate on single objects, not stringing things together with spaghetti logic" (after
+duplicate plans reached friends and Home kept a stale "Waiting on…").
+
+- **Read:** `web/plan.js` `planFor(eventId, viewer)` / `plansFor(user)` — stage (idea · proposed ·
+  invited · confirmed · past · cancelled), dates + label + calendar days, people, who's in /
+  waiting / deferring, open questions about THIS plan, Creating progress, the viewer's next step.
+  Home feed, calendar, Events list, chat pills and the agent's state snapshot all read it.
+  Don't re-derive stage or dates anywhere else.
+- **Change:** `web/planops.js` `create / update / invite / merge` — the agent's tools, the app's
+  routes, group catch-ups and retros all go through it. One plan per name per host; names 1–80
+  chars; a chosen date clears proposed options; options with no date = date TBD; FYI to deferrers
+  on date / place / lock-in / cancel; host re-checked. Every change is logged to `plan_changes`
+  (migration 048: who, via agent|app|retro, field, old → new) — `planops.history(eventId)`.
+- **Feedback on every screen:** `web/public/feedback.js` (👎 tab, screenshot + the screen's state
+  + the plan object when it's about a plan) → `/admin/feedback`. Screenshots/state kept 90 days.
+- Tests: `tests/integration/planops.test.js`, `plan-object.test.js`, `feedback-screens.test.js`.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

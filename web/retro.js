@@ -238,7 +238,7 @@ const TASKS = [
       for (const e of open) {
         const original = kept.find((k) => sameName(k.title, e.title));
         if (!original) { kept.push(e); continue; }
-        if (multiparty.mergeEvents(user.id, original.id, e.id).merged) merged++;
+        if (require('./planops').merge(user.id, original.id, e.id, { via: 'system' }).merged) merged++;
       }
       return `merged ${merged}`;
     },

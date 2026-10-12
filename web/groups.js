@@ -49,7 +49,7 @@ function upcomingPlans(ownerId, groupId, { exclude = null } = {}) {
   for (const e of db._raw().prepare(`SELECT * FROM social_events WHERE ${UPCOMING} AND group_id IS NULL`).all(ownerId, since)) {
     const invitees = db._raw().prepare('SELECT contact_id FROM event_invitations WHERE event_id = ?').all(e.id).map((r) => r.contact_id);
     if (groupCoveredBy(ownerId, invitees, { exclude })?.id === groupId) {
-      db._raw().prepare('UPDATE social_events SET group_id = ? WHERE id = ?').run(groupId, e.id);
+      require('./planops').update(ownerId, e.id, { group_id: groupId }, { via: 'system' });
       linked.push({ ...e, group_id: groupId });
     }
   }
@@ -90,7 +90,7 @@ async function onMemberAdded(ownerId, groupId, contactId) {
 
   const plans = [];
   for (const e of upcomingPlans(ownerId, groupId, { exclude: contactId })) {
-    const r = await multiparty.inviteContacts(e.id, [contactId], { quiet: true });
+    const r = await require('./planops').invite(ownerId, e.id, [contactId], { via: 'system', quiet: true });
     if ((r.invited || []).includes(contactId)) plans.push(e);
   }
   if (!plans.length) return { caught_up: 0 };

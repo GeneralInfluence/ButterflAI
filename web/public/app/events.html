@@ -434,13 +434,13 @@
         <div class="card-header" onclick="toggleManage('${e.id}', this)" style="cursor:pointer">
           <div>
             <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}${e.tentative ? ' <span style="display:inline-block;font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px;vertical-align:2px">Tentative</span>' : ''}</div>
-            <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name && e.scheduled_at ? ' · ' : ''}${e.date_tbd ? 'Date TBD' : fmtDate(e.scheduled_at) + ' ' + fmtTime(e.scheduled_at)}</div>
+            <div class="card-sub">${escHtml(e.venue_name || '')}${e.venue_name ? ' · ' : ''}${escHtml(e.plan ? e.plan.dates.label : (e.date_tbd ? 'Date TBD' : fmtDate(e.scheduled_at) + ' ' + fmtTime(e.scheduled_at)))}</div>
             ${rsvpLine ? `<div class="card-sub" style="margin-top:2px;font-size:13px">${rsvpLine}</div>` : ''}
             ${todoLine(e)}
             <a href="/app/chat?event=${encodeURIComponent(e.id)}" onclick="event.stopPropagation()" style="display:inline-block;margin-top:6px;font-size:13px;font-weight:600;color:#6c47ff;text-decoration:none">💬 Discussion</a>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-            <span class="badge ${statusClass(e.status)}">${escHtml(e.status || 'unknown')}</span>
+            ${e.plan ? `<span class="cal-chip stage-${e.plan.stage}" style="width:auto;font-size:11px;line-height:18px;padding:0 8px">${STAGE_LABEL[e.plan.stage] || e.plan.stage}</span>` : `<span class="badge ${statusClass(e.status)}">${escHtml(e.status || 'unknown')}</span>`}
             ${e.host_attending === 0 ? '<span style="font-size:11px;color:#b45309;font-weight:600">🚶 You\'re not going</span>' : ''}
             <span style="font-size:11px;color:#8e8e93;font-weight:500">${isPublic ? '🌐 Public' : '🔒 Private'}</span>
           </div>
@@ -614,7 +614,7 @@
     el.innerHTML = events.map(e => {
       const dt = new Date((e.scheduled_at||0) * 1000);
       // Tentative plans (2026-10-09): date only, "Interested" rather than "Going".
-      const whenStr = e.date_tbd ? 'Date TBD' : e.flexible_time
+      const whenStr = e.plan ? e.plan.dates.label : e.date_tbd ? 'Date TBD' : e.flexible_time
         ? 'Open invite — come when you\'re ready'
         : e.tentative
           ? dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' (tentative)'
@@ -722,6 +722,7 @@
   }
 
   // ── Plan stages: computed on the server (plan.js) ──────────────────────
+  const STAGE_LABEL = { idea: 'Idea', proposed: 'Proposed', invited: 'Invited', confirmed: 'Confirmed', past: 'Past', cancelled: 'Cancelled' };
   // After a change (cancel, RSVP), fetch the plans again so stages and days are current.
   async function refreshPlans() {
     try { calPlans = (await fetch('/api/plans').then(r => r.json())).plans || []; } catch (_) {}
@@ -841,7 +842,7 @@
     if (events.length === 0) {
       evEl.innerHTML = '<div class="day-panel-empty">No events on this day.</div>';
     } else {
-      const label = { idea: 'Idea', proposed: 'Proposed', invited: 'Invited', confirmed: 'Confirmed', past: 'Past' };
+      const label = STAGE_LABEL;
       evEl.innerHTML = events.map(p => `
         <div class="card" style="border-radius:0;box-shadow:none;border-top:1px solid #f0f0f0;margin:0;"
              onclick="this.querySelector('.detail').classList.toggle('open')">

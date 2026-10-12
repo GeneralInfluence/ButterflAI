@@ -41,6 +41,7 @@ const defer      = require('./defer');
 const linktoken  = require('./linktoken');
 const groupPlans = require('./groups');
 const planObj    = require('./plan');
+const planops    = require('./planops');
 const todos      = require('./todos');
 const plansync   = require('./plansync');
 const actioncheck = require('./actioncheck');
@@ -1349,7 +1350,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           message: `Ask your user: combine "${b.title}" into "${a.title}"? (people, discussion and notes move over). Call merge_plans again with the same ids after they say yes.` };
       }
       pendingMerges.delete(key);
-      return multiparty.mergeEvents(userId, keep, drop);
+      return planops.merge(userId, keep, drop, { via: 'agent' });
     }
 
     case 'defer_on_plan': {
@@ -1751,46 +1752,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'create_social_event': {
-      const { contact_ids: givenIds, when, group, ...eventData } = toolInput;
-      let contact_ids = givenIds;
-      // A plan for a group: link it and invite every member (plus anyone named).
-      if (group) {
-        const { group: g, groups: all } = plans.findGroup(userId, group);
-        if (!g) return { error: 'GROUP_NOT_FOUND', message: `No group called "${group}". Groups: ${all.map((x) => x.name).join(', ') || 'none yet'}.` };
-        eventData.group_id = g.id;
-        contact_ids = [...new Set([...(givenIds || []), ...g.members.map((m) => m.id || m.contact_id).filter(Boolean)])];
-      } else if (contact_ids?.length) {
-        // Inviting everyone in one of the user's groups makes it that group's plan —
-        // inferred in code; the user shouldn't have to say "group plan" (2026-10-09).
-        const g = groupPlans.groupCoveredBy(userId, contact_ids);
-        if (g) eventData.group_id = g.id;
-      }
-      // Deterministic date resolution: when the model passes the user's day+time
-      // phrase, resolve it server-side in the user's timezone (Haiku is unreliable at
-      // date math). This OVERRIDES any scheduled_at the model may have computed.
-      let resolvedWhen = null;
-      if (when && !eventData.flexible_time) {
-        const tz = db.getUser(userId)?.timezone || 'America/New_York';
-        resolvedWhen = datetime.resolveEventDateTime(when, tz);
-        if (resolvedWhen) eventData.scheduled_at = resolvedWhen.iso;
-      }
-      // One plan per name: if your user already has this plan, update it — don't make a
-      // second one (2026-10-12: "Melanie's Birthday Weekend" was created twice, sending the
-      // whole group duplicate invites, while the original stayed undated).
-      const same = planObj.existingByName(userId, eventData.title);
-      if (same) {
-        return { error: 'PLAN_EXISTS', action_status: 'NOT_CREATED', eventId: same.id,
-          message: `"${same.title}" already exists (eventId="${same.id}"). Update it with update_event (dates → scheduled_at or proposed_dates, venue_name, notes) — don't create another.` };
-      }
-      // No date yet → a plan with "date TBD" (owner: plans exist from first mention).
-      if (!eventData.scheduled_at && !eventData.flexible_time) eventData.date_tbd = true;
-      let eventId;
-      try { eventId = multiparty.createEvent(userId, eventData); }
-      catch (err) { return { error: 'BAD_PROPOSED_DATES', message: err.message }; }
-      let inviteResult = { sent: 0, skipped: 0 };
-      if (contact_ids?.length) {
-        inviteResult = await multiparty.inviteContacts(eventId, contact_ids);
-      }
+      // Every plan change goes through planops.js (one plan per name, dates, group, invites).
+      const made = await planops.create(userId, toolInput, { via: 'agent' });
+      if (made.error) return made;
+      const { eventId } = made;
+      const eventData = toolInput;
+      const inviteResult = made.invites;
 
       // Record proposal provenance for user-initiated event creation.
       // TODO(human): distinguish user_request (explicit ask) from cadence-driven creation.
@@ -1836,12 +1803,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         invites_skipped: inviteResult.skipped,
         // Authoritative date the server scheduled — state THIS weekday+date back to the
         // user verbatim; do not recompute or relabel it.
-        scheduled_for: resolvedWhen ? resolvedWhen.label : undefined,
+        scheduled_for: made.scheduled_for,
         // Not invited because they're on the user's own avoid list. Tell the user (only
         // the user) and offer to remove them from the list if this was intentional.
         avoided_not_invited: inviteResult.avoided,
         tentative: !!eventData.tentative || undefined,
-        group: eventData.group_id ? db.getContactGroups(userId).find((g) => g.id === eventData.group_id)?.name : undefined,
+        group: made.group,
         note: inviteResult.sent > 0
           ? `Invite(s) sent. Contacts can reply YES/NO and their response will be tracked automatically.`
           : `Event created but no invites sent (check contact_ids are valid and contacts aren't opted out).`,
@@ -1849,47 +1816,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'update_event': {
-      const { event_id, scheduled_at, flexible_time, notes, venue_name, tentative, title, duration_mins, proposed_dates, cancel } = toolInput;
-      // Verify ownership — agent can only update events they host
-      const evCheck = db._raw().prepare('SELECT id, host_user_id FROM social_events WHERE id = ?').get(event_id);
-      if (!evCheck) return { error: 'Event not found' };
-      if (evCheck.host_user_id !== userId) return { error: 'You can only update events you host' };
-      const updates = {};
-      if (scheduled_at !== undefined) {
-        updates.scheduled_at = typeof scheduled_at === 'string'
-          ? Math.floor(new Date(scheduled_at).getTime() / 1000)
-          : scheduled_at;
-        updates.date_tbd = 0;   // it has a date now
-      }
-      if (flexible_time !== undefined) updates.flexible_time = flexible_time ? 1 : 0;
-      if (notes !== undefined) updates.notes = notes;
-      if (venue_name !== undefined) updates.venue_name = venue_name;
-      if (tentative !== undefined) updates.tentative = tentative ? 1 : 0;
-      if (cancel === true) updates.status = 'cancelled';   // there was no way to cancel a plan (2026-10-12)
-      if (proposed_dates !== undefined) {
-        let p;
-        try { p = multiparty.normalizeProposals(proposed_dates); } catch (err) { return { error: 'BAD_PROPOSED_DATES', message: err.message }; }
-        updates.proposed_dates = p ? JSON.stringify(p) : null;
-        if (p && updates.tentative === undefined) updates.tentative = 1;
-      }
-      if (title) updates.title = String(title).slice(0, 200);
-      if (duration_mins !== undefined && Number(duration_mins) > 0) updates.duration_mins = Math.round(Number(duration_mins));
-      if (!Object.keys(updates).length) return { ok: true, note: 'No fields to update' };
-      const before = db._raw().prepare('SELECT scheduled_at, venue_name, tentative FROM social_events WHERE id = ?').get(event_id);
-      const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-      db._raw().prepare(`UPDATE social_events SET ${sets} WHERE id = ?`)
-        .run(...Object.values(updates), event_id);
-      // People who deferred on this plan get an FYI (not a question) on big changes.
-      const tz = db.getUser(userId)?.timezone || 'America/Los_Angeles';
-      const changes = [];
-      if (updates.scheduled_at && updates.scheduled_at !== before.scheduled_at) {
-        changes.push(`the date is now ${new Date(updates.scheduled_at * 1000).toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' })}`);
-      }
-      if (updates.venue_name && updates.venue_name !== before.venue_name) changes.push(`it's now at ${updates.venue_name}`);
-      if (updates.tentative === 0 && before.tentative) changes.push("it's locked in");
-      if (updates.status === 'cancelled') changes.push("it's cancelled");
-      const fyi = changes.length ? defer.notifyDeferred(event_id, changes.join('; ')) : 0;
-      return { ok: true, event_id, updated: Object.keys(updates), fyi_sent_to_deferred: fyi || undefined };
+      // Every plan change goes through planops.js (validation, FYIs, change log).
+      const { event_id, ...changes } = toolInput;
+      const r = planops.update(userId, event_id, changes, { via: 'agent' });
+      if (r.error === 'EVENT_NOT_FOUND') return { error: 'Event not found' };
+      if (r.error === 'NOT_HOST') return { error: 'You can only update events you host' };
+      return r;
     }
 
     case 'get_event_rsvp_status': {
@@ -2096,32 +2028,27 @@ async function processMessage(msg) {
   // message. See PRIVACY.md / docs/REARCHITECTURE.md Phase 0. Enforced in code.
   const coordinationOnly = msg.channel === 'agent_query';
   const contactCount = db.getContactsByUser(userId).length;
+  // The plans this user hosts — described from the plan object (plan.js), the same one
+  // the calendar and Home use, not re-derived from tables here (owner, 2026-10-12).
+  const describePeople = (p) => [
+    ...p.people.filter((x) => !x.deferring_to.length).map((x) => `${x.name} (${x.status === 'accepted' && p.tentative ? 'interested' : x.status})`),
+    ...p.deferring.map((d) => `${d.who} (in — goes with whatever ${defer.joinNames(d.to)} decide; don't ask them about it)`),
+  ].join(', ') || 'no invitees yet';
+  const nowS = Math.floor(Date.now() / 1000);
   const pendingEvents = (() => {
     try {
-      const events = multiparty.getEventsByHost(userId).filter(e => e.status === 'open');
-      const rows = [];
-      for (const e of events) {
-        const recency = e.date_tbd ? 'upcoming' : eventRecency(e.scheduled_at, e.flexible_time);
-        if (recency === 'stale') continue;   // long-past events are noise — never surface them as current
-        const invitations = db._raw
-          ? db._raw().prepare(`
-              SELECT c.name, ei.status, ei.defers_to FROM event_invitations ei
-              JOIN contacts c ON c.id = ei.contact_id
-              WHERE ei.event_id = ?
-            `).all(e.id)
-          : [];
-        const inviteeList = invitations.map(i => i.defers_to
-          ? `${i.name} (in — goes with whatever ${defer.joinNames(defer.parseNames(i.defers_to))} decide; don't ask them about it)`
-          : `${i.name} (${i.status})`).join(', ') || 'no invitees yet';
-        const props = (() => { try { return JSON.parse(e.proposed_dates || 'null'); } catch (_) { return null; } })();
-        const ts = e.date_tbd && props ? `proposed dates: ${props.map((p) => p.from === p.to ? p.from : `${p.from}–${p.to}`).join(' or ')} (not chosen yet)`
-          : e.date_tbd ? 'date TBD (no date yet — ask or suggest one when it helps)' : recency === 'flexible'
-          ? 'open invite (no fixed time)'
-          : new Date(e.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
-        const pastTag = recency === 'past' ? '  [ALREADY HAPPENED — do NOT present as upcoming]' : '';
-        const tentTag = e.tentative ? ' | TENTATIVE (details still being worked out; "accepted" = interested)' : '';
-        rows.push(`  - eventId="${e.id}" | "${e.title}" | ${ts}${pastTag}${tentTag} | invitees: ${inviteeList}`);
-      }
+      const rows = planObj.plansFor(userId, { includePast: true })
+        .filter((p) => p.role === 'host')
+        // Long-past plans are noise — never surface them as current.
+        .filter((p) => !(p.stage === 'past' && (p.dates.end || 0) < nowS - 2 * 86400))
+        .map((p) => `  - eventId="${p.id}" | "${p.title}" | ${p.stage.toUpperCase()} | ${p.dates.label}`
+          + (p.stage === 'past' ? '  [ALREADY HAPPENED — do NOT present as upcoming]' : '')
+          + (p.place ? ` | at ${p.place}` : '')
+          + (p.group ? ` | group: ${p.group.name}` : '')
+          + ` | invitees: ${describePeople(p)}`
+          + (p.asked.length ? ` | asked, no answer yet: ${p.asked.join(', ')}` : '')
+          + (p.creating.total || p.creating.suggested ? ` | Creating ${p.creating.done}/${p.creating.total}${p.creating.suggested ? ` (+${p.creating.suggested} suggested)` : ''}` : '')
+          + (p.next ? ` | next: ${p.next}` : ''));
       return rows.length ? rows.join('\n') : '  (none)';
     } catch (_) { return '  (none)'; }
   })();
@@ -2130,28 +2057,17 @@ async function processMessage(msg) {
   const dateContext = buildDateContext(userTimezone);
   // Pending coordination: events this user was invited to by OTHER users' agents
   // Injected so this agent can act on them (update own calendar, notify host agent)
+  // Plans this user was invited to by others — from the plan object too (plan.js).
   const pendingCoordination = (() => {
     try {
-      // Match on phone, not one contact row: each host has their own contact row for
-      // this user, so a single getContactByPhone() lookup missed other hosts' invites.
-      const rows = db._raw().prepare(`
-        SELECT ei.id as inv_id, ei.status, ei.needs_owner_decision, ei.defers_to, se.id as event_id, se.title, se.date_tbd,
-               se.activity_type, se.scheduled_at, se.venue_name, u.name as host_name
-        FROM event_invitations ei
-        JOIN contacts c ON c.id = ei.contact_id
-        JOIN social_events se ON se.id = ei.event_id
-        JOIN users u ON u.id = se.host_user_id
-        WHERE c.phone = ? AND se.host_user_id != ? AND COALESCE(se.status, 'open') != 'cancelled'
-          AND (ei.notified_at > strftime('%s','now') - 604800 OR se.scheduled_at > strftime('%s','now') - 86400)
-        ORDER BY se.scheduled_at LIMIT 8
-      `).all(user.phone, userId);
-      if (!rows.length) return '';
-      const lines = rows.map(r => {
-        const ts = r.date_tbd ? 'date TBD' : new Date(r.scheduled_at * 1000).toLocaleString('en-US', { timeZone: userTimezone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-        const venue = r.venue_name ? ` at ${r.venue_name}` : '';
-        const ask = r.needs_owner_decision && r.status === 'invited' ? ' | ⚠ ASK YOUR USER before responding (never say why)' : '';
-        const def = r.defers_to ? ` | your user deferred — goes with whatever ${defer.joinNames(defer.parseNames(r.defers_to))} decide` : '';
-        return `  - inv_id="${r.inv_id}" | "${r.title}" hosted by ${r.host_name} | ${ts}${venue} | your status: ${r.status}${def}${ask}`;
+      const mine = planObj.plansFor(userId, { includePast: true, includeDeclined: true })
+        .filter((p) => p.role === 'guest' && p.stage !== 'past').slice(0, 8);
+      if (!mine.length) return '';
+      const lines = mine.map((p) => {
+        const inv = p.invitation;
+        const ask = inv.must_ask ? ' | ⚠ ASK YOUR USER before responding (never say why)' : '';
+        const def = inv.deferred_to.length ? ` | your user deferred — goes with whatever ${defer.joinNames(inv.deferred_to)} decide` : '';
+        return `  - inv_id="${inv.id}" | eventId="${p.id}" | "${p.title}" hosted by ${p.host.name} | ${p.dates.label}${p.place ? ` at ${p.place}` : ''} | your status: ${inv.status}${def}${ask}`;
       }).join('\n');
       return `\n## You have been invited to (by other ButterflAI users)\n${lines}\n- Use confirm_coordination_invite to RSVP and optionally add to your calendar`;
     } catch (_) { return ''; }

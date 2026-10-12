@@ -614,11 +614,6 @@ function publicRsvp(eventId, { name, phone, status }) {
   return { ok: true, status };
 }
 
-function cancelEvent(eventId, hostUserId) {
-  db._raw().prepare(`
-    UPDATE social_events SET status = 'cancelled' WHERE id = ? AND host_user_id = ?
-  `).run(eventId, hostUserId);
-}
 
 function getRsvpSummary(eventId) {
   const rows = db._raw().prepare(`
@@ -769,7 +764,6 @@ module.exports = {
   dismissInvitation,
   rsvpInvitation,
   publicRsvp,
-  cancelEvent,
   getRsvpSummary,
   wasInvited,
 };
