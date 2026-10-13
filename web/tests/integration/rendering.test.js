@@ -939,3 +939,31 @@ describe('Events: plan summary opened from Home', () => {
     assert.ok(!home.includes('/app/events?invite='));
   });
 });
+
+// 2026-10-13 (owner): Feeling, Creating and Happenings all visible on Home, each with a
+// summary beside its title and one preview item; tapping opens the full section.
+describe('Home at a glance: three sections, each opens full screen', () => {
+  const home = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
+  test('each section has its title, a summary line and an open button', () => {
+    for (const k of ['feeling', 'creating', 'happenings']) {
+      assert.ok(home.includes(`onclick="openSection('${k}')"`), k);
+      assert.ok(home.includes(`id="line-${k}"`), k);
+    }
+  });
+  test('summary lines come from the server, previews are one item each', () => {
+    assert.ok(home.includes("el.textContent = sm.line || ''"));
+    assert.ok(home.includes('feedItemHtml(items[0])') && home.includes('(my_plans || []).slice(0, 1)') && home.includes('creating.slice(0, 1)'));
+  });
+  test('full section is addressable and the back button closes it', () => {
+    assert.ok(home.includes('<div id="sec-full" hidden'));
+    assert.ok(home.includes("window.addEventListener('hashchange', showOpenSection)"));
+    assert.ok(home.includes('location.hash = k'));
+    assert.match(home, /#sec-full \{ position: fixed; inset: 0; z-index: 200;/);
+  });
+  test('Feeling keeps the one-tap shares on Home; the full view has the rest', () => {
+    const main = home.slice(home.indexOf('<main>'), home.indexOf('</main>'));
+    assert.ok(main.includes("quickShare('Free tonight', 'tonight')"));
+    assert.ok(!main.includes('id="share-text"'), 'the free-text share lives in the full view');
+    assert.ok(home.includes('<h3>Friends</h3>') && home.includes('creatingFullHtml('));
+  });
+});

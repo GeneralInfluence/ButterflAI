@@ -105,6 +105,27 @@
     .feed-action { margin-top: 4px; font-size: 13px; font-weight: 600; color: #6c47ff; }
     .feed-item.needs-you { border: 2px solid #6c47ff; }
     .hint { font-size: 13px; color: #888; margin-top: 8px; line-height: 1.5; }
+    /* Home at a glance (owner, 2026-10-13): three compact sections, each with a one-line
+       summary beside the title and one preview item; › opens the full section. */
+    section.home-sec { margin-bottom: 18px; }
+    .sec-head { display: flex; align-items: baseline; gap: 10px; width: 100%; background: none; border: none; padding: 0 0 8px;
+      font-family: inherit; text-align: left; cursor: pointer; color: inherit; }
+    .sec-head h2 { margin: 0; flex-shrink: 0; }
+    .sec-line { flex: 1; min-width: 0; font-size: 13px; color: #8e8e93; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sec-line.needs { color: #6c47ff; font-weight: 600; }
+    .sec-more { font-size: 20px; color: #6c47ff; line-height: 1; flex-shrink: 0; }
+    .home-sec .empty-state { padding: 10px 0; text-align: left; }
+    /* Full-screen section (#feeling, #creating, #happenings — back closes it). */
+    #sec-full { position: fixed; inset: 0; z-index: 200; background: #f2f2f7; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+    #sec-full[hidden] { display: none; }
+    .full-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; background: #fff;
+      border-bottom: 1px solid #e5e5e5; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; }
+    .full-head h2 { margin: 0; flex: 1; }
+    .full-back { background: none; border: none; color: #6c47ff; font-size: 16px; font-weight: 600; font-family: inherit; cursor: pointer; padding: 6px 8px; }
+    .full-body { max-width: 720px; margin: 0 auto; padding: 16px; }
+    .full-body h3 { font-size: 13px; font-weight: 600; color: #8e8e93; text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 8px; }
+    body.full-open { overflow: hidden; }
   </style>
 </head>
 <body>
@@ -128,35 +149,37 @@
     <a href="/app/onboarding">Finish setup →</a>
   </div>
 
-  <!-- Home = Feeling · Creating · Happenings (owner, 2026-10-12) -->
+  <!-- Home = Feeling · Creating · Happenings (owner, 2026-10-12). All three visible at a
+       glance (2026-10-13): summary beside each title, one preview item, › opens it full screen. -->
   <!-- Feeling: share what you're up for — friends see it in Happenings; nobody is pinged -->
-  <section>
-    <h2>Feeling</h2>
+  <section class="home-sec" id="sec-feeling">
+    <button type="button" class="sec-head" onclick="openSection('feeling')" aria-label="Open Feeling"><h2>Feeling</h2><span class="sec-line" id="line-feeling"></span><span class="sec-more">›</span></button>
     <div class="share-row">
       <button class="chip-btn" onclick="quickShare('Free tonight', 'tonight')">🟢 Free tonight</button>
       <button class="chip-btn" onclick="quickShare('Free this weekend', 'this weekend')">📅 Free this weekend</button>
       <button class="chip-btn" onclick="quickShare('Laying low tonight', 'tonight')">🛋️ Laying low tonight</button>
     </div>
-    <form class="share-other" onsubmit="event.preventDefault(); shareOther();">
-      <input id="share-text" placeholder="Something else… e.g. At Sully's from 9 this weekend" maxlength="200">
-      <button type="submit">Share</button>
-    </form>
     <div id="my-plans"></div>
-    <p class="hint">Your contacts on ButterflAI see this in their Happenings until it ends — nobody gets pinged. You can also just tell your agent.</p>
   </section>
 
   <!-- Creating: what you're helping make happen with friends (each plan's shared list) -->
-  <section>
-    <h2>Creating</h2>
+  <section class="home-sec" id="sec-creating">
+    <button type="button" class="sec-head" onclick="openSection('creating')" aria-label="Open Creating"><h2>Creating</h2><span class="sec-line" id="line-creating"></span><span class="sec-more">›</span></button>
     <div id="creating"><div class="empty-state">Loading…</div></div>
   </section>
 
   <!-- Happenings: ranked by what matters soonest -->
-  <section>
-    <h2>Happenings</h2>
+  <section class="home-sec" id="sec-happenings">
+    <button type="button" class="sec-head" onclick="openSection('happenings')" aria-label="Open Happenings"><h2>Happenings</h2><span class="sec-line" id="line-happenings"></span><span class="sec-more">›</span></button>
     <div id="feed"><div class="empty-state">Loading…</div></div>
   </section>
 </main>
+
+<!-- One section, full screen -->
+<div id="sec-full" hidden role="dialog" aria-modal="true">
+  <div class="full-head"><button type="button" class="full-back" onclick="closeSection()">‹ Home</button><h2 id="full-title"></h2></div>
+  <div class="full-body" id="full-body"></div>
+</div>
 
 <nav class="bottom-nav">
   <a href="/app/dashboard" class="active"><span class="tab-icon">🏠</span>Home</a>
@@ -243,21 +266,82 @@
     loadFeed();
   }
 
+  // ── Home at a glance + full sections (owner, 2026-10-13) ─────────────────────
+  // The summary lines come from the server (plans.homeSummary); the page only shows them.
+  let feed = null;
+  const SECTIONS = { feeling: 'Feeling', creating: 'Creating', happenings: 'Happenings' };
+  const EMPTY_HAPPENINGS = '<div class="empty-state">Nothing yet. Share what you\'re up to, or ask your agent "what are my friends up to tonight?"</div>';
+  const minePlansHtml = (list) => (list || []).map(p =>
+    `<div class="mine"><span>You: ${esc(p.text)} · until ${when(p.until)}</span><button title="Remove" onclick="removePlan('${esc(p.plan_id)}')">✕</button></div>`).join('');
+  const friendsFeeling = (items) => (items || []).filter(i => i.type === 'plan' || i.type === 'interest');
+
+  function renderHome() {
+    const { items, my_plans, creating, creating_suggestions, summary } = feed;
+    for (const k of Object.keys(SECTIONS)) {
+      const el = document.getElementById('line-' + k), sm = (summary || {})[k] || {};
+      el.textContent = sm.line || ''; el.classList.toggle('needs', !!sm.needs_you);
+    }
+    // One preview each: your active share; your next to-do (or a suggestion); the top happening.
+    document.getElementById('my-plans').innerHTML = minePlansHtml((my_plans || []).slice(0, 1));
+    document.getElementById('creating').innerHTML = (creating || []).length ? creatingHtml(creating.slice(0, 1), [])
+      : (creating_suggestions || []).length ? creatingHtml([], creating_suggestions.slice(0, 1)) : creatingHtml([], []);
+    document.getElementById('feed').innerHTML = items && items.length ? feedItemHtml(items[0]) : EMPTY_HAPPENINGS;
+  }
+
+  // Creating in full: grouped by plan (yours first within each, then open, then suggestions).
+  function creatingFullHtml(list, suggestions) {
+    if (!(list || []).length && !(suggestions || []).length) return creatingHtml([], []);
+    const groups = new Map();
+    for (const i of list || []) { if (!groups.has(i.event_id)) groups.set(i.event_id, { title: i.title, items: [] }); groups.get(i.event_id).items.push(i); }
+    return [...groups.values()].map(g => `<h3>${esc(g.title)}</h3>` + creatingHtml(g.items, [])).join('')
+      + ((suggestions || []).length ? '<h3>Suggestions to keep</h3>' + creatingHtml([], suggestions) : '');
+  }
+
+  function renderFull(k) {
+    const { items, my_plans, creating, creating_suggestions, summary } = feed;
+    const line = (summary || {})[k]?.line ? `<p class="hint" style="margin:0 0 6px">${esc(summary[k].line)}</p>` : '';
+    let body = '';
+    if (k === 'feeling') {
+      const friends = friendsFeeling(items);
+      body = `<div class="share-row">
+          <button class="chip-btn" onclick="quickShare('Free tonight', 'tonight')">🟢 Free tonight</button>
+          <button class="chip-btn" onclick="quickShare('Free this weekend', 'this weekend')">📅 Free this weekend</button>
+          <button class="chip-btn" onclick="quickShare('Laying low tonight', 'tonight')">🛋️ Laying low tonight</button></div>
+        <form class="share-other" onsubmit="event.preventDefault(); shareOther();">
+          <input id="share-text" placeholder="Something else… e.g. At Sully's from 9 this weekend" maxlength="200">
+          <button type="submit">Share</button></form>
+        ${minePlansHtml(my_plans)}
+        <p class="hint">Your contacts on ButterflAI see this in their Happenings until it ends — nobody gets pinged. You can also just tell your agent.</p>
+        <h3>Friends</h3>${friends.length ? friends.map(feedItemHtml).join('') : '<div class="empty-state">No friends have shared anything right now.</div>'}`;
+    } else if (k === 'creating') {
+      body = creatingFullHtml(creating, creating_suggestions);
+    } else {
+      body = items && items.length ? items.map(feedItemHtml).join('') : EMPTY_HAPPENINGS;
+    }
+    document.getElementById('full-title').textContent = SECTIONS[k];
+    document.getElementById('full-body').innerHTML = line + body;
+  }
+
+  // The open section lives in the address (#creating), so the phone's back button closes it.
+  const openKey = () => { const k = location.hash.slice(1); return SECTIONS[k] ? k : null; };
+  function showOpenSection() {
+    const k = openKey(), el = document.getElementById('sec-full');
+    el.hidden = !k; document.body.classList.toggle('full-open', !!k);
+    if (k && feed) { renderFull(k); el.scrollTop = 0; }
+  }
+  function openSection(k) { if (openKey() !== k) location.hash = k; else showOpenSection(); }
+  function closeSection() { if (history.length > 1 && openKey()) history.back(); else { history.replaceState(null, '', location.pathname); showOpenSection(); } }
+  window.addEventListener('hashchange', showOpenSection);
+
   async function loadFeed() {
-    const el = document.getElementById('feed');
     try {
-      const feed = await fetch('/api/feed').then(r => r.json());
+      feed = await fetch('/api/feed').then(r => r.json());
       // What Home was showing, for the feedback button (feedback.js).
-      window.bflyFeedbackState = () => ({ screen: 'home', feed });
-      const { items, my_plans, creating, creating_suggestions } = feed;
-      document.getElementById('creating').innerHTML = creatingHtml(creating, creating_suggestions);
-      document.getElementById('my-plans').innerHTML = (my_plans || []).map(p =>
-        `<div class="mine"><span>You: ${esc(p.text)} · until ${when(p.until)}</span><button title="Remove" onclick="removePlan('${esc(p.plan_id)}')">✕</button></div>`).join('');
-      el.innerHTML = items && items.length
-        ? items.map(feedItemHtml).join('')
-        : '<div class="empty-state">Nothing yet. Share what you\'re up to, or ask your agent "what are my friends up to tonight?"</div>';
+      window.bflyFeedbackState = () => ({ screen: 'home', open_section: openKey(), feed });
+      renderHome();
+      if (openKey()) renderFull(openKey());
     } catch (_) {
-      el.innerHTML = '<div class="empty-state">Could not load.</div>';
+      document.getElementById('feed').innerHTML = '<div class="empty-state">Could not load.</div>';
     }
   }
 
@@ -289,6 +373,7 @@
       }
     } catch (_) {}
     await loadFeed();
+    showOpenSection();
   }
 
   load();

@@ -180,6 +180,7 @@ describe('retention + API', () => {
     assert.equal(s.status, 200);
     const feed = await request.get('/api/feed').set('Cookie', ca);
     assert.deepEqual(feed.body.my_plans.map((p) => p.text), ['Free tonight']);
+    assert.match(feed.body.summary.feeling.line, /^You: Free tonight/);   // Home's summary line (2026-10-13)
     await request.delete('/api/plans/' + s.body.plan_id).set('Cookie', cb);   // B can't remove A's
     assert.equal(plans.myPlans(a.id).length, 1);
     await request.delete('/api/plans/' + s.body.plan_id).set('Cookie', ca);
@@ -194,5 +195,29 @@ describe('resolveEventDateTime — relative times (2026-10-09)', () => {
     assert.equal(resolveEventDateTime('tonight in about an hour', 'America/Los_Angeles', now).label, 'Thursday, Oct 8, 7:20 PM');
     assert.equal(resolveEventDateTime('in 30 min', 'America/Los_Angeles', now).label, 'Thursday, Oct 8, 6:50 PM');
     assert.equal(resolveEventDateTime('friday 7pm', 'America/Los_Angeles', now).label, 'Friday, Oct 9, 7:00 PM');
+  });
+});
+
+// 2026-10-13 (owner): one line per Home section, computed on the server so the page and
+// the full views always agree.
+describe('Home summary lines (plans.homeSummary)', () => {
+  const { homeSummary } = require('../../plans');
+  test('counts what each section shows, and flags what needs you', () => {
+    const s = homeSummary({
+      items: [{ type: 'invite' }, { type: 'event', action: 'Lock in the plan' }, { type: 'event' }, { type: 'plan' }, { type: 'plan' }, { type: 'interest' }, { type: 'question' }],
+      mine: [{ text: 'Free tonight' }],
+      creating: [{ who: 'you' }, { who: 'anyone' }, { who: 'anyone' }],
+      suggestions: [{ count: 2 }, { count: 1 }],
+    });
+    assert.equal(s.feeling.line, 'You: Free tonight · 2 friends shared · 1 up for something');
+    assert.equal(s.creating.line, '1 for you · 2 open · 3 suggestions waiting');
+    assert.equal(s.creating.needs_you, true);
+    assert.equal(s.happenings.line, '3 need you · 3 coming up');
+    assert.equal(s.happenings.needs_you, true);
+  });
+  test('empty sections say so', () => {
+    const s = homeSummary({ items: [], mine: [], creating: [], suggestions: [] });
+    assert.deepEqual([s.feeling.line, s.creating.line, s.happenings.line], ['Nothing shared yet', 'All caught up', 'Nothing yet']);
+    assert.equal(s.happenings.needs_you, false);
   });
 });

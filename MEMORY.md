@@ -601,6 +601,12 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   **Feeling**; the plans' shared lists are called **Creating** (Home section between them —
   items assigned to you, soonest plan first; the bar in a plan's chat; Events cards); "Your
   feed" → **Happenings**.
+  **All three at a glance (owner, 2026-10-13):** each section is a compact block — title,
+  one summary line beside it (`plans.homeSummary`, served in `/api/feed` `summary`; purple
+  when something needs you), one preview item (your active share + the one-tap shares; your
+  next to-do; the top happening) — and › opens it full screen (`/app/dashboard#creating`;
+  back closes it): Feeling = share box, your shares, friends' shares/interest; Creating =
+  grouped by plan + suggestions; Happenings = the whole ranked feed.
 - **The plan is ONE object (owner, 2026-10-12: "operate on single objects, not spaghetti").**
   `web/plan.js` `planFor(eventId, viewerId)` computes a plan once — stage, dates (tbd /
   proposed / set / open + label), days covered, people (in / waiting / out / deferring), who

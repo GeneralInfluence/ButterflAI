@@ -259,11 +259,46 @@ function feedFor(userId) {
   };
   items.sort((a, b) => score(b) - score(a));
 
+  const mine = myPlans(userId).map((p) => ({ plan_id: p.id, text: p.text, until: p.expires_at }));
   return {
     items,
-    my_plans: myPlans(userId).map((p) => ({ plan_id: p.id, text: p.text, until: p.expires_at })),
+    my_plans: mine,
     creating,
     creating_suggestions: creatingSuggestions,
+    summary: homeSummary({ items, mine, creating, suggestions: creatingSuggestions }),
+  };
+}
+
+/** Does this feed item need the viewer to act? (invite, a friend's question, a plan to lock in) */
+const needsYou = (i) => i.type === 'invite' || i.type === 'question' || (i.type === 'event' && !!i.action);
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Home's three sections at a glance (owner, 2026-10-13): one line each beside the title,
+ * computed here once so the page only displays it. Counts come from the same lists the
+ * full views show, so they always agree.
+ */
+function homeSummary({ items, mine, creating, suggestions }) {
+  const friendPlans = items.filter((i) => i.type === 'plan').length;
+  const interest = items.filter((i) => i.type === 'interest').length;
+  const feeling = [mine.length ? `You: ${mine[0].text}` : '',
+    friendPlans ? `${plural(friendPlans, 'friend', 'friends')} shared` : '',
+    interest ? `${interest} up for something` : ''].filter(Boolean);
+
+  const yours = creating.filter((c) => c.who === 'you').length;
+  const open = creating.length - yours;
+  const waiting = suggestions.reduce((n, s) => n + (s.count || 0), 0);
+  const making = [yours ? `${yours} for you` : '', open ? `${open} open` : '',
+    waiting ? `${plural(waiting, 'suggestion', 'suggestions')} waiting` : ''].filter(Boolean);
+
+  const needs = items.filter(needsYou).length;
+  const coming = items.filter((i) => i.type === 'event' || i.type === 'invite').length;
+  const happening = [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', coming ? `${coming} coming up` : ''].filter(Boolean);
+
+  return {
+    feeling: { line: feeling.join(' · ') || 'Nothing shared yet', needs_you: false },
+    creating: { line: making.join(' · ') || 'All caught up', needs_you: yours > 0 },
+    happenings: { line: happening.join(' · ') || 'Nothing yet', needs_you: needs > 0 },
   };
 }
 
@@ -274,4 +309,5 @@ function purgeExpired() {
   return p + s;
 }
 
-module.exports = { findGroup, sharePlan, myPlans, clearPlan, checkFriendsPlans, plansVisibleTo, interestFor, feedFor, canSee, purgeExpired };
+module.exports = {
+  homeSummary, needsYou, findGroup, sharePlan, myPlans, clearPlan, checkFriendsPlans, plansVisibleTo, interestFor, feedFor, canSee, purgeExpired };
