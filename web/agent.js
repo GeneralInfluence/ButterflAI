@@ -2855,11 +2855,12 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
 
       // An idea raised in a plan's discussion gets written down, not asked about (owner,
       // 2026-10-13: "it just needs to be recorded"; Melanie's "thinking about getting a
-      // massage" got "is that solo?"). In code: an idea-like message in a plan's pill, a turn
-      // that touched nothing on the plan, and a reply that asks → once, record it first.
+      // massage" got "is that solo?"). In code: an idea-like message in a plan's pill and a turn
+      // that did nothing on the plan → once, record it first.
       if (USER_CHANNELS.includes(msg.channel) && msg.event_id && msg.event_id !== topics.GENERAL && !isPrivate && !ideaChallenged
-          && IDEA_WORDS.test(msg.text || '') && /\?\s*$|\?\s*\S{0,4}$/.test(String(replyText || '').trim())
-          && !toolLog.some((t) => ['manage_todos', 'update_event'].includes(t.name) && !t.result?.error)) {
+          && IDEA_WORDS.test(msg.text || '')
+          // nothing was done on this plan this turn (asking — with or without a "?" at the end — isn't doing)
+          && !toolLog.some((t) => !t.result?.error && (['manage_todos', 'update_event'].includes(t.name) || t.input?.event_id === msg.event_id))) {
         ideaChallenged = true;
         turnTrace.event('guard', `idea in plan discussion not recorded: ${replyText.slice(0, 160)}`);
         messages.push({ role: 'user', content:

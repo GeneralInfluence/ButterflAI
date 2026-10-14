@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_981_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_982_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -849,7 +849,7 @@ a solo thing. This app is falling apart!!" Nothing was deleted — causes and fi
   another (`todoDay`); an idea raised in a plan's discussion must be recorded, not asked about
   (IDEA_WORDS guard + rule); the after-reply check sees the Creating list. Tested with Melanie's
   exact words (scripted) AND nightly with the real model (`tests/eval-massage-friday.js`, part of
-  `npm run test:eval`; 8/8 locally). The case anonymizer no longer treats words like "user" in "New user" as a name.
+  `npm run test:eval`; 10/10 locally, 5 runs nightly). The case anonymizer no longer treats words like "user" in "New user" as a name.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

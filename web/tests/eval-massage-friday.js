@@ -26,7 +26,7 @@ const planops = require('../planops');
 const todos = require('../todos');
 
 if (process.env.EVAL_DEBUG) require(process.env.EVAL_DEBUG);   // prints each model call (local debugging)
-const RUNS = Number(process.env.EVAL_RUNS || 3);
+const RUNS = Number(process.env.EVAL_RUNS || 5);
 
 function mkUser(name, phone) {
   db._raw().prepare(`INSERT INTO users (id, name, phone, onboarding_state, timezone) VALUES (?, ?, ?, 'complete', 'America/Los_Angeles')`).run(uuidv4(), name, phone);

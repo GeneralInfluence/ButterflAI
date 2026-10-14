@@ -235,3 +235,25 @@ describe('case anonymizer: generic words in account names stay words', () => {
     assert.equal(scrub('inform the user proactively'), 'inform the user proactively');
   });
 });
+
+// CI run 2026-10-13: the model asked mid-reply ("Are you thinking about adding it…? If it's
+// for the birthday trip, …") — no "?" at the end — and recorded nothing. The guard makes it
+// record first whenever nothing was done on the plan.
+describe('🐛 #15: an idea that only gets a question is recorded anyway', () => {
+  test('question mid-reply, nothing recorded → the agent is made to record it (on Friday)', async () => {
+    const sean = mkUser('Sean Guard'); const mel = mkUser('Melanie Guard');
+    const r = await planops.create(sean.id, { title: 'Guard Weekend', proposed_dates: [{ from: '2027-01-08', to: '2027-01-09' }],
+      contact_ids: [db.upsertContact({ invited_by_user_id: sean.id, name: mel.name, phone: mel.phone, tier: 1 })] });
+    let i = 0; const seen = [];
+    const steps = [
+      { id: 'a', stop_reason: 'end_turn', content: [{ type: 'text', text: "Great idea! Are you thinking about adding it to the weekend, or is it separate? If it's for the trip, I can note it." }] },
+      { id: 'b', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'manage_todos', input: { event_id: r.eventId, action: 'add', items: ['Get a massage'] } }] },
+      { id: 'c', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done — it\'s on the Creating list for Friday.' }] },
+    ];
+    agent._setAnthropic({ messages: { create: async (req) => { seen.push(req.messages.at(-1)); return steps[Math.min(i++, steps.length - 1)]; } } });
+    db.storeInboundMessage({ from_phone: mel.phone, from_type: 'user', from_id: mel.id, channel: 'webchat', text: 'thinking about getting a massage', event_id: r.eventId, context_day: '2027-01-08' });
+    await agent.tick();
+    assert.ok(seen.some((m) => typeof m.content === 'string' && m.content.includes("brought up an idea in this plan's discussion")), 'challenged');
+    assert.equal(require('../../todos').list(mel.id, r.eventId).todos[0].day, '2027-01-08');
+  });
+});
