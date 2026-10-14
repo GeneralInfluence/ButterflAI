@@ -313,6 +313,36 @@ const TASKS = [
       return `marked ${n}`;
     },
   },
+  {
+    id: '2026-10-13-agent-questions-onto-plans',
+    added: Date.UTC(2026, 9, 13) / 1000,
+    kind: 'internal',
+    about: 'Every agent question is about a plan (owner, 2026-10-13): link this user\'s earlier questions to the one plan both people are in (answers then land on it); close unanswered ones that can\'t be linked or are over a week old.',
+    run(user) {
+      const rows = db._raw().prepare(`SELECT * FROM agent_messages WHERE from_user = ? AND kind = 'query'
+        AND (thread_id IS NULL OR thread_id NOT IN (SELECT id FROM social_events))`).all(user.id);
+      const plan = require('./plan');
+      let linked = 0, closed = 0;
+      for (const q of rows) {
+        const shared = plan.plansFor(user.id, { includePast: true }).filter((p) => p.stage !== 'cancelled' && plan.planFor(p.id, q.to_user));
+        if (shared.length === 1) {
+          const id = shared[0].id;
+          db._raw().prepare('UPDATE agent_messages SET thread_id = ? WHERE id = ? OR (kind = \'reply\' AND thread_id IS ? AND from_user = ? AND to_user = ?)')
+            .run(id, q.id, q.thread_id, q.to_user, user.id);
+          // A reply already given lands on the plan as an answer.
+          const reply = db._raw().prepare("SELECT body FROM agent_messages WHERE kind = 'reply' AND from_user = ? AND to_user = ? AND thread_id = ? AND created_at >= ? ORDER BY created_at LIMIT 1")
+            .get(q.to_user, user.id, id, q.created_at);
+          if (reply) require('./answers').record({ eventId: id, askerId: user.id, answererId: q.to_user, topic: q.topic, question: q.body, answer: reply.body });
+          linked++;
+        }
+        if (!q.processed && (shared.length !== 1 || q.created_at < now() - 7 * 86400)) {
+          db._raw().prepare('UPDATE agent_messages SET processed = 1 WHERE id = ?').run(q.id);
+          closed++;
+        }
+      }
+      return `linked ${linked}, closed ${closed}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

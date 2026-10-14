@@ -40,6 +40,7 @@ const topics     = require('./topics');
 const defer      = require('./defer');
 const linktoken  = require('./linktoken');
 const groupPlans = require('./groups');
+const answers  = require('./answers');
 const planObj    = require('./plan');
 const planops    = require('./planops');
 const todos      = require('./todos');
@@ -261,10 +262,10 @@ const TOOL_DEFINITIONS = [
         contact_id:  { type: 'string', description: 'Contact ID of the other user (from lookup_contact)' },
         topic:       { type: 'string', enum: ['availability', 'constraints', 'rsvp', 'coordination'], description: 'What you\'re asking about' },
         message:     { type: 'string', description: 'Your question or message to the other agent. Be specific.' },
-        thread_id:   { type: 'string', description: 'Thread ID to continue an existing conversation; omit to start a new one' },
-        event_id:    { type: 'string', description: 'REQUIRED for topic "coordination": the eventId (from Open events) of the plan or trip this is about. Create it first with create_social_event (tentative: true if details are still open).' },
+        event_id:    { type: 'string', description: 'REQUIRED: the eventId of the plan this question is about (every question is about a plan). If there is no plan yet, create it first with create_social_event (tentative: true; no date needed).' },
+        ask_again:   { type: 'boolean', description: 'Only when you truly need a new answer on a topic this person already answered for this plan (the earlier answer is returned otherwise).' },
       },
-      required: ['contact_id', 'topic', 'message'],
+      required: ['contact_id', 'topic', 'message', 'event_id'],
     },
   },
   {
@@ -1230,18 +1231,21 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'message_agent': {
-      const { contact_id, topic, message: agentMsg, thread_id, event_id } = toolInput;
-      // Coordinating a plan means there IS a plan: the event exists so it shows on Home and
-      // calendars and RSVPs are tracked (2026-10-09: the Grover trip was coordinated across
-      // three people's agents and never created). Enforced here, not left to the prompt.
-      if (topic === 'coordination') {
-        const ev = event_id ? db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(event_id) : null;
+      const { contact_id, topic, message: agentMsg, ask_again } = toolInput;
+      // Every question between agents is about a plan (owner, 2026-10-13): that's what lets
+      // insiders answer from the plan, deferrals answer in code, and answers land on the
+      // plan instead of being asked again. Only coordination needed one before; and a
+      // continued thread used to replace the plan id, so in prod no question was on a plan.
+      // An older thread_id that is itself a plan still works.
+      const event_id = toolInput.event_id || (toolInput.thread_id && db._raw().prepare('SELECT id FROM social_events WHERE id = ?').get(toolInput.thread_id)?.id);
+      {
+        const ev = event_id ? db._raw().prepare('SELECT host_user_id, status FROM social_events WHERE id = ?').get(event_id) : null;
         const invited = ev && ev.host_user_id !== userId && db._raw().prepare(`
           SELECT 1 FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
           WHERE ei.event_id = ? AND c.phone = ?`).get(event_id, db.getUser(userId)?.phone);
-        if (!ev || (ev.host_user_id !== userId && !invited)) {
+        if (!ev || ev.status === 'cancelled' || (ev.host_user_id !== userId && !invited)) {
           return { error: 'CREATE_EVENT_FIRST', action_status: 'NOT_SENT',
-            message: 'Coordination needs the event it is about. Create it with create_social_event (tentative: true if dates or details are still open, contact_ids = everyone involved), then call message_agent again with event_id.' };
+            message: 'Every question to another agent is about a plan. Use the eventId of the plan (from Open events / You have been invited to), or create it with create_social_event (tentative: true, no date needed, contact_ids = everyone involved), then call message_agent again with event_id.' };
         }
       }
       const contact = db.getContact(contact_id);
@@ -1254,9 +1258,20 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         return { action_status: 'NOT_SENT_DEFERRED', sent: false, answer: deferred.answer,
           note: `${contact.name} deferred on this plan — that is their answer. Don't ask them about it; ask the people they defer to.` };
       }
+      // Ask once: an answer already on the plan is the answer; a question still waiting is waiting.
+      const pending = answers.waiting(event_id, userId, targetUser.id, topic);
+      if (pending) {
+        return { action_status: 'NOT_SENT_ALREADY_ASKED', sent: false, message_id: pending.id,
+          note: `You already asked ${contact.name}'s ButterflAI about this (${topic}) for this plan and they haven't answered yet: "${String(pending.body).slice(0, 160)}". Wait for it.` };
+      }
+      const earlier = !ask_again && answers.previous(event_id, userId, targetUser.id, topic);
+      if (earlier) {
+        return { action_status: 'NOT_SENT_ALREADY_ANSWERED', sent: false, answer: earlier.answer,
+          note: `${contact.name}'s ButterflAI already answered this (${topic}) for this plan: "${earlier.answer}". Use it. Only if you truly need a new answer, call again with ask_again: true.` };
+      }
       const msgId = db.sendAgentMessage({
         fromUserId: userId, toUserId: targetUser.id,
-        threadId: thread_id || event_id, kind: 'query', topic, body: agentMsg,
+        threadId: event_id, kind: 'query', topic, body: agentMsg,   // the plan is the thread, always
       });
       // Queue message for target agent to process
       const senderUser = db.getUser(userId);
@@ -1281,6 +1296,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         threadId: original.thread_id, kind: 'reply', topic: original.topic, body: replyBody,
       });
       db.markAgentMessageProcessed(message_id);
+      // The answer lands on the plan for the agent that asked (answers.js).
+      answers.record({ eventId: original.thread_id, askerId: original.from_user, answererId: userId, topic: original.topic,
+        question: original.body, answer: replyBody });
       // Deliver reply to originating agent's queue
       const sender = db.getUser(original.from_user);
       if (sender) {
@@ -2011,6 +2029,7 @@ async function processMessage(msg) {
           + (p.group ? ` | group: ${p.group.name}` : '')
           + ` | invitees: ${describePeople(p)}`
           + (p.asked.length ? ` | asked, no answer yet: ${p.asked.join(', ')}` : '')
+          + (p.answers.length ? ` | friends' ButterflAIs said: ${p.answers.map((a) => `${a.who} (${a.topic}): "${String(a.answer).slice(0, 120)}"`).join('; ')}` : '')
           + (p.creating.total || p.creating.suggested ? ` | Creating ${p.creating.done}/${p.creating.total}${p.creating.suggested ? ` (+${p.creating.suggested} suggested)` : ''}` : '')
           + (p.next ? ` | next: ${p.next}` : ''));
       return rows.length ? rows.join('\n') : '  (none)';
@@ -2289,7 +2308,7 @@ PRONOUN RESOLUTION — figure out who "him/her/them" means before asking:
 
 AGENT-TO-AGENT FIRST — talk to agents before talking to users:
 - EXHAUSTION RULE: Before involving YOUR user in any coordination decision, make at least 3 rounds of agent-to-agent negotiation. Minor clarifications, time proposals, factual questions, and preference checks MUST all go agent-to-agent first. Only escalate to your user when: (a) the other agent explicitly says they must ask their user, (b) you have tried 3+ times with no resolution, or (c) the decision requires a genuinely personal preference that isn't stored. If you have not yet tried agent-to-agent, do NOT ask your user.
-- EVENT THREAD IDs: When coordinating about a specific event, always set thread_id = the event's ID in message_agent and reply_agent calls. This keeps each event's negotiation separate. Include the event title in your message so the receiving agent can look it up.
+- EVENT IDs: every message_agent call carries the plan's event_id — the plan is the thread, and replies stay on it. Include the plan's title in your message so the receiving agent can find it.
 - SENSITIVE / PRIVATE QUESTIONS: If your user asks a personal or sensitive question about a contact — health tests, medical status, sexual health, financial situation, safety — route it via message_agent to THEIR agent. Never ask the contact directly. On the RECEIVING end: check your user's private_preferences first; if the answer is stored there, return it to the asking agent directly; if not stored, tell the asking agent you'll check and ask your user privately, then reply_agent once you have an answer.
 - INVITEE COMMENTS ON INVITES: When your user says something about a pending invitation (e.g. "I can do 7-9", "sounds good but I need to leave by 9", "ask them if X"), treat this as a message_agent coordination message to the HOST's agent — do not just accept/decline silently. Send the user's conditions or availability to the host's agent and wait for their response before confirming.
 - HOST UPDATES AFTER NEGOTIATION: Once an invitee's agent proposes a specific time and you (the host) said "whenever/flexible", you should: (1) confirm the time works via reply_agent, (2) call update_event to set scheduled_at and flexible_time=false (locking in the agreed time), so the event shows the correct time to all parties.
@@ -2321,6 +2340,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   SHARES BECOME PLANS: what someone shares ("Free tonight", "At Sully's from 9") is not a plan until someone makes it one. When your user wants to do what they or a friend shared, make the plan (create_social_event, tentative, with that friend in contact_ids) — Home also has a "Make it a plan" button for this.
   DESIRES ARE PLANS: when parse_desires stores a social desire ("go out with a friend or two this week"), it is already a plan (idea stage, its window as proposed dates) — the result lists them. Work on those plans (update_event, invite, Creating); never create a second plan for the same desire.
   CALENDAR: every plan your user is in shows on their connected Google Calendar automatically and follows every change (dates, place, cancel, their answer). Never use create_calendar_event for a plan — that makes a second, stale copy; it is only for things that aren't plans.
+  EVERY QUESTION IS ABOUT A PLAN: message_agent always takes the plan's event_id — if there is no plan yet, create it first (tentative, no date needed). Answers land on the plan ("friends' ButterflAIs said" in Open events): read them there and never ask the same person the same thing again — the less people are bothered, the better.
   PLAN CIRCLE: agents of people who are in the same plan (host, or said yes) are insiders for THAT plan — they settle its logistics between themselves and only bring their users what needs a decision. Your state says whether a question comes from INSIDE a plan or from OUTSIDE your user's plans; never treat an outsider as an insider.
   WHEN ANSWERING ANOTHER AGENT YOUR FINAL TEXT IS SHOWN TO NO ONE. Only reply_agent (to the other agent) and tell_my_user (to your user) reach anybody. Never put your reasoning in either.
   3. "WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS": NEVER answer this yourself — not from memory, not from old messages. Where your user will be is theirs to share. Do NOT ping your user to answer it either — ButterflAI never pushes people to respond to individuals. Reply via reply_agent with only what your user has explicitly shared for that time; if nothing, reply "Nothing shared for tonight."

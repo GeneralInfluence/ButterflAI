@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_916_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_924_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -640,7 +640,8 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   "needs you"), Events cards (progress + list), and the agent (`manage_todos`). Access is
   checked in `todos.js` for every read/write. Retro: existing plans get suggestions offered.
 - **Agent-to-agent:** "what is your user up to" is never answered from memory and never
-  triggers a ping; agents answer only from what the user explicitly shared.
+  triggers a ping; agents answer only from what the user explicitly shared. Every agent
+  question is about a plan (§20).
 - Code: `web/feeling.js` (shares, interest), `web/home.js` (Home feed + summary) — split from
   the old `plans.js` 2026-10-13 so "plans" means only real plans; `datetime.resolveUntil`,
   migration 033, `/api/feed`, `/api/plans`.
@@ -793,6 +794,24 @@ nobody invited yet; a friend's share you can see → a plan you host with them i
 dates: today → the day the share ends. Same person + same share → the same plan
 (`share_plans`, migration 053); Home then shows "Open plan". Shares themselves stay
 lightweight and expire as before. Agent rule: SHARES BECOME PLANS.
+
+## 20. Every agent question is about a plan; answers land on it `[LOCKED 2026-10-13]`
+
+Owner: "The whole idea is to maximize fun while minimizing communication between people."
+Only "coordination" questions needed a plan, and a continued thread replaced the plan id —
+in prod none of 15 agent messages were on a plan (event-map #6).
+- `message_agent` requires the plan's `event_id` for every topic (create it first, tentative,
+  no date needed); the plan is always the thread; replies stay on it.
+- `reply_agent` records the answer on the plan (`plan_answers`, migration 054, `answers.js`)
+  for the asker only — what the other agent chose to send. Shown on the plan ("Friends'
+  ButterflAIs said" in the summary and the agent's Open events).
+- **Ask once, in code:** asking the same person the same topic about the same plan returns
+  the earlier answer (`NOT_SENT_ALREADY_ANSWERED`) or says it's still waiting
+  (`NOT_SENT_ALREADY_ASKED`); `ask_again: true` only when a new answer is truly needed.
+- With the plan circle, insiders settle a plan's logistics between agents; people hear only
+  what needs them.
+- Retro: earlier questions between two people in exactly one plan are linked to it (their
+  replies become answers); unanswered ones that can't be linked, or are over a week old, closed.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

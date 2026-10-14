@@ -67,8 +67,9 @@ describe('a trip being planned', () => {
     assert.equal(yes.sent, true);
     const back = await agent.executeTool('message_agent', { contact_id: knows(allie, sean), topic: 'coordination', message: 'Shiftpod works', event_id: eventId }, allie.id, allie.phone);
     assert.equal(back.sent, true, 'an invitee can coordinate on the event too');
-    // Availability questions don't need an event.
-    assert.equal((await agent.executeTool('message_agent', { contact_id: allieC, topic: 'availability', message: 'Free Friday?' }, sean.id, sean.phone)).sent, true);
+    // Since 2026-10-13 every question is about a plan — availability too.
+    assert.equal((await agent.executeTool('message_agent', { contact_id: allieC, topic: 'availability', message: 'Free Friday?' }, sean.id, sean.phone)).error, 'CREATE_EVENT_FIRST');
+    assert.equal((await agent.executeTool('message_agent', { contact_id: allieC, topic: 'availability', message: 'Free Friday?', event_id: eventId }, sean.id, sean.phone)).sent, true);
   });
 
   test('clearly in → recorded as interested; it\'s on their calendar and the host sees it', async () => {
@@ -118,7 +119,9 @@ describe('questions on the feed', () => {
     const bc = knows(a, b);
     feeling.sharePlan(a.id, { text: 'Free tonight', until: 'tonight' });   // something else on b's feed
     knows(b, a);
-    await agent.executeTool('message_agent', { contact_id: bc, topic: 'availability', message: 'Free Saturday for a hike?' }, a.id, a.phone);
+    // Every question is about a plan (2026-10-13): the hike exists first.
+    const hike = await agent.executeTool('create_social_event', { title: 'Saturday hike', activity_type: 'hike', tentative: true }, a.id, a.phone);
+    await agent.executeTool('message_agent', { contact_id: bc, topic: 'availability', message: 'Free Saturday for a hike?', event_id: hike.eventId }, a.id, a.phone);
     const bFeed = home.feedFor(b.id).items;
     assert.equal(bFeed[0].type, 'question');
     assert.equal(bFeed[0].who, 'Asker');

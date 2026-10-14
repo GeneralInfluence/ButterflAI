@@ -53,6 +53,8 @@ describe('sim engine', () => {
     const bambamContact = db.getContactsByUser(sim.USERS.aphilos.id).find(c => c.phone === sim.USERS.bambam.phone);
     assert.ok(bambamContact, 'seed created Aphilos→BamBam contact');
 
+    // Every question between agents is about a plan (2026-10-13).
+    const simPlan = (await require('../../planops').create(sim.USERS.aphilos.id, { title: 'Sim ping plan', tentative: true })).eventId;
     // Scripted Claude: on Aphilos's FIRST turn (no tool_result yet) emit message_agent;
     // every follow-up / the peer's turn just ends with text.
     agent._setAnthropic({
@@ -66,7 +68,7 @@ describe('sim engine', () => {
             return {
               id: 'r-tool',
               content: [{ type: 'tool_use', id: 't1', name: 'message_agent',
-                          input: { contact_id: bambamContact.id, topic: 'ping', message: 'ping from Aphilos' } }],
+                          input: { contact_id: bambamContact.id, topic: 'availability', message: 'ping from Aphilos', event_id: simPlan } }],
               stop_reason: 'tool_use',
             };
           }

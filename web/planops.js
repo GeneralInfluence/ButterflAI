@@ -365,7 +365,7 @@ function purgeCancelled({ days = CANCELLED_KEEP_DAYS } = {}) {
     .all(Math.floor(Date.now() / 1000) - days * 86400).map((r) => r.id);
   const tables = [['event_invitations', 'event_id'], ['event_todos', 'event_id'], ['plan_changes', 'event_id'], ['plan_ripples', 'event_id'],
     ['attendance_confirmations', 'event_id'], ['calendar_mirror', 'event_id'], ['desire_plans', 'event_id'], ['share_plans', 'event_id'],
-    ['lift_observations', 'event_id'], ['contact_mentions', 'event_id']];
+    ['lift_observations', 'event_id'], ['contact_mentions', 'event_id'], ['plan_answers', 'event_id']];
   const unlink = [['conversation_history', 'event_id'], ['inbound_messages', 'event_id'], ['agent_messages', 'thread_id']];
   db._raw().transaction(() => {
     for (const id of ids) {

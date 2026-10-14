@@ -53,9 +53,12 @@ const endText = (text) => ({ id: 'm' + Math.random(), stop_reason: 'end_turn', c
 // Sean's agent asks Allie's agent (the real message_agent path).
 // Since 2026-10-09 a coordination message needs its event, so the trip is created
 // (tentative) first, as the real flow now does.
+// Each call is its own plan: since 2026-10-13 asking the same person the same thing about
+// the same plan again, before they answer, is refused (answers.waiting).
+let trip = 0;
 async function seanAsks(sean, allie) {
   const contactId = knows(sean, allie);
-  const ev = await agent.executeTool('create_social_event', { title: 'Grover Hot Springs', activity_type: 'camping trip',
+  const ev = await agent.executeTool('create_social_event', { title: `Grover Hot Springs ${++trip}`, activity_type: 'camping trip',
     scheduled_at: new Date(Date.now() + 14 * 86400e3).toISOString(), tentative: true }, sean.id, sean.phone);
   const r = await agent.executeTool('message_agent', { contact_id: contactId, topic: 'coordination', event_id: ev.eventId,
     message: "Grover Hot Springs Oct 23–24 looks like 29°F Saturday night. Heated cabin or reschedule? What do you think?" }, sean.id, sean.phone);

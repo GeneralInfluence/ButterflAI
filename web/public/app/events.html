@@ -764,6 +764,8 @@
     const people = (p.people || []).length ? `<div class="ps-label">Who’s in</div><ul class="ps-people">${p.people.map(x =>
       `<li><strong>${escHtml(x.name)}</strong> · ${PEOPLE_STATUS(x, p.tentative)}</li>`).join('')}</ul>` : '';
     const asked = (p.asked || []).length ? `<div class="ps-rows">❓ Asked ${escHtml(p.asked.join(', '))} — no answer yet</div>` : '';
+    const said = (p.answers || []).length ? `<div class="ps-label">Friends' ButterflAIs said</div><ul class="ps-people">${p.answers.map(a =>
+      `<li><strong>${escHtml(a.who)}</strong> · ${escHtml(a.answer)}</li>`).join('')}</ul>` : '';
     const notes = p.notes ? `<div class="ps-label">Plan so far</div><div class="ps-rows" style="white-space:pre-wrap">${escHtml(p.notes)}</div>` : '';
     const creating = `<div class="ps-label">Creating</div><div class="card-todos" data-event="${escHtml(p.id)}">
       <button type="button" class="todo-toggle" onclick="toggleTodos(this)">✨ Creating${p.creating.total ? ` ${p.creating.done}/${p.creating.total}` : ''}${p.creating.suggested ? ` · ${p.creating.suggested} suggested` : ''} ▾</button>
@@ -778,7 +780,7 @@
     el.innerHTML = `<div class="ps-head"><div class="ps-title">${escHtml(p.title)}</div>
         <span class="cal-chip stage-${p.stage}" style="width:auto;font-size:11px;line-height:20px;padding:0 8px;flex-shrink:0">${STAGE_LABEL[p.stage] || p.stage}</span>
         <button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>
-      <div class="ps-rows">${rows}</div>${asked}${people}${notes}${creating}
+      <div class="ps-rows">${rows}</div>${asked}${people}${said}${notes}${creating}
       ${p.next ? `<div class="ps-next">👉 ${escHtml(p.next)}</div>` : ''}
       <div class="ps-actions">${answer}<a class="${answer ? 'ps-secondary' : 'ps-primary'}" href="/app/chat?event=${encodeURIComponent(p.id)}">💬 Discussion</a></div>`;
   }

@@ -102,6 +102,8 @@ function planFor(eventId, viewerId) {
     people, interested, waiting_on: waiting, out: plain.filter((p) => p.status === 'declined').map((p) => p.name),
     deferring: people.filter((p) => p.deferring_to.length).map((p) => ({ who: p.name, to: p.deferring_to })),
     asked, creating: { done: todo.done || 0, total: todo.kept || 0, suggested: todo.suggested || 0 },
+    // What friends' ButterflAIs answered this viewer's questions about this plan (answers.js).
+    answers: require('./answers').forPlan(e.id, viewerId),
     next,
   };
 }

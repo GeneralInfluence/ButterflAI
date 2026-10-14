@@ -332,6 +332,13 @@ the plan's name, date(s), place, "You're hosting" / "With <host's first name>", 
 the plan. Nothing else — no guest list, notes, to-dos or private data. On by default once
 Google Calendar is connected; Settings → Connections turns it off, which removes the entries.
 
+## Answers on a plan `[2026-10-13]`
+
+When a friend's ButterflAI answers your agent's question about a plan, the answer is kept on
+that plan for you only (`answers.js`) — exactly what their agent chose to send, nothing else —
+so your agent reads it instead of asking again. Other people in the plan don't see it. It is
+deleted with the plan.
+
 ## Cancelled plans `[2026-10-13]`
 
 A cancelled plan (or one folded into another) is hard-deleted 90 days after it was cancelled,

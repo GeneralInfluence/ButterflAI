@@ -438,9 +438,11 @@ describe('Agent-to-agent exhaustion and event negotiation', () => {
     assertContains('3+ times', '3 attempts before escalation');
   });
 
-  test('EVENT THREAD IDs rule — use event_id as thread_id', () => {
-    assertContains('EVENT THREAD IDs', 'event thread id rule');
-    assertContains('thread_id = the event\'s ID', 'event id as thread_id instruction');
+  // 2026-10-13: every question carries the plan's event_id; the plan is the thread.
+  test('EVENT IDs rule — every message_agent carries the plan', () => {
+    assertContains('EVENT IDs: every message_agent call carries the plan\'s event_id', 'event id rule');
+    assertContains('EVERY QUESTION IS ABOUT A PLAN', 'every question is about a plan');
+    assertContains('never ask the same person the same thing again', 'ask once');
   });
 
   test('SENSITIVE / PRIVATE QUESTIONS must go agent-to-agent first', () => {

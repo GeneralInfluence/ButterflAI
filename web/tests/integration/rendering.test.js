@@ -1000,3 +1000,11 @@ describe('Home: attendance check-in', () => {
     assert.ok(home.includes("fetch('/api/attendance/' + encodeURIComponent(id)"));
   });
 });
+
+// 2026-10-13: answers from friends' ButterflAIs are shown on the plan's summary.
+describe("Plan summary: what friends' ButterflAIs said", () => {
+  const ev = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/events.html'), 'utf8');
+  test('listed from the plan object', () => {
+    assert.ok(ev.includes("Friends' ButterflAIs said") && ev.includes('p.answers.map('));
+  });
+});
