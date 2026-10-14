@@ -436,6 +436,9 @@
     // ?event=<id> → show only that plan's discussion (2026-10-09). New messages still
     // appear live while you talk; messages you send here belong to that plan.
     const topicEvent = new URLSearchParams(location.search).get('event');
+    // The calendar day that opened this discussion (🐛 #15) — sent with each message so the
+    // agent knows "a massage" means that day.
+    const topicDay = /^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get('day') || '') ? new URLSearchParams(location.search).get('day') : null;
 
     // What this screen was showing, for the feedback button (feedback.js): the plan in view
     // (the server attaches the plan object) and the last messages on screen.
@@ -687,7 +690,7 @@
         const r = await fetch('/api/chat/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(topicEvent ? { text, event_id: topicEvent } : { text })
+          body: JSON.stringify(topicEvent ? { text, event_id: topicEvent, ...(topicDay ? { day: topicDay } : {}) } : { text })
         });
         if (r.status === 401) { location.href = '/app/login'; return; }
         if (!r.ok) throw new Error('send failed');

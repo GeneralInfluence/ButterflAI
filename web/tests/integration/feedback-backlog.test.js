@@ -94,7 +94,7 @@ describe('the 11 early reports point at real tests', () => {
         const src = fs.readFileSync(path.join(__dirname, '../..', file), 'utf8');
         for (const name of names) {
           const want = name.replace(/\s*\(.*\)\s*$/, '').replace(/["“”]/g, '').slice(0, 40);   // "(…)" = description, not the name
-          assert.ok(src.replace(/\\"/g, '"').replace(/["“”]/g, '').includes(want), `${file} has "${want}"`);
+          assert.ok(src.replace(/\\(["'])/g, '$1').replace(/["“”]/g, '').includes(want), `${file} has "${want}"`);
         }
       });
     }
@@ -112,5 +112,64 @@ describe('later reports are linked from links.json', () => {
     const ra = db._raw().prepare('SELECT status, test_ref FROM feedback WHERE id = ?').get(a);
     assert.deepEqual([ra.status, ra.test_ref], ['fixed', 'tests/x.test.js › y']);
     assert.equal(db._raw().prepare('SELECT status FROM feedback WHERE id = ?').get(b).status, 'new');
+  });
+});
+
+// 🐛 #13 (Sean, 2026-10-13): "I should be able to scroll and see the whole calendar." The
+// phone-only bottom padding lost to a later general `main` rule (24px, not 80px), so the
+// bottom of Events and Settings sat behind the bottom bar. Checked on every app screen.
+describe('🐛 #13: every screen clears the bottom bar', () => {
+  const fs = require('node:fs'); const path = require('node:path');
+  const dir = path.join(__dirname, '../../public/app');
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.html'))) {
+    test(f, () => {
+      const s = fs.readFileSync(path.join(dir, f), 'utf8');
+      const general = [...s.matchAll(/\n\s*main\s*\{[^}]*padding:\s*\d/g)].map((m) => m.index);
+      const mobile = [...s.matchAll(/(^|[^\w-])main\s*\{\s*padding-bottom/gm)].map((m) => m.index);
+      // A phone rule written as plain "main" must come after the general one, or use "body main".
+      if (general.length && mobile.length) assert.ok(Math.min(...mobile) > Math.max(...general) || s.includes('body main { padding-bottom'), `${f}: the phone padding is overridden`);
+    });
+  }
+});
+
+// 🐛 #15 (Sean, 2026-10-13): "It says Saturday plans, but the massages were meant for Friday,
+// that's why Melanie clicked on Friday before giving her input."
+describe('🐛 #15: the day you tapped goes with what you say', () => {
+  test('a message from a plan opened on Friday carries Friday; the agent is told', async () => {
+    const supertest = require('supertest');
+    const request = supertest(require('../../server').app);
+    const sean = mkUser('Sean Day'); const mel = mkUser('Melanie Day');
+    const r = await planops.create(sean.id, { title: 'Day Weekend', proposed_dates: [{ from: '2027-01-08', to: '2027-01-09' }],
+      contact_ids: [db.upsertContact({ invited_by_user_id: sean.id, name: mel.name, phone: mel.phone, tier: 1 })] });
+    await request.post('/auth/otp/send').send({ phone: mel.phone });
+    const { code } = db._raw().prepare('SELECT code FROM otp_codes WHERE phone = ? AND used = 0 ORDER BY created_at DESC LIMIT 1').get(mel.phone);
+    const cookie = (await request.post('/auth/otp/verify').send({ phone: mel.phone, code })).headers['set-cookie'][0];
+    await request.post('/api/chat/send').set('Cookie', cookie).send({ text: 'thinking about getting a massage', event_id: r.eventId, day: '2027-01-08' });
+    await request.post('/api/chat/send').set('Cookie', cookie).send({ text: 'a day it does not cover', event_id: r.eventId, day: '2027-03-01' });
+    const rows = db._raw().prepare("SELECT text, context_day FROM inbound_messages WHERE from_id = ? ORDER BY rowid").all(mel.id);
+    assert.deepEqual(rows.map((x) => x.context_day), ['2027-01-08', null], 'only a day the plan covers');
+    const systems = [];
+    agent._setAnthropic({ messages: { create: async (req) => { systems.push(JSON.stringify(req.system)); return { id: 'x', stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] }; } } });
+    await agent.tick();
+    assert.ok(systems.some((x) => x.includes('They opened it from Friday, Jan 8 on the calendar')));
+  });
+  test('the calendar passes the tapped day into the discussion', () => {
+    const fs = require('node:fs'); const path = require('node:path');
+    const ev = fs.readFileSync(path.join(__dirname, '../../public/app/events.html'), 'utf8');
+    const chat = fs.readFileSync(path.join(__dirname, '../../public/app/chat.html'), 'utf8');
+    assert.ok(ev.includes('openSummary(events[0].id, iso)') && ev.includes("'&day=' + summaryDay"));
+    assert.ok(chat.includes('...(topicDay ? { day: topicDay } : {})'));
+  });
+});
+
+// 🐛 #14 (Melanie, 2026-10-13): "no not solo, i mentioned this in my bday weekend group because
+// its a group idea" — covered by weekend-regressions.test.js (plan discussion rule).
+
+describe('case anonymizer: generic words in account names stay words', () => {
+  test('"New user" as an account name does not turn "the user" into a stand-in', async () => {
+    const sean = mkUser('Sean Anon'); const nu = mkUser('New user');
+    const r = await planops.create(sean.id, { title: 'Anon Plan', tentative: true, contact_ids: [db.upsertContact({ invited_by_user_id: sean.id, name: nu.name, phone: nu.phone, tier: 1 })] });
+    const { scrub } = require('../../feedbackcase').anonymizer(sean, r.eventId);
+    assert.equal(scrub('inform the user proactively'), 'inform the user proactively');
   });
 });

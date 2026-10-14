@@ -1660,6 +1660,9 @@ app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res)
       channel: 'webchat',
       text,
       event_id: eventId,
+      // The calendar day that opened this plan, when there was one (🐛 #15) — only a day the plan covers.
+      context_day: eventId && eventId !== topics.GENERAL && /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.day || ''))
+        && (plan.planFor(eventId, req.user.id)?.days || []).includes(String(req.body.day)) ? String(req.body.day) : null,
     });
     // Immediately push a "thinking" status so the UI shows activity before the agent fires
     sse.push(req.user.id, { role: 'status', text: 'Thinking…' });

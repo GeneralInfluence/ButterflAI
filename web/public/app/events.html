@@ -43,8 +43,9 @@
     @media (max-width: 640px) {
       nav { display: none; }
       .logo { font-size: 18px; }
-      /* Clear the bottom bar + the phone's home indicator (🐛 #12, 2026-10-13: details hid behind it). */
-      main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 48px); }
+      /* "body main" so it wins over the general main rule further down (🐛 #13, 2026-10-13:
+         the bottom of the page sat behind the bottom bar — padding was 24px, not this). */
+      body main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 48px); }
       .bottom-nav {
         display: flex; position: fixed; bottom: 0; left: 0; right: 0;
         height: 58px; background: #fff; border-top: 1px solid #e5e5e5;
@@ -744,6 +745,8 @@
   // ── Plan summary (owner, 2026-10-12): Home → Events opens one plan with everything about it.
   // Reads the plan object (plan.js via /api/plans), so it says what every other screen says.
   let summaryId = null;
+  // The calendar day that opened the summary (YYYY-MM-DD) — carried into the discussion (🐛 #15).
+  let summaryDay = null;
   const PEOPLE_STATUS = (p, tentative) => p.deferring_to && p.deferring_to.length
     ? `🤝 whatever ${p.deferring_to.join(' & ')} decide${p.deferring_to.length === 1 && p.deferring_to[0] !== 'you' ? 's' : ''}`
     : ({ accepted: p.going ? '✅ going' : '⭐ interested', invited: '⏳ hasn’t answered', declined: '❌ can’t make it' }[p.status] || p.status);
@@ -792,7 +795,7 @@
         <button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>
       <div class="ps-rows">${rows}</div>${asked}${people}${said}${notes}${creating}
       ${p.next ? `<div class="ps-next">👉 ${escHtml(p.next)}</div>` : ''}
-      <div class="ps-actions">${answer}<a class="${answer ? 'ps-secondary' : 'ps-primary'}" href="/app/chat?event=${encodeURIComponent(p.id)}">💬 Discussion</a></div>`;
+      <div class="ps-actions">${answer}<a class="${answer ? 'ps-secondary' : 'ps-primary'}" href="/app/chat?event=${encodeURIComponent(p.id)}${summaryDay && (p.days || []).includes(summaryDay) ? '&day=' + summaryDay : ''}">💬 Discussion${summaryDay && (p.days || []).includes(summaryDay) ? ` · ${new Date(summaryDay + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short' })}` : ''}</a></div>`;
   }
   async function summaryRsvp(invitationId, status, going) {
     document.querySelectorAll('#plan-summary .ps-actions button').forEach(b => { b.disabled = true; b.style.opacity = '.5'; });
@@ -804,9 +807,9 @@
   // Open one plan's summary (🐛 #12, 2026-10-13: "I can't see the event details when I
   // click on the event in the calendar" — they opened in a cramped panel under the bottom
   // bar). The summary is the same card Home opens, shown at the top and scrolled to.
-  function openSummary(id) {
-    summaryId = id; renderSummary();
-    history.replaceState(null, '', location.pathname + '?event=' + encodeURIComponent(id));
+  function openSummary(id, day = null) {
+    summaryId = id; summaryDay = day; renderSummary();
+    history.replaceState(null, '', location.pathname + '?event=' + encodeURIComponent(id) + (day ? '&day=' + day : ''));
     requestAnimationFrame(() => document.getElementById('plan-summary').scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }
   function closeSummary() {
@@ -915,7 +918,8 @@
 
     if (!otherMonth) {
       // One plan that day → its summary; several (or none) → the day's list.
-      cell.addEventListener('click', () => events.length === 1 ? openSummary(events[0].id) : selectDay(y, m, day, key, events));
+      const iso = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      cell.addEventListener('click', () => events.length === 1 ? openSummary(events[0].id, iso) : selectDay(y, m, day, key, events));
     }
 
     return cell;
@@ -940,7 +944,7 @@
       const label = STAGE_LABEL;
       evEl.innerHTML = events.map(p => `
         <div class="card day-plan" style="border-radius:0;box-shadow:none;border-top:1px solid #f0f0f0;margin:0;"
-             onclick="openSummary('${escHtml(p.id)}')">
+             onclick="openSummary('${escHtml(p.id)}', '${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}')">
           <div class="card-header">
             <div>
               <div class="card-title">${escHtml(p.title || p.what || 'Plan')}</div>
@@ -992,6 +996,7 @@
     // wrong id while the calendar was showing, so nothing happened.)
     const q = new URLSearchParams(window.location.search);
     summaryId = q.get('event') || q.get('invite');
+    summaryDay = /^\d{4}-\d{2}-\d{2}$/.test(q.get('day') || '') ? q.get('day') : null;
     renderSummary();
     if (summaryId) window.scrollTo({ top: 0 });
     showTab(pendingCount ? 'invited' : 'upcoming');

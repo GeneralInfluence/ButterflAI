@@ -31,8 +31,11 @@ function anonymizer(viewer, eventId) {
   const STANDINS = ['Aspen', 'Birch', 'Cedar', 'Dale', 'Elm', 'Fern', 'Grove', 'Hazel', 'Iris', 'Juniper', 'Kestrel', 'Linden', 'Maple',
     'Nova', 'Oak', 'Pine', 'Quill', 'Reed', 'Sage', 'Teal', 'Umber', 'Vale', 'Wren', 'Yarrow', 'Zinnia'];
   let i = 0;
+  // Words that aren't names even when they're in one ("New user" is a default account name —
+  // 2026-10-13 it turned "inform the user" into "inform the Aspen").
+  const NOT_NAMES = new Set(['new', 'user', 'guest', 'friend', 'contact', 'unknown', 'the', 'and', 'me', 'my', 'mom', 'dad', 'test']);
   const add = (full, alias) => {
-    const parts = String(full || '').trim().split(/\s+/).filter((p) => p.length > 1);
+    const parts = String(full || '').trim().split(/\s+/).filter((p) => p.length > 1 && !NOT_NAMES.has(p.toLowerCase()));
     if (!parts.length) return;
     const a = alias || STANDINS[i++ % STANDINS.length];
     for (const n of [parts.join(' '), ...parts]) if (!names.has(n.toLowerCase())) names.set(n.toLowerCase(), a);

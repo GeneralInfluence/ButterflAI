@@ -3,5 +3,17 @@
   "12": {
     "note_starts": "I can't see the event details when I click on the event in the calendar",
     "test": "tests/integration/rendering.test.js › 🐛 #12: tapping a plan on the calendar opens its details"
+  },
+  "13": {
+    "note_starts": "I should be able to scroll and see the whole calendar",
+    "test": "tests/integration/feedback-backlog.test.js › 🐛 #13: every screen clears the bottom bar"
+  },
+  "14": {
+    "note_starts": "no not solo, i mentioned this in my bday weekend group",
+    "test": "tests/integration/weekend-regressions.test.js › in a plan's discussion, what they say is about that plan"
+  },
+  "15": {
+    "note_starts": "It says Saturday plans, but the massages were meant for Friday",
+    "test": "tests/integration/feedback-backlog.test.js › 🐛 #15: the day you tapped goes with what you say"
   }
 }

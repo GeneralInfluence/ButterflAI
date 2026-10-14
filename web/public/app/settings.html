@@ -42,7 +42,9 @@
     @media (max-width: 640px) {
       nav { display: none; }
       .logo { font-size: 18px; }
-      main { padding-bottom: 80px; }
+      /* "body main" so it wins over the general main rule further down (🐛 #13, 2026-10-13:
+         the bottom of the page sat behind the bottom bar — padding was 24px, not this). */
+      body main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 48px); }
       .bottom-nav {
         display: flex; position: fixed; bottom: 0; left: 0; right: 0;
         height: 58px; background: #fff; border-top: 1px solid #e5e5e5;

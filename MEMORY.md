@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_963_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_976_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -839,6 +839,12 @@ a solo thing. This app is falling apart!!" Nothing was deleted — causes and fi
   "Grover", the weekend he was already in. Now includes plans they're invited to; a correction
   went to anyone who got such an offer.
 - I now check screens in a real (headless) phone browser before shipping UI changes.
+- 🐛 #13–15 (same evening): the phone-only bottom padding on Events and Settings was overridden
+  by a later `main` rule (24px) — the calendar's last row hid behind the bottom bar (now `body
+  main`, and a test checks every screen). The calendar day you tap travels into the plan's
+  discussion (`?day=`, `inbound_messages.context_day`, migration 058) and the agent is told
+  ("They opened it from Friday… record it with that day") — Melanie's Friday massage was saved
+  as Saturday. The case anonymizer no longer treats words like "user" in "New user" as a name.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

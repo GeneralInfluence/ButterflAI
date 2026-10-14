@@ -906,7 +906,8 @@ describe('Chat: one discussion at a time', () => {
     assert.ok(html.includes("fetch('/api/chat/discussions')") && html.includes('href="/app/chat">All</a>'));
     assert.ok(html.includes("new URLSearchParams(location.search).get('event')"));
     assert.ok(html.includes("if (topicEvent && r.status === 403) { location.replace('/app/chat'); return; }"));
-    assert.ok(html.includes('JSON.stringify(topicEvent ? { text, event_id: topicEvent } : { text })'));
+    // + the calendar day that opened the discussion (🐛 #15, 2026-10-13).
+    assert.ok(html.includes('JSON.stringify(topicEvent ? { text, event_id: topicEvent, ...(topicDay ? { day: topicDay } : {}) } : { text })'));
   });
   test('Home event cards and Events cards link to the discussion', () => {
     assert.ok(read('dashboard.html').includes('href="/app/chat?event=${esc(i.event_id)}"'));
@@ -1019,13 +1020,14 @@ describe("Plan summary: what friends' ButterflAIs said", () => {
 describe('🐛 #12: tapping a plan on the calendar opens its details', () => {
   const ev = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/events.html'), 'utf8');
   test('a day with one plan opens its summary; a list row opens it too; undated chips too', () => {
-    assert.ok(ev.includes("events.length === 1 ? openSummary(events[0].id) : selectDay("));
-    assert.ok(ev.includes(`onclick="openSummary('\${escHtml(p.id)}')"`));
+    // + the tapped day (🐛 #15, 2026-10-13).
+    assert.ok(ev.includes("events.length === 1 ? openSummary(events[0].id, iso) : selectDay("));
+    assert.ok(ev.includes(`onclick="openSummary('\${escHtml(p.id)}', '\${year}-`));
     assert.ok(ev.includes(`onclick="event.preventDefault();openSummary('\${escHtml(e.id)}')"`));
-    assert.match(ev, /function openSummary\(id\) \{[\s\S]{0,300}scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
+    assert.match(ev, /function openSummary\(id, day = null\) \{[\s\S]{0,400}scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
   });
   test('nothing hides behind the bottom bar', () => {
-    assert.ok(ev.includes('main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 48px); }'));
+    assert.ok(ev.includes('body main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 48px); }'));
     assert.ok(ev.includes('#plan-summary, .day-panel { scroll-margin-top: 72px; }'));
   });
 });

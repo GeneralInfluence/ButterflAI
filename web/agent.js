@@ -2099,7 +2099,12 @@ async function processMessage(msg) {
     if (!msg.event_id || coordinationOnly || !topics.canSee(userId, msg.event_id)) return '';
     const e = db._raw().prepare('SELECT id, title, scheduled_at, tentative FROM social_events WHERE id = ?').get(msg.event_id);
     if (!e) return '';
-    return `\n## Current discussion\nYour user is writing in the discussion for "${e.title}"${e.tentative ? ' (tentative)' : ''} (eventId="${e.id}"). Take their message as being about this plan unless it's clearly about something else — "she", "the trip", "Saturday" refer to it.`;
+    // The calendar day they tapped to get here (🐛 #15: Melanie tapped Friday, then said
+    // "thinking about getting a massage" — it was for Friday).
+    const dayLine = msg.context_day
+      ? ` They opened it from ${new Date(msg.context_day + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' })} on the calendar: anything day-specific they say ("a massage", "dinner") is for that day unless they name another — record it with that day.`
+      : '';
+    return `\n## Current discussion\nYour user is writing in the discussion for "${e.title}"${e.tentative ? ' (tentative)' : ''} (eventId="${e.id}"). Take their message as being about this plan unless it's clearly about something else — "she", "the trip", "Saturday" refer to it.${dayLine}`;
   })();
 
   // Answering another agent: is the asker inside the plan this is about (plan circle,
