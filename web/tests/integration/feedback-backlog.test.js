@@ -257,3 +257,25 @@ describe('🐛 #15: an idea that only gets a question is recorded anyway', () =>
     assert.equal(require('../../todos').list(mel.id, r.eventId).todos[0].day, '2027-01-08');
   });
 });
+
+// Sean, 2026-10-13: "I still see the massage on saturday" — the notes and the Creating item
+// written before the fix. Corrected once (retro), only where report #15 and the plan exist.
+describe('🐛 #15: the existing massage moves to Friday', () => {
+  const task = () => require('../../retro').TASKS.find((t) => t.id === '2026-10-14-melanies-massage-on-friday');
+  test('notes and the Creating item say Friday; Saturday keeps the rest', async () => {
+    const sean = mkUser('Sean Old Massage');
+    const r = await planops.create(sean.id, { title: "Melanie's Birthday Weekend", proposed_dates: [{ from: '2026-10-23', to: '2026-10-24' }],
+      notes: 'Saturday: Hot springs, massage, dinner at Sassafras' });
+    require('../../todos').add(sean.id, r.eventId, { text: 'Book massages at Carson City Hot Springs for Saturday' });
+    assert.equal(task().run(sean), 'no report', 'nothing happens without report #15');
+    db._raw().prepare("INSERT INTO feedback (id, user_id, rating, user_note) VALUES (15, ?, 'down', 'It says Saturday plans, but the massages were meant for Friday, that''s why Melanie clicked on Friday')").run(sean.id);
+    assert.equal(task().run(sean), 'moved 2');
+    assert.equal(db._raw().prepare('SELECT notes FROM social_events WHERE id = ?').get(r.eventId).notes, 'Friday: massage. Saturday: Hot springs, dinner at Sassafras');
+    const [t] = require('../../todos').list(sean.id, r.eventId).todos;
+    assert.equal(t.day, '2026-10-23');
+    assert.equal(t.shown, 'Fri, Oct 23: Book massages at Carson City Hot Springs');
+    const notes = require('../../plan').planFor(r.eventId, sean.id).notes;
+    assert.doesNotMatch(notes.split(/Saturday:/i)[1], /massage/i, "Saturday's part of the notes has no massage");
+    assert.doesNotMatch(t.shown, /saturday/i, 'the Creating item no longer says Saturday');
+  });
+});

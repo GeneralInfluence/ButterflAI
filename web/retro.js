@@ -387,6 +387,34 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-14-melanies-massage-on-friday',
+    added: Date.UTC(2026, 9, 14) / 1000,
+    kind: 'internal',
+    about: '🐛 #15 (Sean, 2026-10-13: "the massages were meant for Friday") — "I still see the massage on Saturday": move the massage in Melanie\'s Birthday Weekend (its notes and its Creating item) to Friday. Only where report #15 exists and the plan matches.',
+    run(user) {
+      const reported = db._raw().prepare("SELECT 1 FROM feedback WHERE id = 15 AND user_note LIKE 'It says Saturday plans, but the massages were meant for Friday%'").get();
+      if (!reported) return 'no report';
+      const e = db._raw().prepare("SELECT id, notes, proposed_dates FROM social_events WHERE host_user_id = ? AND title = 'Melanie''s Birthday Weekend' AND COALESCE(status, 'open') != 'cancelled'").get(user.id);
+      if (!e) return 'no plan';
+      const friday = (JSON.parse(e.proposed_dates || '[]')[0] || {}).from;
+      if (!friday) return 'no dates';
+      let changed = 0;
+      // The Creating item: on Friday, and its text no longer says Saturday.
+      for (const t of db._raw().prepare("SELECT id, text FROM event_todos WHERE event_id = ? AND lower(text) LIKE '%massage%' AND done_at IS NULL").all(e.id)) {
+        db._raw().prepare('UPDATE event_todos SET day = ?, text = ? WHERE id = ?').run(friday, t.text.replace(/\s*(for|on) saturday\b/i, '').trim(), t.id);
+        changed++;
+      }
+      // The notes: the massage moves to Friday; the rest of Saturday stays.
+      if (/massage/i.test(e.notes || '') && /saturday/i.test(e.notes || '')) {
+        const sat = String(e.notes).replace(/^\s*saturday:\s*/i, '').split(/\s*,\s*|\s*\+\s*/).filter((x) => x && !/massage/i.test(x));
+        const notes = `Friday: massage. Saturday: ${sat.join(', ')}`;
+        const r = require('./planops').update(user.id, e.id, { notes }, { via: 'retro' });
+        if (r.ok) changed++;
+      }
+      return `moved ${changed}`;
+    },
+  },
+  {
     id: '2026-10-13-agent-questions-onto-plans',
     added: Date.UTC(2026, 9, 13) / 1000,
     kind: 'internal',
