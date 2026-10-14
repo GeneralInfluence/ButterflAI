@@ -210,7 +210,7 @@
       </div>
       <!-- Google Calendar mirrors ButterflAI plans (2026-10-13) -->
       <div class="conn-row" id="gcal-mirror-row" hidden>
-        <div class="conn-info"><div class="conn-status"><label><input type="checkbox" id="gcal-mirror" onchange="setCalendarMirror(this.checked)"> Show my ButterflAI plans on Google Calendar</label></div>
+        <div class="conn-info"><div class="conn-status"><label><input type="checkbox" id="gcal-mirror" onchange="setCalendarMirror(this.checked)"> Show my ButterflAI plans on my calendar</label></div>
           <div class="conn-status" id="gcal-mirror-status" style="font-size:12px">Plans you're in appear there and stay up to date; proposed dates and invites show as tentative.</div></div>
       </div>
       <div class="conn-row">
@@ -935,8 +935,9 @@
         gb.classList.toggle('conn-quiet', all);
         gb.title = all ? 'Only needed if Google stops working (e.g. you removed access in your Google account)' : '';
         document.getElementById('contacts-sync-row').hidden = !g.contacts;
-        document.getElementById('gcal-mirror-row').hidden = !g.calendar;
-        document.getElementById('gcal-mirror').checked = g.calendar_mirror !== false;
+        // Google or Apple — whichever calendar is connected (2026-10-13).
+        document.getElementById('gcal-mirror-row').hidden = !(g.calendar || (c.apple || {}).calendar);
+        document.getElementById('gcal-mirror').checked = c.calendar_mirror !== false;
         if (g.contacts) document.getElementById('contacts-sync-status').textContent = 'New contacts sync automatically' + (g.contacts_synced_at ? ` · last synced ${day(g.contacts_synced_at)}` : '');
         const a = c.apple || {};
         document.getElementById('apple-status').textContent = a.calendar ? 'Connected ✓' : 'Not connected';
@@ -952,7 +953,7 @@
       try {
         const r = await fetch('/api/user/calendar-mirror', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on }) });
         if (!r.ok) throw new Error();
-        st.textContent = on ? 'On — your plans are being added to Google Calendar.' : 'Off — ButterflAI entries are being removed from Google Calendar.';
+        st.textContent = on ? 'On — your plans are being added to your calendar.' : 'Off — ButterflAI entries are being removed from your calendar.';
       } catch (_) { st.textContent = 'Couldn’t change that — try again'; document.getElementById('gcal-mirror').checked = !on; }
     };
     window.syncContactsNow = async function () {

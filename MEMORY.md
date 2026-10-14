@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_924_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_926_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -736,8 +736,10 @@ person who said yes.
   (migration 050) keeps each person's Google event ids; written right away, retried from the
   coord loop; only what changed is rewritten. Settings → Connections turns it off (removes the
   entries). `confirm_coordination_invite` no longer makes its own copy; `create_calendar_event`
-  is only for things that aren't plans. Apple Calendar isn't mirrored yet. Retro: existing plans
-  go onto connected calendars, people told once.
+  is only for things that aren't plans. **Apple Calendar is mirrored too** (2026-10-13): iCloud CalDAV
+  (`calendar-apple.mirrorUpsert/mirrorDelete`, iCalendar built by `toIcs`, stable UID per entry);
+  calmirror uses whichever calendar the person connected (one per person). Retro: existing plans
+  go onto connected calendars (Google, then Apple), people told once.
 - Retro: to-dos still assigned to people who are out are freed (internal); an avoided person's
   existing yes sends the heads-up now (propose).
 

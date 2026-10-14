@@ -1,5 +1,5 @@
 /**
- * calmirror.js — a person's Google Calendar reflects their ButterflAI calendar.
+ * calmirror.js — a person's calendar (Google or Apple) reflects their ButterflAI calendar.
  *
  * Owner, 2026-10-13. Every plan someone is in (hosting, invited, or said yes) is on their
  * Google Calendar the way ButterflAI shows it, and follows every change:
@@ -11,7 +11,8 @@
  * The calendar ripple (ripples/reactions/calendar.js) marks people's rows dirty; flush()
  * writes them (right away, and retried from the coord loop). What to show is computed
  * from the plan object (plan.js) — the same thing the ButterflAI calendar reads.
- * Off per person in Settings (users.gcal_mirror); Apple Calendar isn't mirrored yet.
+ * Google or Apple (iCloud CalDAV) — whichever the person connected (one per person).
+ * Off per person in Settings (users.gcal_mirror).
  */
 'use strict';
 
@@ -21,18 +22,25 @@ const plan = require('./plan');
 const { LINKS } = require('./links');
 
 const MAX_ATTEMPTS = 5;
-let _google = null;   // tests inject { upsert(userId, gid, body), remove(userId, gid), connected(userId) }
-function google() {
-  if (_google) return _google;
+let _override = null;   // tests inject { upsert(userId, gid, body, ctx), remove(userId, gid), connected(userId) }
+/** The calendar this person connected: Google or Apple (one per person — calendar_tokens). */
+function backend(userId) {
+  if (_override) return _override;
   const cal = require('./calendar');
-  return { upsert: cal.googleUpsert, remove: cal.googleDelete, connected: cal.hasCalendarConnected };
+  const provider = cal.getCalendarProvider(userId);
+  if (provider === 'google') return { provider, upsert: cal.googleUpsert, remove: cal.googleDelete, connected: () => true };
+  if (provider === 'apple') {
+    const apple = require('./calendar-apple');
+    return { provider, upsert: apple.mirrorUpsert, remove: apple.mirrorDelete, connected: () => true };
+  }
+  return { provider: null, connected: () => false };
 }
-function _setGoogle(g) { _google = g; }
+function _setGoogle(g) { _override = g ? { provider: 'test', ...g } : null; }   // name kept for existing tests
 
 const addDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 
 /** Is this person's Google Calendar connected and mirrored? */
-function isOn(userId) { const u = db.getUser(userId); return !!u && u.gcal_mirror !== 0 && google().connected(userId); }
+function isOn(userId) { const u = db.getUser(userId); return !!u && u.gcal_mirror !== 0 && backend(userId).connected(userId); }
 
 /** What this person's Google Calendar should show for a plan: [{ key, body }]. */
 function desired(userId, eventId) {
@@ -92,9 +100,11 @@ function markAllFor(userId) {
 }
 
 async function syncRow(row) {
-  const g = google();
+  const g = backend(row.user_id);
   const user = db.getUser(row.user_id);
-  const have = parse(row.entries);
+  // Entries written to a calendar this person has since disconnected can't be reached;
+  // they're forgotten, and the connected calendar gets fresh ones.
+  const have = parse(row.entries).filter((h) => !h.provider || h.provider === g.provider);
   const on = !!user && user.gcal_mirror !== 0 && g.connected(row.user_id);
   if (!on && !have.length) {           // nothing there, nothing to write
     db._raw().prepare('UPDATE calendar_mirror SET dirty = 0, last_error = NULL WHERE user_id = ? AND event_id = ?').run(row.user_id, row.event_id);
@@ -109,7 +119,8 @@ async function syncRow(row) {
   const next = [];
   for (const w of want) {
     const old = have.find((h) => h.key === w.key);
-    next.push({ key: w.key, gid: await g.upsert(row.user_id, old?.gid || null, w.body) });
+    next.push({ key: w.key, provider: g.provider, gid: await g.upsert(row.user_id, old?.gid || null, w.body,
+      { uid: `butterflai-${row.event_id}-${w.key}` }) });
   }
   for (const h of have) if (!want.some((w) => w.key === h.key)) await g.remove(row.user_id, h.gid);
   db._raw().prepare(`UPDATE calendar_mirror SET entries = ?, hash = ?, dirty = 0, attempts = 0, last_error = NULL, updated_at = strftime('%s','now')

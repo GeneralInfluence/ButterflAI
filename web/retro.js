@@ -314,6 +314,23 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-13-plans-onto-apple-calendar',
+    added: Date.UTC(2026, 9, 13) / 1000,
+    kind: 'internal',
+    about: 'Apple Calendar mirrors ButterflAI too (2026-10-13): plans people are already in go onto their connected iCloud calendar; told once. (The earlier task only counted Google.)',
+    async run(user) {
+      if (require('./calendar').getCalendarProvider(user.id) !== 'apple') return 'not apple';
+      const calmirror = require('./calmirror');
+      if (!calmirror.isOn(user.id)) return 'off';
+      const n = calmirror.markAllFor(user.id);
+      if (!n) return 'no plans';
+      await calmirror.flush();
+      require('./ripples/notice').inApp(user.id, null, `📅 Your ButterflAI plans are now on your Apple Calendar (${n}) and will stay up to date as plans change. Proposed dates and invites you haven't answered show as tentative. You can turn this off in Settings → Connections.`,
+        { url: '/app/settings' });
+      return `marked ${n}`;
+    },
+  },
+  {
     id: '2026-10-13-agent-questions-onto-plans',
     added: Date.UTC(2026, 9, 13) / 1000,
     kind: 'internal',

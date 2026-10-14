@@ -2353,8 +2353,9 @@ app.post('/auth/apple/calendar', async (req, res) => {
     if (tz) db.updateUser(userId, { timezone: tz });
 
     db.appendConversation(userId, 'assistant',
-      `[System] Apple Calendar connected${tz ? ` (timezone: ${tz})` : ''}. You can now check availability and create events on the user's iCloud Calendar.`
+      `[System] Apple Calendar connected${tz ? ` (timezone: ${tz})` : ''}. You can now check availability; the user's plans now show on their iCloud Calendar automatically.`
     );
+    calmirror.markAllFor(userId); calmirror.flushSoon();   // their plans go on the calendar they just connected
 
     if (user.phone) {
       await sms.notifyUser(user.phone, `📅 Your Apple Calendar is connected! I can now check your availability and add events.`).catch(() => {});
@@ -2392,6 +2393,7 @@ app.get('/auth/google/contacts', (req, res) => {
 app.get('/api/user/connections', webAuth.requireAuth, (req, res) => {
   const sync = contactsImport.syncStatus(req.user.id);
   res.json({
+    calendar_mirror: db.getUser(req.user.id)?.gcal_mirror !== 0,
     google: { calendar: calendar.hasCalendarConnected(req.user.id), calendar_mirror: db.getUser(req.user.id)?.gcal_mirror !== 0,
       contacts: sync.connected, contacts_synced_at: sync.last_sync_at },
     apple: { calendar: !!calendar.hasAppleCalendarConnected(req.user.id) },

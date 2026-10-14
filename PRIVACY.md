@@ -325,12 +325,12 @@ days** (coord-loop purge); the written note is kept.
   without asking. Decided in code (`plan.inCircle`); plan details enter the prompt only for an
   insider. Private data, reasons and other plans are never shared, inside or out.
 
-## Plans on Google Calendar `[2026-10-13]`
+## Plans on Google / Apple Calendar `[2026-10-13]`
 
-Plans a person is in are copied to **their own** connected Google Calendar (`calmirror.js`):
+Plans a person is in are copied to **their own** connected Google or Apple (iCloud) Calendar (`calmirror.js`):
 the plan's name, date(s), place, "You're hosting" / "With <host's first name>", and a link to
 the plan. Nothing else — no guest list, notes, to-dos or private data. On by default once
-Google Calendar is connected; Settings → Connections turns it off, which removes the entries.
+a calendar is connected; Settings → Connections turns it off, which removes the entries.
 
 ## Answers on a plan `[2026-10-13]`
 

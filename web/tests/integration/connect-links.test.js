@@ -127,7 +127,8 @@ describe('one Google connection; Settings shows what is connected', () => {
   test('before: nothing connected', async () => {
     const r = await request.get('/api/user/connections').set('Cookie', cookie);
     // calendar_mirror added 2026-10-13 (Google Calendar shows ButterflAI plans; on by default).
-    assert.deepEqual(r.body, { google: { calendar: false, calendar_mirror: true, contacts: false, contacts_synced_at: null }, apple: { calendar: false } });
+    // Top-level calendar_mirror since 2026-10-13: the mirror covers Google or Apple.
+    assert.deepEqual(r.body, { calendar_mirror: true, google: { calendar: false, calendar_mirror: true, contacts: false, contacts_synced_at: null }, apple: { calendar: false } });
   });
 
   test('the callback stores Calendar AND Contacts, syncs contacts, and says so', async () => {

@@ -211,3 +211,35 @@ describe('migrations', () => {
     }
   });
 });
+
+// 2026-10-13: Apple Calendar (iCloud CalDAV) is mirrored too.
+describe('Apple Calendar', () => {
+  const apple = require('../../calendar-apple');
+  test('entries become valid iCalendar: escaped, folded, timed or all-day, tentative/free', () => {
+    const timed = apple.toIcs('a@butterflai', { summary: 'Dinner, at Sully’s; fun', location: 'Sully’s', description: 'With Sean · from ButterflAI\nhttps://butterflai.social/app/events?event=0123456789abcdef',
+      start: { dateTime: '2026-10-20T02:00:00.000Z' }, end: { dateTime: '2026-10-20T04:00:00.000Z' }, status: 'tentative', transparency: 'transparent' });
+    assert.match(timed, /\r\nDTSTART:20261020T020000Z\r\n/);
+    assert.ok(timed.includes('SUMMARY:Dinner\\, at Sully’s\\; fun'), 'commas and semicolons escaped');
+    assert.match(timed, /STATUS:TENTATIVE\r\nTRANSP:TRANSPARENT/);
+    assert.ok(timed.split('\r\n').every((l) => Buffer.byteLength(l) <= 75), 'lines folded at 75 octets');
+    const allDay = apple.toIcs('b@butterflai', { summary: 'Trip (proposed)', start: { date: '2026-10-23' }, end: { date: '2026-10-25' }, status: 'tentative', transparency: 'transparent' });
+    assert.match(allDay, /DTSTART;VALUE=DATE:20261023\r\nDTEND;VALUE=DATE:20261025/);
+  });
+
+  test('a person with Apple connected is mirrored through the Apple backend (stable ids per entry)', async () => {
+    const calmirror2 = require('../../calmirror');
+    const sean = mkUser('Sean Apple', { google: false });
+    const seen = [];
+    calmirror2._setGoogle({ connected: () => true, upsert: async (u, gid, body, ctx) => { seen.push({ u, gid, ctx }); return 'https://caldav.icloud.com/x/' + ctx.uid + '.ics'; }, remove: async () => {} });
+    const r = await planops.create(sean.id, { title: 'Apple Plan', scheduled_at: inDays(4) });
+    await settle();
+    const mine = seen.filter((x) => x.u === sean.id);
+    assert.equal(mine.length, 1);
+    assert.equal(mine[0].ctx.uid, `butterflai-${r.eventId}-set`);
+    planops.update(sean.id, r.eventId, { venue_name: 'Sully’s' });
+    await settle();
+    assert.equal(seen.filter((x) => x.u === sean.id).at(-1).gid, `https://caldav.icloud.com/x/butterflai-${r.eventId}-set.ics`, 'updated in place');
+    calmirror2._setGoogle({ connected: (u) => connected.has(u), upsert: async (u, gid, body) => { calls++; const m = (cals[u] ||= new Map()); const id = gid && m.has(gid) ? gid : 'g' + (++gidN); m.set(id, body); return id; },
+      remove: async (u, gid) => { calls++; cals[u]?.delete(gid); } });
+  });
+});

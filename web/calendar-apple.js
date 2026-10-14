@@ -151,6 +151,87 @@ async function createEvent(userId, { summary, description, start, end }) {
   return { id: uid, summary };
 }
 
+// ── Mirroring ButterflAI plans (calmirror.js, 2026-10-13) ───────────────────
+
+// One logged-in client + writable calendar per user for a few minutes (a flush writes
+// several entries; logging in for each would be slow and noisy for iCloud).
+const _sessions = new Map();
+async function mirrorSession(userId) {
+  const hit = _sessions.get(userId);
+  if (hit && hit.until > Date.now()) return hit;
+  const client = await getDAVClient(userId);
+  if (!client) throw new Error('no_calendar_connected');
+  const calendars = await client.fetchCalendars();
+  const cal = calendars.find((c) => c.displayName !== 'Birthdays' && !c.readOnly && (!c.components || c.components.includes('VEVENT'))) || calendars[0];
+  if (!cal) throw new Error('No writable calendar found');
+  const s = { client, cal, until: Date.now() + 5 * 60 * 1000 };
+  _sessions.set(userId, s);
+  return s;
+}
+
+// iCalendar text escaping and line folding (RFC 5545 §3.3.11, §3.1).
+const esc = (v) => String(v || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+function fold(line) {
+  const out = []; let rest = line;
+  while (Buffer.byteLength(rest) > 75) {
+    let n = 75; while (Buffer.byteLength(rest.slice(0, n)) > 75) n--;
+    out.push(rest.slice(0, n)); rest = ' ' + rest.slice(n);
+  }
+  out.push(rest);
+  return out.join('\r\n');
+}
+const utc = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+const day = (d) => d.replace(/-/g, '');
+
+/** A calmirror entry (Google-style event resource) as an iCalendar document. */
+function toIcs(uid, body) {
+  const timed = !!body.start.dateTime;
+  return [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ButterflAI//EN', 'BEGIN:VEVENT',
+    `UID:${uid}`, `DTSTAMP:${utc(new Date().toISOString())}`,
+    timed ? `DTSTART:${utc(body.start.dateTime)}` : `DTSTART;VALUE=DATE:${day(body.start.date)}`,
+    timed ? `DTEND:${utc(body.end.dateTime)}` : `DTEND;VALUE=DATE:${day(body.end.date)}`,
+    `SUMMARY:${esc(body.summary)}`,
+    body.location ? `LOCATION:${esc(body.location)}` : '',
+    body.description ? `DESCRIPTION:${esc(body.description)}` : '',
+    `STATUS:${body.status === 'tentative' ? 'TENTATIVE' : 'CONFIRMED'}`,
+    `TRANSP:${body.transparency === 'transparent' ? 'TRANSPARENT' : 'OPAQUE'}`,
+    'END:VEVENT', 'END:VCALENDAR',
+  ].filter(Boolean).map(fold).join('\r\n') + '\r\n';
+}
+
+/**
+ * Write one ButterflAI entry to the user's iCloud calendar. gid is the object's URL (null =
+ * new). ctx.uid keeps the same calendar item across updates. Returns the URL. An entry the
+ * user deleted in Calendar is re-created.
+ */
+async function mirrorUpsert(userId, gid, body, ctx = {}) {
+  const { client, cal } = await mirrorSession(userId);
+  const uid = String(ctx.uid || uuidv4()).replace(/[^\w.-]/g, '-');
+  const data = toIcs(`${uid}@butterflai`, body);
+  if (gid) {
+    const r = await client.updateCalendarObject({ calendarObject: { url: gid, data } });
+    if (r.ok) return gid;
+    if (r.status !== 404 && r.status !== 410) throw new Error(`iCloud update ${r.status}`);
+  }
+  const filename = `${uid}.ics`;
+  const r = await client.createCalendarObject({ calendar: cal, filename, iCalString: data });
+  if (!r.ok && r.status !== 412) throw new Error(`iCloud create ${r.status}`);
+  const url = new URL(filename, cal.url).href;
+  if (r.status === 412) {   // already there (same uid): overwrite
+    const u = await client.updateCalendarObject({ calendarObject: { url, data } });
+    if (!u.ok) throw new Error(`iCloud update ${u.status}`);
+  }
+  return url;
+}
+
+/** Remove a ButterflAI entry from the user's iCloud calendar (already gone is fine). */
+async function mirrorDelete(userId, gid) {
+  const { client } = await mirrorSession(userId);
+  const r = await client.deleteCalendarObject({ calendarObject: { url: gid } });
+  if (!r.ok && r.status !== 404 && r.status !== 410) throw new Error(`iCloud delete ${r.status}`);
+}
+
 /**
  * Get the user's primary timezone from their iCloud calendar.
  */
@@ -163,6 +244,9 @@ async function getCalendarTimezone(userId) {
 }
 
 module.exports = {
+  mirrorUpsert,
+  mirrorDelete,
+  toIcs,
   saveAppleCredentials,
   hasAppleCalendarConnected,
   checkAvailability,
