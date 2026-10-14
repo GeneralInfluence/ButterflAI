@@ -15,3 +15,7 @@ means "contains": `"dates.label~": "proposed"`. `"waiting_on": []` compares exac
 If the bug was the agent's behavior rather than the plan's state, write a test in
 `tests/integration/` instead and put its name in the report's "Test that covers it".
 Either way, a report can't be marked Fixed without one.
+
+When a fix ships, add the report to `tests/fixtures/feedback-links.json`
+(`"<id>": { "note_starts": "<first words of the note>", "test": "<file › test name>" }`);
+on deploy the report gets that test and is marked Fixed (`feedbacklinks.js`).

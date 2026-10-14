@@ -43,7 +43,8 @@
     @media (max-width: 640px) {
       nav { display: none; }
       .logo { font-size: 18px; }
-      main { padding-bottom: 80px; }
+      /* Clear the bottom bar + the phone's home indicator (🐛 #12, 2026-10-13: details hid behind it). */
+      main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 48px); }
       .bottom-nav {
         display: flex; position: fixed; bottom: 0; left: 0; right: 0;
         height: 58px; background: #fff; border-top: 1px solid #e5e5e5;
@@ -228,6 +229,8 @@
       flex-shrink: 0;
     }
     /* Plan summary (2026-10-12): opened from Home — everything about one plan in one card. */
+    #plan-summary, .day-panel { scroll-margin-top: 72px; }
+    .day-plan { cursor: pointer; }
     #plan-summary { background: #fff; border: 2px solid #6c47ff; border-radius: 16px; padding: 16px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
     #plan-summary[hidden] { display: none; }
     .ps-head { display: flex; align-items: flex-start; gap: 8px; }
@@ -791,6 +794,14 @@
     if (ev) ev.rsvp_status = status;
     await refreshPlans();
   }
+  // Open one plan's summary (🐛 #12, 2026-10-13: "I can't see the event details when I
+  // click on the event in the calendar" — they opened in a cramped panel under the bottom
+  // bar). The summary is the same card Home opens, shown at the top and scrolled to.
+  function openSummary(id) {
+    summaryId = id; renderSummary();
+    history.replaceState(null, '', location.pathname + '?event=' + encodeURIComponent(id));
+    requestAnimationFrame(() => document.getElementById('plan-summary').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }
   function closeSummary() {
     summaryId = null; renderSummary();
     history.replaceState(null, '', location.pathname);
@@ -809,7 +820,7 @@
     const el = document.getElementById('cal-undated');
     el.hidden = !list.length;
     el.innerHTML = list.length ? 'Undated: ' + list.map(e =>
-      `<a href="/app/chat?event=${encodeURIComponent(e.id)}"><span class="cal-chip stage-idea">${escHtml(e.title || 'Plan')}</span></a>`).join('') : '';
+      `<a href="?event=${encodeURIComponent(e.id)}" onclick="event.preventDefault();openSummary('${escHtml(e.id)}')"><span class="cal-chip stage-idea">${escHtml(e.title || 'Plan')}</span></a>`).join('') : '';
   }
 
   function renderCalendar() {
@@ -896,7 +907,8 @@
     }
 
     if (!otherMonth) {
-      cell.addEventListener('click', () => selectDay(y, m, day, key, events));
+      // One plan that day → its summary; several (or none) → the day's list.
+      cell.addEventListener('click', () => events.length === 1 ? openSummary(events[0].id) : selectDay(y, m, day, key, events));
     }
 
     return cell;
@@ -920,8 +932,8 @@
     } else {
       const label = STAGE_LABEL;
       evEl.innerHTML = events.map(p => `
-        <div class="card" style="border-radius:0;box-shadow:none;border-top:1px solid #f0f0f0;margin:0;"
-             onclick="this.querySelector('.detail').classList.toggle('open')">
+        <div class="card day-plan" style="border-radius:0;box-shadow:none;border-top:1px solid #f0f0f0;margin:0;"
+             onclick="openSummary('${escHtml(p.id)}')">
           <div class="card-header">
             <div>
               <div class="card-title">${escHtml(p.title || p.what || 'Plan')}</div>
@@ -930,16 +942,13 @@
             </div>
             <span class="cal-chip stage-${p.stage}" style="width:auto;font-size:11px;line-height:18px;padding:0 8px">${label[p.stage] || p.stage}</span>
           </div>
-          <div class="detail">
-            ${p.what  ? `<div><strong>What:</strong> ${escHtml(p.what)}</div>` : ''}
-            ${p.notes ? `<div><strong>Notes:</strong> ${escHtml(p.notes)}</div>` : ''}
-          </div>
+          <div class="card-sub" style="margin-top:6px;color:#6c47ff;font-weight:600">Details ›</div>
         </div>
       `).join('');
     }
 
-    // Scroll panel into view on mobile
-    setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+    // Scroll the whole panel into view, clear of the bottom bar.
+    setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   }
 
   // ── Load data ────────────────────────────────────────────────────────────────

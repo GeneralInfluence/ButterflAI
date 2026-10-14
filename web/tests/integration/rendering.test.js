@@ -1009,3 +1009,20 @@ describe("Plan summary: what friends' ButterflAIs said", () => {
     assert.ok(ev.includes("Friends' ButterflAIs said") && ev.includes('p.answers.map('));
   });
 });
+
+// 🐛 #12 (Sean, 2026-10-13): "I can't see the event details when I click on the event in
+// the calendar, and I can't scroll down" — details opened in a small panel under the bottom
+// bar. Now a plan on the calendar opens its full summary at the top, scrolled to.
+describe('🐛 #12: tapping a plan on the calendar opens its details', () => {
+  const ev = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/events.html'), 'utf8');
+  test('a day with one plan opens its summary; a list row opens it too; undated chips too', () => {
+    assert.ok(ev.includes("events.length === 1 ? openSummary(events[0].id) : selectDay("));
+    assert.ok(ev.includes(`onclick="openSummary('\${escHtml(p.id)}')"`));
+    assert.ok(ev.includes(`onclick="event.preventDefault();openSummary('\${escHtml(e.id)}')"`));
+    assert.match(ev, /function openSummary\(id\) \{[\s\S]{0,300}scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
+  });
+  test('nothing hides behind the bottom bar', () => {
+    assert.ok(ev.includes('main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 48px); }'));
+    assert.ok(ev.includes('#plan-summary, .day-panel { scroll-margin-top: 72px; }'));
+  });
+});

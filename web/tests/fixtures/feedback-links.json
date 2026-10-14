@@ -1,0 +1,7 @@
+{
+  "_about": "Which test covers each 🐛 report (owner, 2026-10-13: every 🐛 becomes a test). Applied on server start (feedbacklinks.js): sets the report's test_ref and marks it fixed — only if its note starts with note_starts (so a different database can't be touched). feedback-backlog.test.js checks every named test exists. Reports 1–11 were linked by migration 056.",
+  "12": {
+    "note_starts": "I can't see the event details when I click on the event in the calendar",
+    "test": "tests/integration/rendering.test.js › 🐛 #12: tapping a plan on the calendar opens its details"
+  }
+}

@@ -2775,6 +2775,9 @@ if (require.main === module) {
   } catch (e) {
     console.error('[startup] health-notes migration failed:', e.message);
   }
+  // Reports fixed in this release get linked to their tests (tests/fixtures/feedback-links.json).
+  try { const n = require('./feedbacklinks').apply(); if (n) console.log(`[startup] linked ${n} 🐛 report(s) to their tests`); }
+  catch (e) { console.error('[startup] feedback links failed:', e.message); }
   app.listen(PORT, () => {
     console.log(`ButterflAI web running on :${PORT}`);
     startAgentLoop();

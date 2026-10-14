@@ -82,8 +82,11 @@ describe('🐛 #2: write the message from the gist', () => {
 describe('the 11 early reports point at real tests', () => {
   const fs = require('node:fs'); const path = require('node:path');
   const sql = fs.readFileSync(path.join(__dirname, '../../db/migrations/056_feedback_backlog_tests.sql'), 'utf8');
-  const refs = [...sql.matchAll(/test_ref = '((?:[^']|'')+)'/g)].map((m) => m[1].replace(/''/g, "'"));
-  test('11 reports, each linked', () => assert.equal(refs.length, 11));
+  const early = [...sql.matchAll(/test_ref = '((?:[^']|'')+)'/g)].map((m) => m[1].replace(/''/g, "'"));
+  test('11 reports, each linked', () => assert.equal(early.length, 11));
+  // Later reports are linked in tests/fixtures/feedback-links.json (feedbacklinks.js).
+  const links = require('../../feedbacklinks').load();
+  const refs = [...early, ...Object.entries(links).filter(([k]) => /^\d+$/.test(k)).map(([, l]) => l.test)];
   for (const ref of refs) {
     for (const part of ref.split(' + ')) {
       test(part, () => {
@@ -96,4 +99,18 @@ describe('the 11 early reports point at real tests', () => {
       });
     }
   }
+});
+
+describe('later reports are linked from links.json', () => {
+  const feedbacklinks = require('../../feedbacklinks');
+  test('a listed report with a matching note gets its test and is marked fixed; anything else is untouched', () => {
+    const u = mkUser('Links Person');
+    const a = db.createFeedback({ user_id: u.id, rating: 'down', user_note: 'The calendar hides my plan details' });
+    const b = db.createFeedback({ user_id: u.id, rating: 'down', user_note: 'Something else entirely' });
+    const n = feedbacklinks.apply({ [a]: { note_starts: 'The calendar hides', test: 'tests/x.test.js › y' }, [b]: { note_starts: 'Not this note', test: 'tests/z.test.js' } });
+    assert.equal(n, 1);
+    const ra = db._raw().prepare('SELECT status, test_ref FROM feedback WHERE id = ?').get(a);
+    assert.deepEqual([ra.status, ra.test_ref], ['fixed', 'tests/x.test.js › y']);
+    assert.equal(db._raw().prepare('SELECT status FROM feedback WHERE id = ?').get(b).status, 'new');
+  });
 });
