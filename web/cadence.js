@@ -193,7 +193,7 @@ async function runAttendanceGate() {
 
   for (const user of allUsers) {
     try {
-      const pendingEvents = db.getPendingAttendanceConfirmations(user.id);
+      const pendingEvents = plansToConfirm(user);
       if (!pendingEvents.length) continue;
 
       const now = Math.floor(Date.now() / 1000);
@@ -204,7 +204,7 @@ async function runAttendanceGate() {
         const existing = db.getAttendanceConfirmation(event.id, user.id);
         if (existing) continue; // already asked
 
-        const eventLabel = formatEventLabel(event, user.timezone);
+        const eventLabel = formatEventLabel({ activity_type: event.title, scheduled_at: event.at }, user.timezone);
         confirmations.push({
           id: uuidv4(),
           event_id: event.id,
@@ -235,23 +235,41 @@ async function runAttendanceGate() {
         });
       }
 
-      // Create pending_action so server.js can correlate the reply
-      db.createPendingAction({
-        id: uuidv4(),
-        user_id: user.id,
-        action_type: 'attendance_confirm',
-        payload: { confirmations },
-        ttl_secs: 7 * 24 * 3600, // 7 days
-      });
-
-      // Send SMS
-      await sms.notifyUser(user.phone, smsBody);
+      // In the app first (MEMORY.md §10): Home asks "Did you make it?" with buttons, and a
+      // push points there. Texted (Y / N / skip) only if this person has no notifications on.
+      if (require('./deliver').canPushTo(user.id)) {
+        await require('./push').notifyUser(db, user.id, { title: 'ButterflAI',
+          body: confirmations.length === 1 ? `Did you make it to ${confirmations[0].event_label}?` : `${confirmations.length} quick check-ins on Home`, url: '/app/dashboard' }).catch(() => {});
+      } else {
+        // Create pending_action so server.js can correlate the text reply
+        db.createPendingAction({
+          id: uuidv4(),
+          user_id: user.id,
+          action_type: 'attendance_confirm',
+          payload: { confirmations },
+          ttl_secs: 7 * 24 * 3600, // 7 days
+        });
+        await sms.notifyUser(user.phone, smsBody);
+      }
 
       console.log(`[cadence] attendance gate sent user=${user.id} events=${confirmations.length}`);
     } catch (err) {
       console.error(`[cadence] attendance gate error user=${user.id}:`, err.message);
     }
   }
+}
+
+/**
+ * Plans this user was in that ended 12h–7 days ago and haven't been asked about: the host,
+ * or a guest who said yes, of a plan with a real date (2026-10-13 — this used to read the
+ * old `activities` table, which nothing writes, so nobody was ever asked).
+ */
+function plansToConfirm(user) {
+  const t = Math.floor(Date.now() / 1000);
+  return require('./plan').plansFor(user.id, { includePast: true })
+    .filter((p) => p.stage === 'past' && p.dates.kind === 'set' && p.dates.end < t - 12 * 3600 && p.dates.end > t - 7 * 86400)
+    .filter((p) => p.role === 'host' || p.invitation?.status === 'accepted')
+    .filter((p) => !db.getAttendanceConfirmation(p.id, user.id));
 }
 
 function formatEventLabel(event, timezone) {
@@ -280,4 +298,4 @@ function startNudgeLoop() {
   runNudgeScan().then(() => runAttendanceGate()).catch(err => console.error('[cadence] initial run error:', err));
 }
 
-module.exports = { startNudgeLoop, runNudgeScan, runAttendanceGate, isNudgeDue, buildNudgeText, formatEventLabel };
+module.exports = { startNudgeLoop, runNudgeScan, runAttendanceGate, plansToConfirm, isNudgeDue, buildNudgeText, formatEventLabel };

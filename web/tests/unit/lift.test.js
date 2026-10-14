@@ -23,30 +23,41 @@ const db   = require('../../db');
 const lift = require('../../lift');
 
 // ── Shared test fixtures ──────────────────────────────────────────────────────
+// Since 2026-10-13 lift measures plans (social_events), not the old `activities` table
+// (nothing writes it any more). A plan's cadence is found through the people in it.
 
+const multiparty = require('../../multiparty');
 let testUserId;
 let testEventId;
+let friendPhone;
+let cadenceId;
+
+function pastPlan(hoursAgo) {
+  const id = multiparty.createEvent(testUserId, { title: 'Lunch ' + uuidv4().slice(0, 6), activity_type: 'lunch',
+    scheduled_at: Math.floor(Date.now() / 1000) - hoursAgo * 3600 });
+  const cid = db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(testUserId, friendPhone).id;
+  db._raw().prepare(`INSERT INTO event_invitations (id, event_id, contact_id, status) VALUES (?, ?, ?, 'accepted')`).run(uuidv4(), id, cid);
+  return id;
+}
 
 before(() => {
   testUserId = 'lift-user-' + uuidv4();
   const phone = '+1560' + Math.floor(Math.random() * 9000000 + 1000000);
+  friendPhone = '+1561' + Math.floor(Math.random() * 9000000 + 1000000);
 
   // Create minimal user
   db._raw().prepare(
     `INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'Lift Test', ?, 'complete')`
   ).run(testUserId, phone);
 
-  // Create a relationship
+  // A friend (contact) with a relationship + monthly cadence
   const relId = uuidv4();
   const contactId = uuidv4();
-  // Create a dummy contact first
   db._raw().prepare(
-    `INSERT INTO contacts (id, invited_by_user_id, name, tier) VALUES (?, ?, 'Contact', 0)`
-  ).run(contactId, testUserId);
+    `INSERT INTO contacts (id, invited_by_user_id, name, phone, tier) VALUES (?, ?, 'Contact', ?, 1)`
+  ).run(contactId, testUserId, friendPhone);
   db.createRelationship({ id: relId, user_id: testUserId, contact_id: contactId, contact_is_user: 0 });
-
-  // Create a cadence
-  const cadenceId = uuidv4();
+  cadenceId = uuidv4();
   db.createCadence({
     id: cadenceId,
     relationship_id: relId,
@@ -55,12 +66,14 @@ before(() => {
     group_size: 'one_on_one',
   });
 
-  // Create a minimal activity (social event)
-  testEventId = uuidv4();
-  db._raw().prepare(
-    `INSERT INTO activities (id, cadence_id, status, scheduled_at, activity_type, participants)
-     VALUES (?, ?, 'completed', ?, 'lunch', ?)`
-  ).run(testEventId, cadenceId, Math.floor(Date.now() / 1000) - 86400, JSON.stringify([testUserId]));
+  // A past plan with that friend in it
+  testEventId = pastPlan(24);
+});
+
+describe('cadenceFor (plans → cadence through the people in them)', () => {
+  test('finds the cadence with someone in the plan', () => {
+    assert.equal(lift.cadenceFor(testEventId, testUserId)?.id, cadenceId);
+  });
 });
 
 describe('estimateDiscovery', () => {
@@ -91,16 +104,7 @@ describe('computeAndLogLift', () => {
   });
 
   test('writes at least one row to lift_observations', async () => {
-    const freshEventId = uuidv4();
-    // Use existing cadence from setup — create a fresh activity
-    const activity = db._raw()
-      .prepare('SELECT cadence_id FROM activities WHERE id = ?')
-      .get(testEventId);
-
-    db._raw().prepare(
-      `INSERT INTO activities (id, cadence_id, status, scheduled_at, activity_type, participants)
-       VALUES (?, ?, 'completed', ?, 'lunch', ?)`
-    ).run(freshEventId, activity?.cadence_id || null, Math.floor(Date.now() / 1000) - 3600, JSON.stringify([testUserId]));
+    const freshEventId = pastPlan(1);
 
     const countBefore = db._raw()
       .prepare('SELECT COUNT(*) as cnt FROM lift_observations WHERE event_id = ?')
@@ -116,15 +120,7 @@ describe('computeAndLogLift', () => {
   });
 
   test('inputs field on every written observation is valid JSON (not empty string)', async () => {
-    const freshEventId2 = uuidv4();
-    const activity = db._raw()
-      .prepare('SELECT cadence_id FROM activities WHERE id = ?')
-      .get(testEventId);
-
-    db._raw().prepare(
-      `INSERT INTO activities (id, cadence_id, status, scheduled_at, activity_type, participants)
-       VALUES (?, ?, 'completed', ?, 'lunch', ?)`
-    ).run(freshEventId2, activity?.cadence_id || null, Math.floor(Date.now() / 1000) - 7200, JSON.stringify([testUserId]));
+    const freshEventId2 = pastPlan(2);
 
     await lift.computeAndLogLift(freshEventId2, testUserId);
 

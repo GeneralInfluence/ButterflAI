@@ -243,6 +243,12 @@
       const href = i.role !== 'host' && i.action ? `/app/events?event=${esc(i.event_id)}` : `/app/chat?event=${esc(i.event_id)}`;
       return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="${href}"><span class="feed-icon" role="link" aria-label="Plan summary" title="Plan summary" onclick="event.preventDefault();event.stopPropagation();location.href='/app/events?event=${esc(i.event_id)}'">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
     }
+    // "Did you make it?" after a plan (2026-10-13): answered right here.
+    if (i.type === 'checkin') return `<div class="card feed-item needs-you"><span class="feed-icon">🦋</span><div style="flex:1;min-width:0">
+      <div class="card-title">Did you make it to ${esc(i.title)}?</div><div class="card-sub">${when(i.at)}</div>
+      <div class="share-row" style="margin:8px 0 0"><button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', true)">Yes</button>
+      <button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', false)">No</button>
+      <button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', null)">Skip</button></div></div></div>`;
     const chatLink = (i) => i.event_id ? `/app/chat?event=${esc(i.event_id)}` : '/app/chat';
     if (i.type === 'question') return `<a class="card feed-item needs-you" href="${chatLink(i)}"><span class="feed-icon">❓</span><div><div class="card-title">${esc(i.who)} asked</div><div class="card-sub">${esc(i.text)}</div>${action(i)}</div></a>`;
     if (i.type === 'plan') return `<div class="card feed-item"><span class="feed-icon">🟢</span><div><div class="card-title">${esc(i.who)}: ${esc(i.text)}</div><div class="card-sub">until ${when(i.until)}</div></div></div>`;
@@ -262,6 +268,10 @@
       <a href="/app/chat?event=${esc(i.event_id)}" style="text-decoration:none;color:inherit"><div class="card-title">${esc(i.text)}</div>
       <div class="card-sub">${esc(i.title)}${i.at ? ' · ' + whenFor(i) : ''} · ${i.who === 'you' ? 'yours' : 'anyone can take it'}</div></a>
       <button type="button" class="feed-action" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit" onclick="doneTodo('${esc(i.todo_id)}')">✓ Done</button></div></div>`).join('') + sug;
+  }
+  async function answerCheckin(id, attended) {
+    await fetch('/api/attendance/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attended }) }).catch(() => {});
+    loadFeed();
   }
   async function doneTodo(id) {
     await fetch('/api/todos/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ done: true }) }).catch(() => {});

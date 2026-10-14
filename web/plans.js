@@ -222,6 +222,11 @@ function feedFor(userId) {
   const creating = home.items.sort((a, b) => (a.who === b.who ? 0 : a.who === 'you' ? -1 : 1) || (a.at || Infinity) - (b.at || Infinity));
   const creatingSuggestions = home.suggestions;
 
+  // "Did you make it?" after plans you were in (attendance.js, 2026-10-13).
+  for (const c of require('./attendance').openFor(userId)) {
+    items.push({ type: 'checkin', confirmation_id: c.id, event_id: c.event_id, title: c.title, at: c.scheduled_at, action: 'Did you make it?' });
+  }
+
   // Questions friends' ButterflAIs asked you that you haven't answered.
   const asked = db._raw().prepare(`
     SELECT am.id, am.body, am.created_at, am.thread_id, u.name, u.phone FROM agent_messages am JOIN users u ON u.id = am.from_user
@@ -248,6 +253,7 @@ function feedFor(userId) {
     // 1. Things waiting on you — soonest first.
     if (i.type === 'invite') return 3000 - daysOut(i.at) * 10;
     if (i.type === 'question') return 3000 - hoursAgo(i.created_at) * 0.1;
+    if (i.type === 'checkin') return 2500;   // after what needs you to move a plan on
     if (i.type === 'event' && i.action) return 3000 - daysOut(i.at) * 10;
     // 2. Happening in the next day.
     if (i.type === 'event' && daysOut(i.at) <= 1) return 2000 - daysOut(i.at) * 24;
@@ -270,7 +276,7 @@ function feedFor(userId) {
 }
 
 /** Does this feed item need the viewer to act? (invite, a friend's question, a plan to lock in) */
-const needsYou = (i) => i.type === 'invite' || i.type === 'question' || (i.type === 'event' && !!i.action);
+const needsYou = (i) => i.type === 'invite' || i.type === 'question' || i.type === 'checkin' || (i.type === 'event' && !!i.action);
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 /**

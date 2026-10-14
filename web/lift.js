@@ -11,12 +11,39 @@
  *   discovery        — needs K (redundancy divisor), blocked on MEMORY.md §5 Q2 [OPEN]
  *
  * inputs field is MANDATORY on every observation (TOKEN.md §11.4).
+ *
+ * eventId is a plan (social_events). 2026-10-13: these used to read the old `activities`
+ * table, which nothing writes any more, so lift was never measured for real plans. A
+ * plan's cadence is found through the people in it (cadenceFor).
  */
 
 'use strict';
 
 function _getDb() {
   return require('./db');
+}
+
+// The people in a plan other than this user, as phones (host + everyone who said yes).
+function peopleIn(eventId, userId) {
+  const db = _getDb();
+  const e = db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(eventId);
+  if (!e) return [];
+  const me = db.getUser(userId)?.phone;
+  const host = db.getUser(e.host_user_id)?.phone;
+  const guests = db._raw().prepare(`SELECT c.phone FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+    WHERE ei.event_id = ? AND ei.status = 'accepted' AND c.phone IS NOT NULL`).all(eventId).map((r) => r.phone);
+  return [...new Set([host, ...guests].filter((p) => p && p !== me))];
+}
+
+/** The user's most overdue active cadence with someone in this plan, or null. */
+function cadenceFor(eventId, userId) {
+  const db = _getDb();
+  const phones = peopleIn(eventId, userId);
+  if (!phones.length) return null;
+  return db._raw().prepare(`SELECT cd.* FROM cadences cd JOIN relationships r ON r.id = cd.relationship_id
+    JOIN contacts c ON c.id = r.contact_id
+    WHERE r.user_id = ? AND cd.active = 1 AND c.phone IN (${phones.map(() => '?').join(',')})
+    ORDER BY COALESCE(cd.last_fulfilled_at, cd.created_at) ASC LIMIT 1`).get(userId, ...phones) || null;
 }
 
 // ── Estimators ────────────────────────────────────────────────────────────────
@@ -91,19 +118,9 @@ function estimateAssembly(eventId, userId) {
     .get(eventId);
   const confirmed = confirmedRow?.cnt || 0;
 
-  // Look up cadence for this event to get group_size baseline
-  const activityRow = db._raw()
-    .prepare('SELECT * FROM activities WHERE id = ?')
-    .get(eventId);
-
-  let expectedSize = 2; // default: one_on_one = 2 people
-  if (activityRow?.cadence_id) {
-    const cadence = db._raw()
-      .prepare('SELECT group_size FROM cadences WHERE id = ?')
-      .get(activityRow.cadence_id);
-    if (cadence?.group_size === 'small_group') expectedSize = 4;
-    else if (cadence?.group_size === 'large_group') expectedSize = 8;
-  }
+  // Who was expected: everyone who said yes plus the host.
+  const said = db._raw().prepare(`SELECT count(*) AS n FROM event_invitations WHERE event_id = ? AND status = 'accepted'`).get(eventId)?.n || 0;
+  const expectedSize = Math.max(2, said + 1);
 
   if (confirmed === 0) {
     return { value: 0, confidence: 0.5, inputs: { ...inputs, confirmed, expected: expectedSize } };
@@ -135,14 +152,12 @@ function estimateOrganizerLabor(eventId, userId) {
     .all(eventId);
 
   if (!proposals.length) {
-    // Try by cadence linkage
-    const activity = db._raw()
-      .prepare('SELECT cadence_id FROM activities WHERE id = ?')
-      .get(eventId);
-    if (activity?.cadence_id) {
+    // Try by cadence linkage (a nudge that led to this plan)
+    const cadence = cadenceFor(eventId, userId);
+    if (cadence) {
       const cadenceProposals = db._raw()
         .prepare(`SELECT * FROM proposals WHERE cadence_id = ? ORDER BY proposed_at DESC LIMIT 5`)
-        .all(activity.cadence_id);
+        .all(cadence.id);
       proposals.push(...cadenceProposals);
     }
   }
@@ -168,8 +183,8 @@ function estimateOrganizerLabor(eventId, userId) {
 }
 
 /**
- * estimateQuality — repeat attendance (same user, same cadence, attended=1 in past).
- * Returns null if <2 data points.
+ * estimateQuality — repeat attendance: earlier plans this user made it to with someone
+ * from this plan. Returns null if <2 data points.
  *
  * @param {string} eventId
  * @param {string} userId
@@ -178,30 +193,17 @@ function estimateOrganizerLabor(eventId, userId) {
 function estimateQuality(eventId, userId) {
   const db = _getDb();
   const inputs = { eventId, userId };
+  const phones = peopleIn(eventId, userId);
+  if (!phones.length) return { value: null, confidence: 0, inputs: { ...inputs, reason: 'no_people' } };
 
-  // Get cadence for this event
-  const activity = db._raw()
-    .prepare('SELECT cadence_id FROM activities WHERE id = ?')
-    .get(eventId);
-
-  if (!activity?.cadence_id) {
-    return { value: null, confidence: 0, inputs: { ...inputs, reason: 'no_cadence' } };
-  }
-
-  // Count prior attended events for this user on this cadence
-  const priorRow = db._raw()
-    .prepare(`
-      SELECT COUNT(*) as cnt
-      FROM attendance_confirmations ac
-      JOIN activities a ON ac.event_id = a.id
-      WHERE ac.user_id = ?
-        AND a.cadence_id = ?
-        AND ac.attended = 1
-        AND ac.event_id != ?
-    `)
-    .get(userId, activity.cadence_id, eventId);
-
-  const priorCount = priorRow?.cnt || 0;
+  const priorCount = db._raw().prepare(`
+      SELECT COUNT(DISTINCT ac.event_id) AS cnt FROM attendance_confirmations ac
+      JOIN social_events se ON se.id = ac.event_id
+      WHERE ac.user_id = ? AND ac.attended = 1 AND ac.event_id != ?
+        AND (se.host_user_id IN (SELECT id FROM users WHERE phone IN (${phones.map(() => '?').join(',')}))
+          OR EXISTS (SELECT 1 FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+            WHERE ei.event_id = se.id AND ei.status = 'accepted' AND c.phone IN (${phones.map(() => '?').join(',')})))`)
+    .get(userId, eventId, ...phones, ...phones)?.cnt || 0;
 
   if (priorCount < 2) {
     return { value: null, confidence: 0, inputs: { ...inputs, prior_attended: priorCount, reason: 'insufficient_data' } };
@@ -212,7 +214,7 @@ function estimateQuality(eventId, userId) {
   return {
     value,
     confidence: 0.5 + Math.min(priorCount / 20, 0.4), // more data → higher confidence
-    inputs: { ...inputs, prior_attended: priorCount, cadence_id: activity.cadence_id },
+    inputs: { ...inputs, prior_attended: priorCount, people: phones.length },
   };
 }
 
@@ -244,11 +246,8 @@ async function computeAndLogLift(eventId, userId) {
   const db = _getDb();
   const results = [];
 
-  // Resolve cadence for activation estimator
-  const activity = db._raw()
-    .prepare('SELECT cadence_id FROM activities WHERE id = ?')
-    .get(eventId);
-  const cadenceId = activity?.cadence_id || null;
+  // Resolve cadence for activation estimator (through the people in the plan)
+  const cadenceId = cadenceFor(eventId, userId)?.id || null;
 
   const estimators = [
     { name: 'activation',      fn: () => estimateActivation(eventId, userId, cadenceId) },
@@ -286,6 +285,7 @@ async function computeAndLogLift(eventId, userId) {
 
 module.exports = {
   computeAndLogLift,
+  cadenceFor,
   estimateActivation,
   estimateAssembly,
   estimateOrganizerLabor,

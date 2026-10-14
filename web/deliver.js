@@ -207,6 +207,7 @@ function startFallbackLoop(intervalMs = 60 * 1000) {
 }
 
 module.exports = {
+  canPushTo,
   SMS_FALLBACK_PUSH_SECS,
   withSender, deliverToContact, notifySelf, markSeen, tickFallback, startFallbackLoop,
 };

@@ -991,3 +991,12 @@ describe('Settings: Google Calendar mirror switch', () => {
     assert.ok(s.includes("fetch('/api/user/calendar-mirror', { method: 'PATCH'"));
   });
 });
+
+// 2026-10-13: "Did you make it?" is answered on Home.
+describe('Home: attendance check-in', () => {
+  const home = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
+  test('a check-in card with Yes / No / Skip that saves through the API', () => {
+    assert.ok(home.includes("if (i.type === 'checkin')") && home.includes('Did you make it to ${esc(i.title)}?'));
+    assert.ok(home.includes("fetch('/api/attendance/' + encodeURIComponent(id)"));
+  });
+});

@@ -38,6 +38,7 @@ const linktoken = require('./linktoken');
 const groupPlans = require('./groups');
 const todos = require('./todos');
 const plan = require('./plan');
+const attendance = require('./attendance');
 const calmirror = require('./calmirror');
 const planops = require('./planops');
 const names = require('./names');
@@ -827,14 +828,7 @@ async function handlePendingAction(user, body, pending) {
         attended = 0; confirmedAt = nowSecs;
       }
       // skip or anything else → attended stays null, no confirmed_at
-      db.updateAttendanceConfirmation(c.id, { attended, confirmed_at: confirmedAt });
-
-      // Wire lift after Y/N (not skip)
-      if (attended !== null) {
-        lift.computeAndLogLift(c.event_id, user.id).catch(err =>
-          console.error('[server] lift compute error:', err.message)
-        );
-      }
+      attendance.answer(c.id, user.id, attended === 1 ? true : attended === 0 ? false : null);
     } else {
       // Multi-event reply: "1Y 2N 3skip" etc.
       // Build a map: position (1-based) → intent
@@ -862,13 +856,7 @@ async function handlePendingAction(user, body, pending) {
         } else if (intent === 'N' || intent === 'NO') {
           attended = 0; confirmedAt = nowSecs;
         }
-        db.updateAttendanceConfirmation(c.id, { attended, confirmed_at: confirmedAt });
-
-        if (attended !== null) {
-          lift.computeAndLogLift(c.event_id, user.id).catch(err =>
-            console.error('[server] lift compute error:', err.message)
-          );
-        }
+        attendance.answer(c.id, user.id, attended === 1 ? true : attended === 0 ? false : null);
       }
     }
 
@@ -1226,22 +1214,23 @@ app.get('/api/dashboard/overdue', webAuth.requireAuth, (req, res) => {
   res.json({ overdue: rows });
 });
 
-// GET /api/dashboard/upcoming — activities scheduled in next 30 days
+// GET /api/dashboard/upcoming — plans in the next 30 days (from the plan object; this
+// used to read the old activities table, which nothing writes any more)
 app.get('/api/dashboard/upcoming', webAuth.requireAuth, (req, res) => {
-  const now = Math.floor(Date.now() / 1000);
-  const in30 = now + 30 * 86400;
-  const rows = db._raw().prepare(`
-    SELECT a.*
-    FROM activities a
-    JOIN cadences c ON a.cadence_id = c.id
-    JOIN relationships r ON c.relationship_id = r.id
-    WHERE r.user_id = ?
-      AND a.scheduled_at BETWEEN ? AND ?
-      AND a.status IN ('proposed','confirmed')
-    ORDER BY a.scheduled_at ASC
-    LIMIT 10
-  `).all(req.user.id, now, in30);
-  res.json({ upcoming: rows });
+  const t = Math.floor(Date.now() / 1000);
+  const upcoming = plan.plansFor(req.user.id).filter((p) => p.at && p.at >= t && p.at <= t + 30 * 86400)
+    .sort((a, b) => a.at - b.at).slice(0, 10);
+  res.json({ upcoming });
+});
+
+// Home "Did you make it?" (2026-10-13): answer a check-in in the app.
+app.post('/api/attendance/:id', webAuth.requireAuth, express.json(), (req, res) => {
+  const a = req.body?.attended;
+  const r = attendance.answer(req.params.id, req.user.id, a === true ? true : a === false ? false : null);
+  if (r.error) return res.status(404).json(r);
+  // Answered in the app → a pending text-reply prompt for check-ins would only confuse.
+  if (!attendance.openFor(req.user.id).length) db._raw().prepare("DELETE FROM pending_actions WHERE user_id = ? AND action_type = 'attendance_confirm'").run(req.user.id);
+  res.json(r);
 });
 
 // ── Onboarding setup API ──────────────────────────────────────────────────────

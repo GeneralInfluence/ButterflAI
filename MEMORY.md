@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_890_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_898_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -737,6 +737,20 @@ person who said yes.
   go onto connected calendars, people told once.
 - Retro: to-dos still assigned to people who are out are freed (internal); an avoided person's
   existing yes sends the heads-up now (propose).
+
+## 16. Attendance, lift and cadences read plans `[2026-10-13]`
+
+Event-map contradiction #2: the "Did you make it?" check-in, lift and FLAI read the old
+`activities` table, which nothing writes, so none of it ever ran for real plans. Now:
+- `cadence.plansToConfirm`: plans you hosted or said yes to, with a real date, that ended
+  12h–7 days ago, not asked before. Asked in the app (Home card with Yes / No / Skip + a push);
+  texted (Y / N / skip, pending_action) only if you have no notifications on (§10).
+- `attendance.js` is the one answer path (app `POST /api/attendance/:id` and text replies):
+  records it, measures lift, and a Yes resets your cadences with the people who were there
+  ("it's been a while" nudges count the plan).
+- `lift.js` measures plans; a plan's cadence is found through the people in it (`cadenceFor`).
+- `/api/dashboard/upcoming` reads plans. The `activities` helpers in db.js remain only for the
+  retained Telegram bot.
 
 ## 12. Research & planning tools `[2026-10-09]`
 
