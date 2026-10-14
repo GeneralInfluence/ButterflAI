@@ -310,6 +310,31 @@ async function createEvent(userId, { title, start, end, description, location })
   return resp.data.id;
 }
 
+/**
+ * Write one ButterflAI entry to the user's primary Google Calendar: insert (gid null) or
+ * update (gid set). body is a Calendar API event resource. Returns the event id. An entry
+ * the user deleted in Google is re-created. (calmirror.js)
+ */
+async function googleUpsert(userId, gid, body) {
+  const authClient = await getAuthClient(userId);
+  if (!authClient) throw new Error('no_calendar_connected');
+  const cal = google.calendar({ version: 'v3', auth: authClient });
+  if (gid) {
+    try { return (await cal.events.update({ calendarId: 'primary', eventId: gid, requestBody: body })).data.id; }
+    catch (err) { if (![404, 410].includes(err.code || err.status)) throw err; }
+  }
+  return (await cal.events.insert({ calendarId: 'primary', requestBody: body })).data.id;
+}
+
+/** Remove a ButterflAI entry from the user's Google Calendar (already gone is fine). */
+async function googleDelete(userId, gid) {
+  const authClient = await getAuthClient(userId);
+  if (!authClient) throw new Error('no_calendar_connected');
+  const cal = google.calendar({ version: 'v3', auth: authClient });
+  try { await cal.events.delete({ calendarId: 'primary', eventId: gid }); }
+  catch (err) { if (![404, 410].includes(err.code || err.status)) throw err; }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // ── Timezone helpers (DST-aware wall-clock <-> UTC, no external deps) ──────────
@@ -429,6 +454,8 @@ function hasAnyCalendarConnected(userId) {
 
 module.exports = {
   // Google-specific
+  googleUpsert,
+  googleDelete,
   getAuthUrl,
   getGoogleAuthUrl,
   exchangeGoogleCode,

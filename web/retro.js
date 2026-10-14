@@ -297,6 +297,22 @@ const TASKS = [
       return `told ${told}`;
     },
   },
+  {
+    id: '2026-10-13-plans-onto-google-calendar',
+    added: Date.UTC(2026, 9, 13) / 1000,
+    kind: 'internal',
+    about: 'Google Calendar mirrors ButterflAI (owner, 2026-10-13): plans people are already in go onto their connected Google Calendar; they are told once and can turn it off in Settings.',
+    async run(user) {
+      const calmirror = require('./calmirror');
+      if (!calmirror.isOn(user.id)) return 'not connected';
+      const n = calmirror.markAllFor(user.id);
+      if (!n) return 'no plans';
+      await calmirror.flush();
+      require('./ripples/notice').inApp(user.id, null, `📅 Your ButterflAI plans are now on your Google Calendar (${n}) and will stay up to date as plans change. Proposed dates and invites you haven't answered show as tentative. You can turn this off in Settings → Connections.`,
+        { url: '/app/settings' });
+      return `marked ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

@@ -1,5 +1,5 @@
 -- Ripples (owner, 2026-10-13: "every change to an event should cascade through the entire
--- system"). Every change to a plan is recorded here in the same transaction as the change;
+-- system"). Every change to a plan is recorded here in the same transaction as the change,
 -- the reactions in web/ripples/ run from it (and are retried from the coord loop if one
 -- fails). batch groups the changes made by one operation (a date and place set together
 -- send one FYI, not two). results: what each reaction did, by name.

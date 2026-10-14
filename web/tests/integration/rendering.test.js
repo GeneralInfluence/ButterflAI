@@ -981,3 +981,13 @@ describe('Still going? (avoid-list heads-up)', () => {
     assert.ok(home.includes("i.role !== 'host' && i.action ? `/app/events?event=${esc(i.event_id)}`"));
   });
 });
+
+// 2026-10-13: Settings → Connections can turn the Google Calendar mirror off and on.
+describe('Settings: Google Calendar mirror switch', () => {
+  const s = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/settings.html'), 'utf8');
+  test('shown when Google Calendar is connected, saves through the API', () => {
+    assert.ok(s.includes('id="gcal-mirror"') && s.includes('Show my ButterflAI plans on Google Calendar'));
+    assert.ok(s.includes("document.getElementById('gcal-mirror-row').hidden = !g.calendar;"));
+    assert.ok(s.includes("fetch('/api/user/calendar-mirror', { method: 'PATCH'"));
+  });
+});

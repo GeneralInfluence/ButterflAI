@@ -406,13 +406,13 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'confirm_coordination_invite',
-    description: 'Respond to an event invitation from another ButterflAI user. Updates your RSVP status, optionally adds the event to YOUR calendar, and notifies the host\'s agent in the background — without sharing your private preferences.',
+    description: 'Respond to an event invitation from another ButterflAI user. Updates your RSVP status and notifies the host\'s agent in the background — without sharing your private preferences. Plans you\'re in show on your Google Calendar automatically.',
     input_schema: {
       type: 'object',
       properties: {
         invitation_id: { type: 'string', description: 'inv_id from the coordination invite in your state snapshot' },
         status: { type: 'string', enum: ['accepted', 'declined'], description: 'Your response' },
-        add_to_calendar: { type: 'boolean', description: 'Whether to add this event to your own Google Calendar' },
+        add_to_calendar: { type: 'boolean', description: 'Ignored — plans are on the calendar automatically (kept for older calls)' },
       },
       required: ['invitation_id', 'status'],
     },
@@ -561,7 +561,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'create_calendar_event',
-    description: 'Create an event on the user\'s Google Calendar. Call this after a time is agreed.',
+    description: 'Put something that is NOT a ButterflAI plan on the user\'s Google Calendar (e.g. a personal reminder). Plans (create_social_event) go on the calendar automatically and stay in step — never use this for a plan.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1572,37 +1572,17 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const answered = planops.respond(invitation_id, status, { by: 'guest', phone: user?.phone, via: 'agent' });
       if (!answered.ok) return { error: 'Invitation not found', message: 'Use an inv_id from "You have been invited to" in your state.' };
 
-      // Add to this user's own calendar if requested
-      let calendarResult = null;
-      if (add_to_calendar && status === 'accepted') {
-        try {
-          const startISO = new Date(inv.scheduled_at * 1000).toISOString();
-          const endISO = new Date((inv.scheduled_at + 3600) * 1000).toISOString();
-          calendarResult = await calendar.createEvent(userId, {
-            summary: inv.title,
-            description: `Invited by ${db.getUser(inv.host_user_id)?.name || 'a friend'} via ButterflAI`,
-            start: { dateTime: startISO, timeZone: userTimezone },
-            end: { dateTime: endISO, timeZone: userTimezone },
-          });
-        } catch (err) {
-          calendarResult = { error: err.message };
-        }
-      }
-
+      // Their Google Calendar follows on its own (calendar ripple, calmirror.js) — no
+      // separate entry here, which used to leave a stale copy when the plan changed.
       // The host is told by the host-notice ripple (same as every other way of answering).
       const host = db.getUser(inv.host_user_id);
 
-      const calFailed = calendarResult?.error;
       return {
         action_status: 'RSVP_CONFIRMED',   // RSVP is done regardless of calendar
         rsvp_status: status,
         host_notified: !!host,
-        calendar: calendarResult && !calFailed
-          ? 'added'
-          : add_to_calendar
-            ? `not_added — ${calFailed || 'calendar not connected'} — RSVP still confirmed`
-            : 'skipped',
-        instruction: 'RSVP is confirmed. If calendar was not added, offer to connect calendar as a separate follow-up. Do NOT report this as a failure or ask the user to retry the RSVP.',
+        calendar: require('./calmirror').isOn(userId) ? 'on_calendar_automatically' : 'calendar_not_connected',
+        instruction: 'RSVP is confirmed. If their calendar is not connected, you may offer to connect it as a separate follow-up. Do NOT report this as a failure or ask the user to retry the RSVP.',
       };
     }
 
@@ -2338,6 +2318,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join", or asks your user's opinion on a plan): pass it to your user with tell_my_user — ONLY the message they should read, e.g. "Sean's heading to [place] tonight around [time] — want to go?" When your user answers, pass it back with message_agent. Do not reveal agent-to-agent mechanics.
   REFLECTION FOLLOW-UPS: you sometimes check back later ("Earlier I told Sean you'd rather reschedule — did I get that right?"). If your user corrects you, fix it with the other side right away (message_agent / send_logistics_sms with the correction, keeping their words' meaning) and tell your user it's fixed. If they say it was right, just acknowledge.
   PASSING YOUR USER'S ANSWER BACK: keep what they meant. If they asked something ("how much is a cabin?"), answer it or include it — never drop it. If they hedged ("probably", "maybe"), keep it tentative — never turn it into a decision. Never tell your user what the other side is doing or planning unless their ButterflAI actually said so.
+  CALENDAR: every plan your user is in shows on their connected Google Calendar automatically and follows every change (dates, place, cancel, their answer). Never use create_calendar_event for a plan — that makes a second, stale copy; it is only for things that aren't plans.
   PLAN CIRCLE: agents of people who are in the same plan (host, or said yes) are insiders for THAT plan — they settle its logistics between themselves and only bring their users what needs a decision. Your state says whether a question comes from INSIDE a plan or from OUTSIDE your user's plans; never treat an outsider as an insider.
   WHEN ANSWERING ANOTHER AGENT YOUR FINAL TEXT IS SHOWN TO NO ONE. Only reply_agent (to the other agent) and tell_my_user (to your user) reach anybody. Never put your reasoning in either.
   3. "WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS": NEVER answer this yourself — not from memory, not from old messages. Where your user will be is theirs to share. Do NOT ping your user to answer it either — ButterflAI never pushes people to respond to individuals. Reply via reply_agent with only what your user has explicitly shared for that time; if nothing, reply "Nothing shared for tonight."

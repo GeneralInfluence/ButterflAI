@@ -24,12 +24,12 @@ const PARTS = {
   deferrers:    'People who go with whatever others decide',
   screens:      'Home, calendar, Events, chat pills, the agent\'s view',
   chat:         "The plan's discussion (messages filed under it)",
-  calendar:     'Google / Apple Calendar entries',
+  calendar:     'Google Calendar entries (calmirror.js; Apple not mirrored yet)',
   change_log:   'plan_changes (who changed what)',
 };
 
 const CIRCLE_LIVE = 'Computed live from the guest list (plan.inCircle) — nothing stored.';
-const CAL = 'Calendar entries are only made when the user asks (confirm_coordination_invite add_to_calendar); keeping them in step with the plan is not built yet (event-map contradiction #4).';
+const CAL = 'reaction:calendar';
 
 const MATRIX = {
   created: {
@@ -81,7 +81,7 @@ const MATRIX = {
     chat: 'mergeEvents moves the discussion, agent threads and mentions.', calendar: CAL, change_log: LOG,
   },
   guest_added: {
-    guest_list: 'The invite itself.', creating: 'todos.members() reads the guest list live — they can be assigned at once.',
+    guest_list: 'The invite itself.', creating: 'reaction:creating',
     plan_circle: NA('invited isn\'t inside yet; saying yes is (guest_responded).'),
     avoid_lists: 'Inside the invite (multiparty.inviteContacts — the privacy choke point): anyone in it who avoids the new guest is asked; the new guest\'s own list declines or asks.',
     host: NA('the host invited them.'), deferrers: NA('a new guest changes nothing they deferred on.'),
@@ -105,7 +105,8 @@ const MATRIX = {
     avoid_lists: 'Via the guest_responded in the same batch.',
     host: 'The host\'s card shows "whatever you & Melanie decide" (plan.js, live).',
     deferrers: 'Open questions about this plan are answered with the fixed line at once (planops.defer).',
-    screens: LIVE, chat: NA('nothing to say; that is the point of deferring.'), calendar: CAL, change_log: LOG,
+    screens: LIVE, chat: NA('nothing to say; that is the point of deferring.'),
+    calendar: 'Via the guest_responded in the same batch (their status is what the calendar shows).', change_log: LOG,
   },
   invite_hidden: {
     guest_list: NA('hiding is personal; their answer stands.'), creating: NA('nothing changes.'),

@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_876_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_890_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -721,8 +721,20 @@ person who said yes.
   agent is told in code whether the question is from INSIDE a plan (gets the plan's details;
   settles logistics without asking its user) or OUTSIDE (hard constraints + what the user
   shared only).
-- Screens read `plan.js` live, so they need no reaction. Calendar entries are still not kept
-  in step with plans (event map contradiction #4).
+- Screens read `plan.js` live, so they need no reaction.
+- **New guests see Creating (owner, 2026-10-13):** the `creating` reaction on `guest_added`
+  sends a ButterflAI user one notice in the plan's chat listing its to-dos (who has what,
+  what's open) when there are any.
+- **Google Calendar mirrors ButterflAI (owner, 2026-10-13):** `calmirror.js` + the `calendar`
+  reaction. Every plan someone is in shows on their connected Google Calendar as ButterflAI
+  shows it — set date = one timed entry (tentative/free while tentative or not answered,
+  "(invited)"); proposed dates = one all-day "(proposed)" entry per option; date TBD = none;
+  cancelled/declined/removed/hidden = removed — and follows every change. `calendar_mirror`
+  (migration 050) keeps each person's Google event ids; written right away, retried from the
+  coord loop; only what changed is rewritten. Settings → Connections turns it off (removes the
+  entries). `confirm_coordination_invite` no longer makes its own copy; `create_calendar_event`
+  is only for things that aren't plans. Apple Calendar isn't mirrored yet. Retro: existing plans
+  go onto connected calendars, people told once.
 - Retro: to-dos still assigned to people who are out are freed (internal); an avoided person's
   existing yes sends the heads-up now (propose).
 

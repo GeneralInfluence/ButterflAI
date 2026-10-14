@@ -38,6 +38,7 @@ const linktoken = require('./linktoken');
 const groupPlans = require('./groups');
 const todos = require('./todos');
 const plan = require('./plan');
+const calmirror = require('./calmirror');
 const planops = require('./planops');
 const names = require('./names');
 const plans = require('./plans');
@@ -2395,9 +2396,19 @@ app.get('/auth/google/contacts', (req, res) => {
 app.get('/api/user/connections', webAuth.requireAuth, (req, res) => {
   const sync = contactsImport.syncStatus(req.user.id);
   res.json({
-    google: { calendar: calendar.hasCalendarConnected(req.user.id), contacts: sync.connected, contacts_synced_at: sync.last_sync_at },
+    google: { calendar: calendar.hasCalendarConnected(req.user.id), calendar_mirror: db.getUser(req.user.id)?.gcal_mirror !== 0,
+      contacts: sync.connected, contacts_synced_at: sync.last_sync_at },
     apple: { calendar: !!calendar.hasAppleCalendarConnected(req.user.id) },
   });
+});
+
+// Google Calendar mirror on/off (Settings). Off removes ButterflAI's entries; on adds them.
+app.patch('/api/user/calendar-mirror', webAuth.requireAuth, express.json(), (req, res) => {
+  const on = req.body?.on !== false;
+  db._raw().prepare('UPDATE users SET gcal_mirror = ? WHERE id = ?').run(on ? 1 : 0, req.user.id);
+  const n = calmirror.markAllFor(req.user.id);
+  calmirror.flushSoon();
+  res.json({ ok: true, on, plans: n });
 });
 
 // Sync Google contacts now (Settings button).
@@ -2434,7 +2445,8 @@ app.get('/auth/google/callback', async (req, res) => {
         await calendar.storeTokens(googleUser, g.tokens);
         const calTz = await calendar.getCalendarTimezone(googleUser).catch(() => null);
         if (calTz) db.updateUser(googleUser, { timezone: calTz });
-        db.appendConversation(googleUser, 'assistant', `[System] Google Calendar connected. Timezone: ${calTz || 'unknown'}. You can check availability, find free slots, and create calendar events.`);
+        db.appendConversation(googleUser, 'assistant', `[System] Google Calendar connected. Timezone: ${calTz || 'unknown'}. You can check availability and find free slots; the user's plans now show on their Google Calendar automatically.`);
+        calmirror.markAllFor(googleUser); calmirror.flushSoon();
         done.push('Calendar');
       }
       let imported = null;
@@ -2567,6 +2579,7 @@ app.get('/auth/google/callback', async (req, res) => {
       if (!user) return res.status(400).send('Unknown user');
 
       await calendar.handleOAuthCallback(code, userId);
+      calmirror.markAllFor(userId); calmirror.flushSoon();   // their plans go on the calendar they just connected
 
       // Pull timezone from the primary calendar and persist it
       const calTz = await calendar.getCalendarTimezone(userId).catch(() => null);

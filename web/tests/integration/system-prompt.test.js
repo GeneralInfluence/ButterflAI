@@ -731,3 +731,13 @@ describe('Plan circle', () => {
     assert.ok(p.includes('never treat an outsider as an insider'));
   });
 });
+
+// 2026-10-13: Google Calendar mirrors plans (calmirror.js) — the agent must not add a
+// second, stale copy with create_calendar_event.
+describe('Calendar mirror', () => {
+  test('plans are on the calendar automatically; create_calendar_event is never for a plan', () => {
+    const p = buildSystemPrompt(STUB_USER, '');
+    assert.ok(p.includes('CALENDAR: every plan your user is in shows on their connected Google Calendar automatically'));
+    assert.ok(p.includes('Never use create_calendar_event for a plan'));
+  });
+});

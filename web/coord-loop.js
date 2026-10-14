@@ -126,6 +126,8 @@ async function tick(transport = stubTransport) {
     // A plan change whose ripple failed part-way is finished here (ripples/index.js).
     const retried = require('./ripples').retryPending();
     if (retried) console.log(`[coord] retried ${retried} plan ripple batch(es)`);
+    const mirrored = await require('./calmirror').flush();   // Google Calendar entries still to write
+    if (mirrored) console.log(`[coord] synced ${mirrored} calendar entr(ies)`);
     // Apply behavior changes to what already exists, once per existing user (retro.js).
     const retroRuns = await require('./retro').tick();
     if (retroRuns) console.log(`[coord] ran ${retroRuns} retro task(s)`);

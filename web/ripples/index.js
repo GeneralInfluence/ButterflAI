@@ -44,6 +44,7 @@ const REACTIONS = [
   require('./reactions/deferrers-fyi'),
   require('./reactions/creating'),
   require('./reactions/avoid-heads-up'),
+  require('./reactions/calendar'),
 ];
 const MAX_ATTEMPTS = 5;
 
