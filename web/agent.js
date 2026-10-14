@@ -815,6 +815,18 @@ function openQuestionsFor(userId) {
 // — next time it's an exact match, and it wins over a namesake. In code, per user.
 const LOOKUP_MEMORY_SECS = 30 * 60;
 const recentLookups = new Map();   // userId → [{ query, ids, at }]
+// Did the user's own words name this plan? Its distinctive words (not "birthday", "party",
+// "weekend"…), matched as whole words or a 3+ letter start ("Mel" → Melanie).
+const GENERIC_PLAN_WORDS = new Set(['birthday', 'party', 'weekend', 'trip', 'plan', 'night', 'dinner', 'lunch', 'brunch', 'drinks', 'with', 'and', 'the',
+  'for', 'at', 'of', 'a', 'an', 'to', 'in', 'on', 'hangout', 'event', 'tonight', 'week', 'day']);
+function planNamedIn(text, title) {
+  const words = (s) => String(s || '').toLowerCase().replace(/['’]s\b/g, '').split(/[^a-z0-9]+/).filter(Boolean);
+  const said = words(text);
+  const distinct = words(title).filter((w) => w.length > 2 && !GENERIC_PLAN_WORDS.has(w));
+  if (!distinct.length) return said.some((w) => words(title).includes(w));
+  // "melanies" (no apostrophe) names Melanie's too.
+  return distinct.some((t) => said.some((w) => w === t || w.replace(/s$/, '') === t || (w.length >= 3 && t.startsWith(w))));
+}
 const pendingMerges = new Map();   // "user:keep:drop" → { at, turnId } (merge_plans asks first)
 const ACTS_ON_CONTACT = new Set(['send_logistics_sms', 'draft_contact_message', 'message_agent', 'manage_contact_group',
   'create_social_event', 'send_contact_invite', 'check_contact_consent']);
@@ -1363,6 +1375,16 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const prior = pendingMerges.get(key);
       const turnId = currentTurn?.msgId;
       if (!prior || prior.at < Date.now() - 30 * 60e3 || prior.turnId === turnId) {
+        // Only plans the user actually named (🐛 #11, 2026-10-12: "Melanie's birthday weekend
+        // and the Grover Hot Springs is really just one event" → the agent offered to fold in
+        // Liam's Birthday Party, which Sean never mentioned). The plan whose discussion they're
+        // in counts as named.
+        const said = currentTurn?.userText || '';
+        const unnamed = [a, b].filter((x) => x.id !== currentTurn?.eventId && !planNamedIn(said, x.title));
+        if (said && unnamed.length) {
+          return { error: 'PLAN_NOT_NAMED', action_status: 'NOT_DONE',
+            message: `Your user didn't mention ${unnamed.map((x) => `"${x.title}"`).join(' or ')}. Only combine plans they named. If something they named isn't a plan yet (e.g. a place or idea), it isn't a merge — update the plan they named instead (update_event: venue_name, notes, dates).` };
+        }
         pendingMerges.set(key, { at: Date.now(), turnId });
         return { needs_confirmation: true, action_status: 'NOT_DONE',
           message: `Ask your user: combine "${b.title}" into "${a.title}"? (people, discussion and notes move over). Call merge_plans again with the same ids after they say yes.` };
@@ -2337,6 +2359,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join", or asks your user's opinion on a plan): pass it to your user with tell_my_user — ONLY the message they should read, e.g. "Sean's heading to [place] tonight around [time] — want to go?" When your user answers, pass it back with message_agent. Do not reveal agent-to-agent mechanics.
   REFLECTION FOLLOW-UPS: you sometimes check back later ("Earlier I told Sean you'd rather reschedule — did I get that right?"). If your user corrects you, fix it with the other side right away (message_agent / send_logistics_sms with the correction, keeping their words' meaning) and tell your user it's fixed. If they say it was right, just acknowledge.
   PASSING YOUR USER'S ANSWER BACK: keep what they meant. If they asked something ("how much is a cabin?"), answer it or include it — never drop it. If they hedged ("probably", "maybe"), keep it tentative — never turn it into a decision. Never tell your user what the other side is doing or planning unless their ButterflAI actually said so.
+  WRITE IT FOR THEM: when your user gives the gist of a message ("tell her we should hang out", "let Bam know I'm coming"), write the message yourself and show it — never ask "what do you want to say?" (🐛 #2). Ask only if they gave no idea at all of what to say.
   SHARES BECOME PLANS: what someone shares ("Free tonight", "At Sully's from 9") is not a plan until someone makes it one. When your user wants to do what they or a friend shared, make the plan (create_social_event, tentative, with that friend in contact_ids) — Home also has a "Make it a plan" button for this.
   DESIRES ARE PLANS: when parse_desires stores a social desire ("go out with a friend or two this week"), it is already a plan (idea stage, its window as proposed dates) — the result lists them. Work on those plans (update_event, invite, Creating); never create a second plan for the same desire.
   CALENDAR: every plan your user is in shows on their connected Google Calendar automatically and follows every change (dates, place, cancel, their answer). Never use create_calendar_event for a plan — that makes a second, stale copy; it is only for things that aren't plans.
@@ -2704,7 +2727,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   // the message is scrubbed, so no plain-text copy is left at rest.
   const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
   const turnStart = Math.floor(Date.now() / 1000);   // chat rows from here on belong to this turn (topics.js)
-  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id };
+  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id, eventId: msg.event_id || null };
   if (msg.channel === 'agent_query') {
     // Who's asking (for tell_my_user's avoid-list check), from the queued "thread=<id>".
     const thread = /\bthread=([\w-]+)/.exec(msg.text || '')?.[1];
@@ -3003,4 +3026,5 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = { _relayProblem: relayProblem, startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver, _unverifiedSentClaim: unverifiedSentClaim, NOT_SENT_FALLBACK, _unbackedActionClaim: unbackedActionClaim, NOT_DONE_FALLBACK };
+module.exports = {
+  planNamedIn, _relayProblem: relayProblem, startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver, _unverifiedSentClaim: unverifiedSentClaim, NOT_SENT_FALLBACK, _unbackedActionClaim: unbackedActionClaim, NOT_DONE_FALLBACK };

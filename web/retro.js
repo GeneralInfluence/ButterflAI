@@ -386,7 +386,10 @@ const TASKS = [
 async function tick() {
   let ran = 0;
   for (const task of TASKS) {
-    const users = db._raw().prepare(`SELECT * FROM users u WHERE u.created_at < ? AND u.onboarding_state = 'complete'
+    // Everyone who uses ButterflAI — finished sign-up, or has talked to their agent (Bam Bam's
+    // account still said "new" and was skipped by every task until 2026-10-13).
+    const users = db._raw().prepare(`SELECT * FROM users u WHERE u.created_at < ?
+      AND (u.onboarding_state = 'complete' OR EXISTS (SELECT 1 FROM conversation_history h WHERE h.user_id = u.id))
       AND NOT EXISTS (SELECT 1 FROM retro_runs r WHERE r.task_id = ? AND r.user_id = u.id)`).all(task.added, task.id);
     for (const user of users) {
       if (ran >= MAX_PER_TICK) return ran;
