@@ -332,6 +332,12 @@ the plan's name, date(s), place, "You're hosting" / "With <host's first name>", 
 the plan. Nothing else — no guest list, notes, to-dos or private data. On by default once
 Google Calendar is connected; Settings → Connections turns it off, which removes the entries.
 
+## Cancelled plans `[2026-10-13]`
+
+A cancelled plan (or one folded into another) is hard-deleted 90 days after it was cancelled,
+with its guest list, to-dos, change history, check-ins and calendar records
+(`planops.purgeCancelled`). Each person's own chat messages about it stay in their chat.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

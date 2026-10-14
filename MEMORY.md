@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_907_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_910_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -768,6 +768,18 @@ agents and ended "scheduled" with no plan anywhere). `web/desireplans.js`:
 - Fixed with it: the `coord_desires` view never had the v2 columns (horizon, candidate_*),
   so recurring desires and named people were silently invisible to the coord loop.
 - No retro: prod had no desires.
+
+## 18. One "same plan" rule, and cancelled plans really go `[2026-10-13]`
+
+Event-map #7:
+- The 6-hour same-title check in `multiparty.createEvent` is gone; planops' one-plan-per-name
+  (`plan.existingByName`) is the only rule.
+- The nightly date-TBD roll is `planops.rollDateTbd` (every plan write in planops).
+- `[DEFAULT — confirm with owner]` **Cancelled plans are deleted 90 days after cancellation**
+  (`social_events.cancelled_at`, migration 052; `planops.purgeCancelled` from the coord-loop
+  purge): the plan, its invitations, to-dos, change log, ripples, check-ins, calendar rows and
+  links. People's chat messages stay but no longer point at it. Plans cancelled before this
+  count from 2026-10-13.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

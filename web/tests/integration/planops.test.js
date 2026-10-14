@@ -168,3 +168,40 @@ describe('the app goes through planops too', () => {
     assert.match(e.plan.dates.label, /proposed/);
   });
 });
+
+// Event-map #7 (2026-10-13): "delete" only cancelled and kept plans forever.
+describe('cancelled plans are deleted after 90 days', () => {
+  test('cancelling records when; reopening clears it', async () => {
+    const sean = mkUser('Sean Gone');
+    const r = await planops.create(sean.id, { title: 'Gone Plan', scheduled_at: new Date(Date.now() + 5 * 86400e3).toISOString() });
+    planops.update(sean.id, r.eventId, { cancel: true });
+    assert.ok(row(r.eventId).cancelled_at);
+    planops.update(sean.id, r.eventId, { status: 'open' });
+    assert.equal(row(r.eventId).cancelled_at, null);
+  });
+
+  test('after 90 days the plan and everything hanging off it is gone; chat messages stay, unlinked', async () => {
+    const sean = mkUser('Sean Purge'); const allie = mkUser('Allie Purge');
+    const keep = await planops.create(sean.id, { title: 'Recent Cancel', scheduled_at: new Date(Date.now() + 5 * 86400e3).toISOString() });
+    const old = await planops.create(sean.id, { title: 'Old Cancel', scheduled_at: new Date(Date.now() + 5 * 86400e3).toISOString(), contact_ids: [knows(sean, allie)] });
+    require('../../todos').add(sean.id, old.eventId, { text: 'Bring chairs' });
+    db._raw().prepare(`INSERT INTO conversation_history (id, user_id, role, text, event_id) VALUES (?, ?, 'user', 'about the old plan', ?)`).run(uuidv4(), sean.id, old.eventId);
+    planops.update(sean.id, keep.eventId, { cancel: true });
+    planops.update(sean.id, old.eventId, { cancel: true });
+    db._raw().prepare('UPDATE social_events SET cancelled_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000) - 91 * 86400, old.eventId);
+    assert.equal(planops.purgeCancelled(), 1);
+    assert.equal(row(old.eventId), undefined);
+    assert.ok(row(keep.eventId), 'cancelled recently — kept for now');
+    for (const t of ['event_invitations', 'event_todos', 'plan_changes', 'plan_ripples']) {
+      assert.equal(db._raw().prepare(`SELECT count(*) c FROM ${t} WHERE event_id = ?`).get(old.eventId).c, 0, t);
+    }
+    const msg = db._raw().prepare("SELECT event_id FROM conversation_history WHERE text = 'about the old plan'").get();
+    assert.equal(msg.event_id, null, 'the message stays, no longer pointing at the plan');
+  });
+
+  test('the nightly date roll goes through planops', () => {
+    const fs = require('node:fs'); const path = require('node:path');
+    assert.ok(fs.readFileSync(path.join(__dirname, '../../coord-loop.js'), 'utf8').includes("require('./planops').rollDateTbd()"));
+    assert.ok(!fs.readFileSync(path.join(__dirname, '../../multiparty.js'), 'utf8').includes('function rollDateTbd'));
+  });
+});

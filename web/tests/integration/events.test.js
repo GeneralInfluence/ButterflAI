@@ -2,7 +2,7 @@
  * events.test.js — Integration tests for event management features
  *
  * Covers issues found 2026-07-16:
- *   - Event deduplication (same title+host within 6h returns existing id)
+ *   - One plan per name (planops) — the 6h createEvent dedupe was removed 2026-10-13
  *   - event_type private/public
  *   - Invited events API + RSVP
  *   - RSVP notification rules (private always; public stranger decline = silent)
@@ -62,44 +62,34 @@ function createUser(phone, name) {
 
 // ── Event deduplication ───────────────────────────────────────────────────────
 
-describe('createEvent — deduplication', () => {
-  test('same title+host within 6h returns the same event id', () => {
+// Since 2026-10-13 the only "same plan" rule is planops' one-plan-per-name (event-map #7);
+// the 6-hour same-title check in createEvent was a second, different rule and is gone.
+describe('one plan per name (planops), not a 6-hour window', () => {
+  const planops = require('../../planops');
+  test('the same name for the same host is refused, whenever it is', async () => {
     const hostId = createUser('+12025551001', 'Host Dedup').id;
-    const ts = Math.floor(Date.now() / 1000) + 3600; // 1h from now
-
-    const id1 = multiparty.createEvent(hostId, {
-      title: 'Dedup Pool Party',
-      activity_type: 'party',
-      scheduled_at: ts,
-    });
-    const id2 = multiparty.createEvent(hostId, {
-      title: 'Dedup Pool Party',
-      activity_type: 'party',
-      scheduled_at: ts + 1800, // 30 min later — still within 6h window
-    });
-
-    assert.equal(id1, id2, 'Duplicate event within 6h should return existing id');
+    const ts = Math.floor(Date.now() / 1000) + 3600;
+    const a = await planops.create(hostId, { title: 'Dedup Pool Party', activity_type: 'party', scheduled_at: ts });
+    const b = await planops.create(hostId, { title: 'Dedup Pool Party', activity_type: 'party', scheduled_at: ts + 8 * 3600 });
+    assert.equal(b.error, 'PLAN_EXISTS');
+    assert.equal(b.eventId, a.eventId);
   });
 
-  test('same title but different host creates a new event', () => {
+  test('same title but different host creates a new plan', async () => {
     const host1 = createUser('+12025551002', 'Host A').id;
     const host2 = createUser('+12025551003', 'Host B').id;
     const ts = Math.floor(Date.now() / 1000) + 7200;
-
-    const id1 = multiparty.createEvent(host1, { title: 'Shared Title Event', activity_type: 'dinner', scheduled_at: ts });
-    const id2 = multiparty.createEvent(host2, { title: 'Shared Title Event', activity_type: 'dinner', scheduled_at: ts });
-
-    assert.notEqual(id1, id2, 'Different hosts should create separate events');
+    const a = await planops.create(host1, { title: 'Shared Title Event', activity_type: 'dinner', scheduled_at: ts });
+    const b = await planops.create(host2, { title: 'Shared Title Event', activity_type: 'dinner', scheduled_at: ts });
+    assert.notEqual(a.eventId, b.eventId);
   });
 
-  test('same title but >6h apart creates a new event', () => {
+  test('createEvent itself no longer folds two plans into one', () => {
     const hostId = createUser('+12025551004', 'Host Far Apart').id;
     const ts = Math.floor(Date.now() / 1000) + 3600;
-
     const id1 = multiparty.createEvent(hostId, { title: 'Far Apart Event', activity_type: 'hike', scheduled_at: ts });
-    const id2 = multiparty.createEvent(hostId, { title: 'Far Apart Event', activity_type: 'hike', scheduled_at: ts + 8 * 3600 });
-
-    assert.notEqual(id1, id2, 'Events >6h apart should be separate');
+    const id2 = multiparty.createEvent(hostId, { title: 'Far Apart Event', activity_type: 'hike', scheduled_at: ts + 1800 });
+    assert.notEqual(id1, id2);
   });
 });
 

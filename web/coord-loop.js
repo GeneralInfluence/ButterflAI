@@ -122,7 +122,7 @@ async function tick(transport = stubTransport) {
     await tickRecurring();
     await tickEscalations();
     tickPurge();
-    require('./multiparty').rollDateTbd();   // dateless plans never drift into "past"
+    require('./planops').rollDateTbd();   // dateless plans never drift into "past"
     // A plan change whose ripple failed part-way is finished here (ripples/index.js).
     const retried = require('./ripples').retryPending();
     if (retried) console.log(`[coord] retried ${retried} plan ripple batch(es)`);
@@ -149,6 +149,13 @@ function tickPurge() {
     }
   } catch (err) {
     console.error('[coord] purge error:', err.message);
+  }
+  // Cancelled plans are deleted 90 days after they were cancelled (planops, event-map #7).
+  try {
+    const n = require('./planops').purgeCancelled();
+    if (n) console.log(`[coord] deleted ${n} plan(s) cancelled over 90 days ago`);
+  } catch (err) {
+    console.error('[coord] cancelled-plan purge error:', err.message);
   }
   // Shared plans and interest signals are deleted once they expire.
   try {

@@ -95,6 +95,7 @@ function ensureEventTables() {
       group_id       TEXT,                -- contact group this plan is for, migration 038
       date_tbd       INTEGER NOT NULL DEFAULT 0, -- 1 = no date yet; scheduled_at is a placeholder, migration 043
       proposed_dates TEXT,                -- JSON [{from,to}] date options for a tentative plan, migration 045
+      cancelled_at INTEGER,               -- when cancelled / folded into another, migration 052
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 
@@ -148,21 +149,8 @@ function createEvent(hostUserId, { title, activity_type, venue_name, venue_addre
 
   const type = event_type === 'public' ? 'public' : 'private';
 
-  // Deduplication: same host + same title within ±6 hours = idempotent, return existing id
-  const WINDOW = 6 * 3600;
-  const existing = db._raw().prepare(`
-    SELECT id FROM social_events
-    WHERE host_user_id = ?
-      AND LOWER(title) = LOWER(?)
-      AND status != 'cancelled'
-      AND ABS(scheduled_at - ?) <= ?
-    LIMIT 1
-  `).get(hostUserId, title, ts, WINDOW);
-
-  if (existing) {
-    console.log(`[multiparty] createEvent: deduped — returning existing event ${existing.id}`);
-    return existing.id;
-  }
+  // One plan per name is planops' rule (plan.existingByName) — the old 6-hour same-title
+  // check here was a second, different rule and is gone (event-map #7, 2026-10-13).
 
   const id = uuidv4();
   db._raw().prepare(`
@@ -619,7 +607,7 @@ function mergeEvents(hostUserId, keepId, mergeId) {
       .run(notes, drop.group_id, drop.venue_name, drop.venue_address, takeDate ? drop.scheduled_at : keep.scheduled_at,
         takeDate ? 0 : keep.date_tbd, takeDate ? drop.flexible_time : keep.flexible_time,
         takeProposals ? drop.proposed_dates : keep.proposed_dates, keepId);
-    db._raw().prepare(`UPDATE social_events SET status = 'cancelled', notes = ? WHERE id = ?`).run(`Combined into "${keep.title}"`, mergeId);
+    db._raw().prepare(`UPDATE social_events SET status = 'cancelled', cancelled_at = strftime('%s','now'), notes = ? WHERE id = ?`).run(`Combined into "${keep.title}"`, mergeId);
   })();
   return { merged: true, kept: { event_id: keepId, title: keep.title }, combined: { event_id: mergeId, title: drop.title } };
 }
@@ -645,11 +633,7 @@ function normalizeProposals(list) {
 // Plans with no date yet keep a placeholder this far ahead, so nothing treats them as
 // past; rollDateTbd (coord loop) keeps it there.
 const DATE_TBD_DAYS = 45;
-function rollDateTbd() {
-  const t = Math.floor(Date.now() / 1000);
-  return db._raw().prepare(`UPDATE social_events SET scheduled_at = ? WHERE date_tbd = 1 AND scheduled_at < ?`)
-    .run(t + DATE_TBD_DAYS * 86400, t + 30 * 86400).changes;
-}
+// rollDateTbd moved to planops (every plan write goes through planops — event-map #7).
 
 function formatEventDate(ts, timezone = 'America/Los_Angeles') {
   const d = new Date(ts * 1000);
@@ -688,7 +672,6 @@ module.exports = {
   createEvent,
   normalizeProposals,
   mergeEvents,
-  rollDateTbd,
   DATE_TBD_DAYS,
   inviteContacts,
   formatEventDate,

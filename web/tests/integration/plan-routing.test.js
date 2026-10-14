@@ -77,7 +77,7 @@ describe('plans exist from their first mention', () => {
     assert.equal(plans.feedFor(u.id).items.find((i) => i.event_id === r.eventId).date_tbd, true);
     assert.ok(topics.discussionsFor(u.id).some((d) => d.event_id === r.eventId));
     db._raw().prepare('UPDATE social_events SET scheduled_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000) + 86400, r.eventId);
-    assert.ok(multiparty.rollDateTbd() >= 1);
+    assert.ok(require('../../planops').rollDateTbd() >= 1);   // moved to planops 2026-10-13
     assert.ok(db._raw().prepare('SELECT scheduled_at FROM social_events WHERE id = ?').get(r.eventId).scheduled_at > Date.now() / 1000 + 30 * 86400);
     await agent.executeTool('update_event', { event_id: r.eventId, scheduled_at: new Date(Date.now() + 14 * 86400e3).toISOString() }, u.id, u.phone);
     assert.equal(db._raw().prepare('SELECT date_tbd FROM social_events WHERE id = ?').get(r.eventId).date_tbd, 0);

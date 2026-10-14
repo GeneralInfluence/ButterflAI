@@ -30,7 +30,7 @@ const ripples = require('./ripples');
 
 const MAX_TITLE = 80;
 const SET_FIELDS = ['title', 'activity_type', 'notes', 'venue_name', 'venue_address', 'scheduled_at', 'date_tbd', 'proposed_dates',
-  'tentative', 'flexible_time', 'duration_mins', 'event_type', 'host_attending', 'status', 'group_id'];
+  'tentative', 'flexible_time', 'duration_mins', 'event_type', 'host_attending', 'status', 'group_id', 'cancelled_at'];
 
 function log(eventId, actorId, via, field, oldV, newV) {
   db._raw().prepare(`INSERT INTO plan_changes (event_id, actor_id, via, field, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`)
@@ -143,8 +143,8 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
   if (changes.event_type !== undefined) u.event_type = changes.event_type === 'public' ? 'public' : 'private';
   if (changes.host_attending !== undefined) u.host_attending = changes.host_attending ? 1 : 0;
   if (changes.group_id !== undefined && db.getContactGroups(actorId).some((g) => g.id === changes.group_id)) u.group_id = changes.group_id;
-  if (changes.cancel === true || changes.status === 'cancelled') u.status = 'cancelled';
-  else if (changes.status === 'open') u.status = 'open';
+  if (changes.cancel === true || changes.status === 'cancelled') { u.status = 'cancelled'; if (e.status !== 'cancelled') u.cancelled_at = Math.floor(Date.now() / 1000); }
+  else if (changes.status === 'open') { u.status = 'open'; u.cancelled_at = null; }
 
   const fields = Object.keys(u).filter((k) => SET_FIELDS.includes(k) && String(u[k] ?? '') !== String(e[k] ?? ''));
   if (!fields.length) return { ok: true, event_id: eventId, updated: [], note: 'Nothing changed' };
@@ -155,7 +155,7 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
     batch = ripples.emit(changesFor(eventId, actorId, via, fields, e, { ...e, ...u }));
   })();
   const results = ripples.run(batch);
-  return { ok: true, event_id: eventId, updated: fields, fyi_sent_to_deferred: results['deferrers-fyi'] || undefined };
+  return { ok: true, event_id: eventId, updated: fields.filter((f) => f !== 'cancelled_at'), fyi_sent_to_deferred: results['deferrers-fyi'] || undefined };
 }
 
 // Which kinds of change (ripples.TYPES) a set of changed fields amounts to.
@@ -169,7 +169,7 @@ function changesFor(eventId, actorId, via, fields, before, after) {
   if (has('venue_name', 'venue_address')) out.push(c('place_changed', { venue_name: after.venue_name || null, venue_address: after.venue_address || null }));
   if (has('tentative') && !after.tentative) out.push(c('locked_in'));
   if (has('status') && after.status === 'cancelled') out.push(c('cancelled'));
-  const other = fields.filter((f) => !['title', 'venue_name', 'venue_address', ...DATE_FIELDS].includes(f)
+  const other = fields.filter((f) => !['title', 'venue_name', 'venue_address', 'cancelled_at', ...DATE_FIELDS].includes(f)
     && !(f === 'tentative' && !after.tentative) && !(f === 'status' && after.status === 'cancelled'));
   if (other.length) out.push(c('details_changed', { fields: other }));
   return out;
@@ -342,9 +342,44 @@ function merge(actorId, keepId, dropId, { via = 'agent' } = {}) {
   return r;
 }
 
+/**
+ * Keep a dateless plan's placeholder date ahead of today so it never drifts into "past"
+ * (coord loop). Not a change anyone made — no ripple (the plan still reads "date TBD").
+ */
+function rollDateTbd() {
+  const t = Math.floor(Date.now() / 1000);
+  return db._raw().prepare(`UPDATE social_events SET scheduled_at = ? WHERE date_tbd = 1 AND scheduled_at < ?`)
+    .run(t + multiparty.DATE_TBD_DAYS * 86400, t + 30 * 86400).changes;
+}
+
+/**
+ * Cancelled plans are deleted CANCELLED_KEEP_DAYS after they were cancelled (event-map #7:
+ * "delete" used to mean "kept forever"). Goes with the plan: its invitations, to-dos,
+ * change log, ripples, check-ins, calendar rows and links. People's own chat messages
+ * stay — they're the user's conversation — but no longer point at the plan.
+ * Calendar entries were already removed when it was cancelled (calendar ripple).
+ */
+const CANCELLED_KEEP_DAYS = 90;
+function purgeCancelled({ days = CANCELLED_KEEP_DAYS } = {}) {
+  const ids = db._raw().prepare(`SELECT id FROM social_events WHERE status = 'cancelled' AND cancelled_at IS NOT NULL AND cancelled_at < ?`)
+    .all(Math.floor(Date.now() / 1000) - days * 86400).map((r) => r.id);
+  const tables = [['event_invitations', 'event_id'], ['event_todos', 'event_id'], ['plan_changes', 'event_id'], ['plan_ripples', 'event_id'],
+    ['attendance_confirmations', 'event_id'], ['calendar_mirror', 'event_id'], ['desire_plans', 'event_id'], ['share_plans', 'event_id'],
+    ['lift_observations', 'event_id'], ['contact_mentions', 'event_id']];
+  const unlink = [['conversation_history', 'event_id'], ['inbound_messages', 'event_id'], ['agent_messages', 'thread_id']];
+  db._raw().transaction(() => {
+    for (const id of ids) {
+      for (const [t, c] of tables) { try { db._raw().prepare(`DELETE FROM ${t} WHERE ${c} = ?`).run(id); } catch (_) { /* table not in this build */ } }
+      for (const [t, c] of unlink) { try { db._raw().prepare(`UPDATE ${t} SET ${c} = NULL WHERE ${c} = ?`).run(id); } catch (_) {} }
+      db._raw().prepare('DELETE FROM social_events WHERE id = ?').run(id);
+    }
+  })();
+  return ids.length;
+}
+
 /** What changed on a plan, newest first (for the admin / feedback). */
 function history(eventId, limit = 50) {
   return db._raw().prepare('SELECT * FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT ?').all(eventId, limit);
 }
 
-module.exports = { create, update, invite, merge, history, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };
+module.exports = { create, update, invite, merge, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };
