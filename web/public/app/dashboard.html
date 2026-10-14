@@ -239,7 +239,9 @@
         : 'with ' + esc(i.host);
       // The card opens that plan's discussion in chat (2026-10-09); its icon opens the plan's
       // summary on the Events tab (2026-10-12).
-      return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="/app/chat?event=${esc(i.event_id)}"><span class="feed-icon" role="link" aria-label="Plan summary" title="Plan summary" onclick="event.preventDefault();event.stopPropagation();location.href='/app/events?event=${esc(i.event_id)}'">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
+      // A guest asked "Still going?" answers on the plan's summary (2026-10-13).
+      const href = i.role !== 'host' && i.action ? `/app/events?event=${esc(i.event_id)}` : `/app/chat?event=${esc(i.event_id)}`;
+      return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="${href}"><span class="feed-icon" role="link" aria-label="Plan summary" title="Plan summary" onclick="event.preventDefault();event.stopPropagation();location.href='/app/events?event=${esc(i.event_id)}'">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
     }
     const chatLink = (i) => i.event_id ? `/app/chat?event=${esc(i.event_id)}` : '/app/chat';
     if (i.type === 'question') return `<a class="card feed-item needs-you" href="${chatLink(i)}"><span class="feed-icon">❓</span><div><div class="card-title">${esc(i.who)} asked</div><div class="card-sub">${esc(i.text)}</div>${action(i)}</div></a>`;

@@ -769,7 +769,10 @@
       <button type="button" class="todo-toggle" onclick="toggleTodos(this)">✨ Creating${p.creating.total ? ` ${p.creating.done}/${p.creating.total}` : ''}${p.creating.suggested ? ` · ${p.creating.suggested} suggested` : ''} ▾</button>
       <ul class="todo-mini" hidden></ul></div>`;
     const inv = p.invitation;
-    const answer = inv && inv.status === 'invited'
+    const answer = inv && inv.must_ask && inv.status === 'accepted'
+      ? `<button class="ps-primary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted')">Still going</button>
+         <button class="ps-secondary" onclick="summaryRsvp('${escHtml(inv.id)}','declined')">Not going</button>`
+      : inv && inv.status === 'invited'
       ? `<button class="ps-primary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted')">${p.tentative ? '⭐ I’m interested' : '✓ I’m in'}</button>
          <button class="ps-secondary" onclick="summaryRsvp('${escHtml(inv.id)}','declined')">${p.tentative ? 'Not this time' : 'Can’t make it'}</button>` : '';
     el.innerHTML = `<div class="ps-head"><div class="ps-title">${escHtml(p.title)}</div>

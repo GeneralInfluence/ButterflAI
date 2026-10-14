@@ -1567,10 +1567,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       `).get(invitation_id);
       if (!inv) return { error: 'Invitation not found' };
 
-      // Update RSVP status
-      db._raw().prepare(`
-        UPDATE event_invitations SET status = ?, responded_at = strftime('%s','now') WHERE id = ?
-      `).run(status, invitation_id);
+      // The answer goes through planops, which ripples it: the host is told, Creating and
+      // anyone avoiding this user in the plan follow (ripples/). Also clears a pause.
+      const answered = planops.respond(invitation_id, status, { by: 'guest', phone: user?.phone, via: 'agent' });
+      if (!answered.ok) return { error: 'Invitation not found', message: 'Use an inv_id from "You have been invited to" in your state.' };
 
       // Add to this user's own calendar if requested
       let calendarResult = null;
@@ -1589,13 +1589,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         }
       }
 
-      // Notify the host's agent (agent-to-agent: share only RSVP result, not private prefs).
-      // Queued as an inbound_message so the host's agent proactively texts the host.
-      // Shared with avoid-list auto-declines so both look identical to the host.
+      // The host is told by the host-notice ripple (same as every other way of answering).
       const host = db.getUser(inv.host_user_id);
-      if (host) multiparty.queueHostRsvpNotice(inv, user, status);
-      // The user has now decided, so the invite no longer waits on them.
-      db._raw().prepare('UPDATE event_invitations SET needs_owner_decision = 0 WHERE id = ?').run(invitation_id);
 
       const calFailed = calendarResult?.error;
       return {
@@ -1620,20 +1615,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const phone = toE164(contact_phone) || contact_phone;
       const contact = db.getContactsByUser(userId).find((c) => c.phone === phone);
       if (!contact) return { error: 'Contact not found' };
-      // Upsert invitation record
-      const existing = db._raw().prepare(
-        'SELECT id FROM event_invitations WHERE event_id = ? AND contact_id = ?'
-      ).get(event_id, contact.id);
-      if (existing) {
-        db._raw().prepare(
-          'UPDATE event_invitations SET status = ?, responded_at = strftime(\'%s\',\'now\') WHERE id = ?'
-        ).run(status, existing.id);
-      } else {
-        const { v4: uuidv4 } = require('uuid');
-        db._raw().prepare(
-          'INSERT INTO event_invitations (id, event_id, contact_id, status, responded_at) VALUES (?, ?, ?, ?, strftime(\'%s\',\'now\'))'
-        ).run(uuidv4(), event_id, contact.id, status);
-      }
+      // Through planops: adds them if they weren't invited, and ripples the answer.
+      const rec = planops.recordRsvp(userId, event_id, contact.id, status, { via: 'agent' });
+      if (!rec.ok) return { error: rec.error };
       db.appendConversation(userId, 'assistant',
         `[System] RSVP recorded (${source || 'out of band'}): ${contact.name} has ${status} the event.`
       );
@@ -2092,6 +2076,29 @@ async function processMessage(msg) {
     return `\n## Current discussion\nYour user is writing in the discussion for "${e.title}"${e.tentative ? ' (tentative)' : ''} (eventId="${e.id}"). Take their message as being about this plan unless it's clearly about something else — "she", "the trip", "Saturday" refer to it.`;
   })();
 
+  // Answering another agent: is the asker inside the plan this is about (plan circle,
+  // owner 2026-10-13)? Insiders work the plan out together; outsiders get only hard
+  // constraints and what the user shared. Decided in code; plan details only enter the
+  // prompt for an insider.
+  const circleSection = (() => {
+    if (!coordinationOnly) return '';
+    const qid = /\bthread=([\w-]+)/.exec(msg.text || '')?.[1];
+    const q = qid && db._raw().prepare('SELECT from_user, thread_id FROM agent_messages WHERE id = ? AND to_user = ?').get(qid, userId);
+    const asker = q && db.getUser(q.from_user);
+    const askerName = (asker?.name || 'The other').split(/\s+/)[0];
+    if (q?.thread_id && planObj.inCircle(q.thread_id, userId, q.from_user)) {
+      const p = planObj.planFor(q.thread_id, userId);
+      if (p) {
+        return `\n## This question is from INSIDE a plan (plan circle)\n${askerName}'s ButterflAI is asking about "${p.title}" (eventId="${p.id}"), a plan your user and ${askerName} are both in. `
+          + `Inside a plan, agents work it out together without bothering their users: answer about THIS plan with reply_agent — its dates, place, who's in, notes, Creating, your user's answer, and their availability and hard constraints for it. `
+          + `Use tell_my_user only for what needs your user's decision. Never share private data, reasons, or anything about other plans.\n`
+          + `- The plan as your user sees it: ${p.dates.label}${p.place ? ` at ${p.place}` : ''} | ${p.stage} | people: ${p.people.map((x) => `${x.name} (${x.deferring_to.length ? 'goes with whatever ' + x.deferring_to.join(' & ') + ' decide' : x.status})`).join(', ') || 'none'}`
+          + `${p.host.is_you ? ' | your user is hosting' : ` | hosted by ${p.host.name}`}${p.notes ? ` | plan so far: ${String(p.notes).slice(0, 300)}` : ''}${p.creating.total ? ` | Creating ${p.creating.done}/${p.creating.total}` : ''}`;
+      }
+    }
+    return `\n## This question is from OUTSIDE your user's plans\n${askerName}'s ButterflAI isn't in a plan with your user${q?.thread_id ? ' for this' : ''} (or hasn't said yes to it). Share only hard constraints and what your user has explicitly shared — nothing about their plans, who they're with, or where they'll be.`;
+  })();
+
   const agentNotes = user.agent_notes?.trim();
   const inSensitiveMode = sensitive.isSensitiveMode(userId);
   const prefsSection = buildPrefsSection(prefs, { coordinationOnly });
@@ -2113,6 +2120,7 @@ async function processMessage(msg) {
       : `\n## ${user.name}'s preferences\n${prefsSection}`,
     coordinationOnly ? '' : `\n## Open events\n${pendingEvents}`,
     pendingCoordination,
+    circleSection,
     openQuestionsSection,
     currentDiscussion,
     (agentNotes && !coordinationOnly) ? `\n## Remembered facts (use these — don't ask again)\n${agentNotes}` : '',
@@ -2330,6 +2338,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join", or asks your user's opinion on a plan): pass it to your user with tell_my_user — ONLY the message they should read, e.g. "Sean's heading to [place] tonight around [time] — want to go?" When your user answers, pass it back with message_agent. Do not reveal agent-to-agent mechanics.
   REFLECTION FOLLOW-UPS: you sometimes check back later ("Earlier I told Sean you'd rather reschedule — did I get that right?"). If your user corrects you, fix it with the other side right away (message_agent / send_logistics_sms with the correction, keeping their words' meaning) and tell your user it's fixed. If they say it was right, just acknowledge.
   PASSING YOUR USER'S ANSWER BACK: keep what they meant. If they asked something ("how much is a cabin?"), answer it or include it — never drop it. If they hedged ("probably", "maybe"), keep it tentative — never turn it into a decision. Never tell your user what the other side is doing or planning unless their ButterflAI actually said so.
+  PLAN CIRCLE: agents of people who are in the same plan (host, or said yes) are insiders for THAT plan — they settle its logistics between themselves and only bring their users what needs a decision. Your state says whether a question comes from INSIDE a plan or from OUTSIDE your user's plans; never treat an outsider as an insider.
   WHEN ANSWERING ANOTHER AGENT YOUR FINAL TEXT IS SHOWN TO NO ONE. Only reply_agent (to the other agent) and tell_my_user (to your user) reach anybody. Never put your reasoning in either.
   3. "WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS": NEVER answer this yourself — not from memory, not from old messages. Where your user will be is theirs to share. Do NOT ping your user to answer it either — ButterflAI never pushes people to respond to individuals. Reply via reply_agent with only what your user has explicitly shared for that time; if nothing, reply "Nothing shared for tonight."
 - Only escalate a FACTUAL query to your user if: (a) the answer genuinely requires their personal decision (not just stored data), AND (b) you have already tried to answer from stored preferences and cannot. Ask your user privately without naming the other agent: "someone asked if you have X on file, do you want to share that?"

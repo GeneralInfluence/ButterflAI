@@ -212,7 +212,7 @@ function feedFor(userId) {
       items.push({ ...base, type: 'invite', role: 'guest', invitation_id: p.invitation.id, host: p.host.name, action: p.next });
     } else {
       items.push({ ...base, type: 'event', role: p.role, host: p.host.name, interested: p.interested, waiting_on: p.waiting_on,
-        asked: p.asked, out: p.out, deferring: p.deferring, action: p.role === 'host' ? p.next : null });
+        asked: p.asked, out: p.out, deferring: p.deferring, action: p.next || null });
     }
   }
 

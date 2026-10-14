@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_844_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_876_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -690,6 +690,41 @@ duplicate plans reached friends and Home kept a stale "Waiting on…").
 - **Feedback on every screen:** `web/public/feedback.js` (🐛 tab, sheet labelled "Ideas & bugs", screenshot + the screen's state
   + the plan object when it's about a plan) → `/admin/feedback`. Screenshots/state kept 90 days.
 - Tests: `tests/integration/planops.test.js`, `plan-object.test.js`, `feedback-screens.test.js`.
+
+## 15. Ripples: every change to a plan cascades `[LOCKED 2026-10-13]`
+
+Owner: "every change to an event should cascade through the entire system" — an RSVP updates
+the guest list, the plan's Creating list, which agents are insiders, and anyone avoiding the
+person who said yes.
+
+- **One door:** every plan change, including guest answers, deferring, removing a guest and
+  hiding an invite, goes through `planops.js` (`respond`, `recordRsvp`, `publicRsvp`,
+  `deferOn`, `removeGuest`, `dismiss`, `askOwner`). Only `planops.js` and `multiparty.js`
+  (the storage layer it calls) write `social_events` / `event_invitations` — a test fails
+  otherwise.
+- **Ripples:** planops records each change in `plan_ripples` (migration 049) in the same
+  transaction, then `ripples/index.js` runs the reactions in `ripples/reactions/` once per
+  operation; a failed reaction is retried from the coord loop. Kinds of change:
+  `ripples.TYPES` (created, renamed, dates/place/details changed, locked_in, cancelled,
+  merged, guest_added / responded / removed, deferred, invite_hidden).
+- **Reactions:** `host-notice` (one rule for every way an answer arrives), `deferrers-fyi`,
+  `creating` (a no or removal frees their to-dos and tells the host), `avoid-heads-up` (a yes →
+  anyone still deciding who avoids that person is told privately in the app — "Julie said yes
+  to X. Still going?" — and paused until they answer; says who, never why; the person who said
+  yes and the host learn nothing).
+- **The matrix** (`ripples/matrix.js`): every kind of change × every part of the system (guest
+  list, Creating, plan circle, avoid lists, host, deferrers, screens, chat, calendar, change
+  log) names a reaction or why nothing is needed. Adding a kind of change or a part fails
+  `tests/integration/ripples.test.js` until its row/column is filled in.
+- **Plan circle (owner, 2026-10-13):** the host and everyone who said yes (deferring counts)
+  are insiders of that plan (`plan.inCircle`, computed live). Answering another agent, the
+  agent is told in code whether the question is from INSIDE a plan (gets the plan's details;
+  settles logistics without asking its user) or OUTSIDE (hard constraints + what the user
+  shared only).
+- Screens read `plan.js` live, so they need no reaction. Calendar entries are still not kept
+  in step with plans (event map contradiction #4).
+- Retro: to-dos still assigned to people who are out are freed (internal); an avoided person's
+  existing yes sends the heads-up now (propose).
 
 ## 12. Research & planning tools `[2026-10-09]`
 

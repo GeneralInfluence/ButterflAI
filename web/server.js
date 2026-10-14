@@ -2184,7 +2184,7 @@ app.get('/api/events/invited/me', webAuth.requireAuth, (req, res) => {
 
 // POST /api/events/invitations/:id/dismiss — hide an invitation from the events page
 app.post('/api/events/invitations/:id/dismiss', webAuth.requireAuth, (req, res) => {
-  const result = multiparty.dismissInvitation(req.params.id, req.user.phone);
+  const result = planops.dismiss(req.params.id, req.user.phone);
   if (result.error) return res.status(403).json(result);
   res.json(result);
 });
@@ -2195,9 +2195,9 @@ app.post('/api/events/rsvp', webAuth.requireAuth, express.json(), (req, res) => 
   if (!invitation_id || !['accepted', 'declined'].includes(status)) {
     return res.status(400).json({ error: 'invitation_id and status (accepted|declined) required' });
   }
-  const result = multiparty.rsvpInvitation(invitation_id, req.user.phone, status);
-  if (!result.ok) return res.status(403).json(result);
-  res.json(result);
+  const result = planops.respond(invitation_id, status, { by: 'guest', phone: req.user.phone, via: 'app' });
+  if (!result.ok) return res.status(403).json({ ok: false, error: result.error });
+  res.json({ ok: true, status: result.status });
 });
 
 // POST /api/events/:id/public-rsvp — RSVP to a public event (no login required)
@@ -2206,7 +2206,7 @@ app.post('/api/events/:id/public-rsvp', express.json(), (req, res) => {
   if (!['accepted', 'declined'].includes(status)) {
     return res.status(400).json({ error: 'status must be accepted or declined' });
   }
-  const result = multiparty.publicRsvp(req.params.id, { name, phone, status });
+  const result = planops.publicRsvp(req.params.id, { name, phone, status });
   if (!result.ok) return res.status(404).json(result);
   res.json(result);
 });;
@@ -2249,9 +2249,8 @@ app.post('/api/events/:id/invite', webAuth.requireAuth, express.json(), async (r
 
 // DELETE /api/events/:id/invite/:invitationId — remove an invitee
 app.delete('/api/events/:id/invite/:invitationId', webAuth.requireAuth, (req, res) => {
-  const event = multiparty.getEvent(req.params.id);
-  if (!event || event.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
-  db._raw().prepare('DELETE FROM event_invitations WHERE id = ? AND event_id = ?').run(req.params.invitationId, event.id);
+  const r = planops.removeGuest(req.user.id, req.params.id, req.params.invitationId, { via: 'app' });
+  if (r.error === 'NOT_HOST' || r.error === 'INVITATION_NOT_FOUND') return res.status(403).json({ error: 'Not your event' });
   res.json({ ok: true });
 });
 

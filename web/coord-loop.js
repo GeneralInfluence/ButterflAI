@@ -123,6 +123,9 @@ async function tick(transport = stubTransport) {
     await tickEscalations();
     tickPurge();
     require('./multiparty').rollDateTbd();   // dateless plans never drift into "past"
+    // A plan change whose ripple failed part-way is finished here (ripples/index.js).
+    const retried = require('./ripples').retryPending();
+    if (retried) console.log(`[coord] retried ${retried} plan ripple batch(es)`);
     // Apply behavior changes to what already exists, once per existing user (retro.js).
     const retroRuns = await require('./retro').tick();
     if (retroRuns) console.log(`[coord] ran ${retroRuns} retro task(s)`);

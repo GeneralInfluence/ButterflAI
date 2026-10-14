@@ -313,6 +313,18 @@ Screenshots can show friends' names and plans, so: sent only when the person tap
 by the admin only (`/admin/feedback`), and **screenshots and screen state are deleted after 90
 days** (coord-loop purge); the written note is kept.
 
+## Ripples that touch private data `[2026-10-13]`
+
+- **Avoid-list heads-up** (`ripples/reactions/avoid-heads-up.js`): when someone says yes to a
+  plan, anyone in it still deciding who has them on their avoid list is told in the app
+  (never SMS) and their answer is paused. The notice names only who said yes; the reason, the
+  avoid list and the fact that a heads-up happened never reach the person who said yes, the
+  host, or any agent (Invariant 8). Logged in the user's own agent activity.
+- **Plan circle:** agents of people in the same plan (host, or said yes) may share that plan's
+  details and their user's availability and hard constraints *for that plan* with each other
+  without asking. Decided in code (`plan.inCircle`); plan details enter the prompt only for an
+  insider. Private data, reasons and other plans are never shared, inside or out.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

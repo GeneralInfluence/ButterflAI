@@ -967,3 +967,17 @@ describe('Home at a glance: three sections, each opens full screen', () => {
     assert.ok(home.includes('<h3>Friends</h3>') && home.includes('creatingFullHtml('));
   });
 });
+
+// 2026-10-13: a guest paused by an avoid-list heads-up answers "Still going?" on the plan.
+describe('Still going? (avoid-list heads-up)', () => {
+  const fs = require('node:fs'); const path = require('node:path');
+  const ev = fs.readFileSync(path.join(__dirname, '../../public/app/events.html'), 'utf8');
+  const home = fs.readFileSync(path.join(__dirname, '../../public/app/dashboard.html'), 'utf8');
+  test('the plan summary offers Still going / Not going when paused', () => {
+    assert.ok(ev.includes("inv && inv.must_ask && inv.status === 'accepted'"));
+    assert.ok(ev.includes('>Still going</button>') && ev.includes('>Not going</button>'));
+  });
+  test("Home: a guest's plan that needs them opens its summary", () => {
+    assert.ok(home.includes("i.role !== 'host' && i.action ? `/app/events?event=${esc(i.event_id)}`"));
+  });
+});

@@ -459,28 +459,9 @@ async function handleRsvpReply(contactPhone, body) {
 
   if (!isYes && !isNo) return null;
 
-  const status = isYes ? 'accepted' : 'declined';
-  db._raw().prepare(`
-    UPDATE event_invitations SET status = ?, responded_at = strftime('%s','now') WHERE id = ?
-  `).run(status, invitation.id);
-
-  // Notify the host and write to their conversation history so the agent
-  // knows about this RSVP on the next turn (RSVP happens out-of-band).
-  if (host) {
-    const emoji = isYes ? '✅' : '❌';
-    const msg = isYes
-      ? `${emoji} ${contact.name} is in for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at, hostTz)}!`
-      : `${emoji} ${contact.name} can't make it for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at, hostTz)}.`;
-
-    // Persist RSVP into host's conversation history so agent has full context
-    db.appendConversation(host.id, 'assistant',
-      `[System] RSVP received: ${contact.name} has ${status} the invite for ${invitation.activity_type} on ${formatEventDate(invitation.scheduled_at, hostTz)}.`
-    );
-
-    if (host.phone) {
-      await sms.notifyUser(host.phone, msg).catch(() => {});
-    }
-  }
+  // The answer goes through planops (the host is told by the host-notice ripple, the
+  // same way for every kind of answer).
+  require('./planops').respond(invitation.id, isYes ? 'accepted' : 'declined', { by: 'contact', phone: contact.phone, via: 'sms' });
 
   return isYes
     ? `You're in! 🎉 See you on ${formatEventDate(invitation.scheduled_at, hostTz)}.`
@@ -535,50 +516,17 @@ function getInvitedEvents(userPhone) {
  * @param {'accepted'|'declined'} status
  */
 function rsvpInvitation(invitationId, userPhone, status) {
-  // Verify ownership: the contact on this invitation must have userPhone
-  const inv = db._raw().prepare(`
-    SELECT ei.*, c.phone, se.host_user_id, se.title, se.scheduled_at, se.activity_type, se.event_type, ei.source
-    FROM event_invitations ei
-    JOIN contacts c ON c.id = ei.contact_id
-    JOIN social_events se ON se.id = ei.event_id
-    WHERE ei.id = ?
-  `).get(invitationId);
-
-  if (!inv || inv.phone !== userPhone) return { ok: false, error: 'Not authorized' };
-
-  db._raw().prepare(`
-    UPDATE event_invitations SET status = ?, responded_at = strftime('%s','now') WHERE id = ?
-  `).run(status, invitationId);
-
-  // Notification rules:
-  // - Private event: always notify organizer of accept OR decline
-  // - Public event, contact-sourced invite: notify of accept AND decline
-  // - Public event, public/stranger RSVP: notify on accept only (declines from strangers = noise)
-  const isPublicStranger = inv.event_type === 'public' && inv.source === 'public';
-  const shouldNotify = !isPublicStranger || status === 'accepted';
-
-  if (shouldNotify) {
-    try {
-      const host = db.getUser(inv.host_user_id);
-      if (host) {
-        const verb = status === 'accepted' ? 'accepted' : 'declined';
-        const contactRow = db._raw().prepare('SELECT name FROM contacts WHERE id = ?').get(inv.contact_id);
-        const contactName = contactRow?.name || 'Someone';
-        db.appendConversation(inv.host_user_id, 'system',
-          `[System notification] ${contactName} ${verb} the invite to ${inv.title}.`
-        );
-      }
-    } catch (_) {}
-  }
-
-  return { ok: true, status };
+  // Every answer goes through planops.respond, which ripples it (host notice, Creating,
+  // avoid-list heads-up — ripples/). Kept for callers and tests that use this name.
+  const r = require('./planops').respond(invitationId, status, { by: 'guest', phone: userPhone, via: 'app' });
+  return r.ok ? { ok: true, status } : { ok: false, error: r.error === 'Not authorized' || r.error === 'INVITATION_NOT_FOUND' ? 'Not authorized' : r.error };
 }
 
 /**
  * Public RSVP — for strangers RSVPing a public event via the /event/:id page.
  * Creates a synthetic contact entry and invitation with source='public'.
  */
-function publicRsvp(eventId, { name, phone, status }) {
+function _publicRsvpWrite(eventId, { name, phone, status }) {
   const event = db._raw().prepare(`SELECT * FROM social_events WHERE id = ? AND event_type = 'public' AND status = 'open'`).get(eventId);
   if (!event) return { ok: false, error: 'Event not found or not public' };
 
@@ -591,29 +539,20 @@ function publicRsvp(eventId, { name, phone, status }) {
     contact = { id: cid };
   }
 
-  // Check for existing invitation
-  let invite = db._raw().prepare(`SELECT id, status FROM event_invitations WHERE event_id = ? AND contact_id = ?`).get(eventId, contact.id);
+  // Check for existing invitation. The answer itself is written by planops.respond.
+  const invite = db._raw().prepare(`SELECT id FROM event_invitations WHERE event_id = ? AND contact_id = ?`).get(eventId, contact.id);
   if (invite) {
-    db._raw().prepare(`UPDATE event_invitations SET status = ?, source = 'public', responded_at = strftime('%s','now') WHERE id = ?`).run(status, invite.id);
-  } else {
-    const iid = uuidv4();
-    db._raw().prepare(`INSERT INTO event_invitations (id, event_id, contact_id, status, source, notified_at) VALUES (?, ?, ?, ?, 'public', strftime('%s','now'))`)
-      .run(iid, eventId, contact.id, status);
-    invite = { id: iid };
+    db._raw().prepare(`UPDATE event_invitations SET source = 'public' WHERE id = ?`).run(invite.id);
+    return { ok: true, invitation_id: invite.id, created: false };
   }
-
-  // Notify organizer on accept, not on decline (public stranger)
-  if (status === 'accepted') {
-    try {
-      db.appendConversation(event.host_user_id, 'system',
-        `[System notification] ${name || 'A guest'} is attending ${event.title}.`
-      );
-    } catch (_) {}
-  }
-
-  return { ok: true, status };
+  const iid = uuidv4();
+  db._raw().prepare(`INSERT INTO event_invitations (id, event_id, contact_id, status, source, notified_at) VALUES (?, ?, ?, 'invited', 'public', strftime('%s','now'))`)
+    .run(iid, eventId, contact.id);
+  return { ok: true, invitation_id: iid, created: true };
 }
 
+/** Public RSVP — via planops (ripples the answer like any other). */
+function publicRsvp(eventId, opts) { return require('./planops').publicRsvp(eventId, opts); }
 
 function getRsvpSummary(eventId) {
   const rows = db._raw().prepare(`
@@ -755,6 +694,7 @@ module.exports = {
   formatEventDate,
   queueHostRsvpNotice,
   handleRsvpReply,
+  _publicRsvpWrite,
   // Exposed for eval harness only
   _classifyRsvpPublic: (reply, inviteContext) => classifyRsvp(inviteContext, reply),
   _RSVP_SYSTEM_PROMPT: RSVP_SYSTEM_PROMPT,

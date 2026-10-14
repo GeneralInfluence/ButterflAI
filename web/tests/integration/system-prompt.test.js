@@ -720,3 +720,14 @@ describe('Planning & research (2026-10-09, Grover Hot Springs)', () => {
     assertContains('Never say you booked or reserved anything');
   });
 });
+
+// 2026-10-13 (owner): agents of people in the same plan "speak to each other differently
+// than an outside agent". Whether a question is from inside is decided in code (agent.js
+// circleSection, plan.inCircle); the rule tells the agent what that means.
+describe('Plan circle', () => {
+  test('insiders settle a plan between themselves; outsiders are never treated as insiders', () => {
+    const p = buildSystemPrompt(STUB_USER, '');
+    assert.ok(p.includes('PLAN CIRCLE: agents of people who are in the same plan (host, or said yes) are insiders for THAT plan'));
+    assert.ok(p.includes('never treat an outsider as an insider'));
+  });
+});

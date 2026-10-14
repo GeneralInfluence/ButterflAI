@@ -59,35 +59,10 @@ function answerWithDeferral(question, userId, answer) {
 }
 
 /**
- * The user defers on a plan they're invited to (or takes it back with undo).
- * Marks them in, records who decides, and answers any open questions about that plan.
+ * The user defers on a plan they're invited to (or takes it back with undo). The write and
+ * its ripples are in planops.deferOn — every change to a plan goes through planops.
  */
-function deferOnPlan(userId, { invitation_id, defer_to, undo = false }) {
-  const user = db.getUser(userId);
-  const inv = invitation_id && db._raw().prepare(`
-    SELECT ei.*, c.phone, se.host_user_id, se.title FROM event_invitations ei
-    JOIN contacts c ON c.id = ei.contact_id JOIN social_events se ON se.id = ei.event_id
-    WHERE ei.id = ?`).get(invitation_id);
-  if (!inv || !user?.phone || inv.phone !== user.phone) {
-    return { error: 'INVITATION_NOT_FOUND', message: 'Use an inv_id from "You have been invited to" in your state.' };
-  }
-  if (undo) {
-    db._raw().prepare('UPDATE event_invitations SET defers_to = NULL, deferred_at = NULL WHERE id = ?').run(inv.id);
-    return { ok: true, undone: true, note: `Questions about "${inv.title}" will come to your user again.` };
-  }
-  // Names only (first names) — never a reason.
-  const names = [...new Set((Array.isArray(defer_to) ? defer_to : [defer_to]).map((n) => first(n)).filter(Boolean))].slice(0, 5);
-  if (!names.length) return { error: 'DEFER_TO_REQUIRED', message: 'Who does your user go with? e.g. ["Melanie", "Sean"]' };
-  db._raw().prepare(`UPDATE event_invitations SET status = 'accepted', responded_at = COALESCE(responded_at, ?),
-    defers_to = ?, deferred_at = ?, needs_owner_decision = 0 WHERE id = ?`).run(now(), JSON.stringify(names), now(), inv.id);
-  const d = deferralFor(inv.event_id, userId);
-  // Open questions about this plan, from anyone, get the standing answer now.
-  const open = db._raw().prepare(`SELECT * FROM agent_messages WHERE to_user = ? AND kind = 'query' AND processed = 0 AND thread_id = ?`)
-    .all(userId, inv.event_id);
-  for (const q of open) answerWithDeferral(q, userId, d.answer);
-  return { ok: true, deferred_to: names, answered_open_questions: open.length,
-    note: `Done. Questions about "${inv.title}" get "${d.answer}" without bothering your user; they'll only get an FYI if the date, place or plan changes.` };
-}
+function deferOnPlan(userId, opts) { return require('./planops').deferOn(userId, opts); }
 
 /**
  * An agent_query about a plan this user deferred on: answer it in code (no model call,
@@ -130,4 +105,4 @@ function notifyDeferred(eventId, change) {
   return sent;
 }
 
-module.exports = { deferralFor, deferOnPlan, handleQuery, notifyDeferred, invitationFor, joinNames, parseNames };
+module.exports = { deferralFor, deferOnPlan, answerWithDeferral, handleQuery, notifyDeferred, invitationFor, joinNames, parseNames };

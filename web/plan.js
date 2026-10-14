@@ -84,7 +84,10 @@ function planFor(eventId, viewerId) {
 
   const interested = plain.filter((p) => p.status === 'accepted').map((p) => p.name);
   const waiting = plain.filter((p) => p.status === 'invited').map((p) => p.name);
-  const next = stage === 'invited' ? (e.tentative ? 'Interested? Tap to answer' : 'Tap to respond')
+  // Paused after a heads-up (ripples/reactions/avoid-heads-up.js): they said yes before.
+  const stillGoing = !isHost && mine && mine.status === 'accepted' && mine.needs_owner_decision;
+  const next = stillGoing ? 'Still going? Tap to answer'
+    : stage === 'invited' ? (e.tentative ? 'Interested? Tap to answer' : 'Tap to respond')
     : isHost && stage === 'idea' ? 'Pick dates'
     : isHost && e.tentative && invitations.length && !waiting.length && (interested.length || people.some((p) => p.deferring_to.length))
       ? 'Lock in the plan — tell your agent the final details' : null;
@@ -92,7 +95,7 @@ function planFor(eventId, viewerId) {
   return {
     id: e.id, title: e.title, what: e.activity_type, place: e.venue_name || null, notes: e.notes || null,
     host: { name: first(host?.name), is_you: isHost }, role: isHost ? 'host' : 'guest',
-    invitation: mine ? { id: mine.id, status: mine.status, must_ask: !!mine.needs_owner_decision && mine.status === 'invited',
+    invitation: mine ? { id: mine.id, status: mine.status, must_ask: !!mine.needs_owner_decision && mine.status !== 'declined',
       deferred_to: parseJson(mine.defers_to, []) } : null,
     tentative: !!e.tentative, stage, dates, days: dates.days, at: dates.kind === 'set' ? dates.start : null,
     group: e.group_id ? (db._raw().prepare('SELECT id, name FROM contact_groups WHERE id = ?').get(e.group_id) || null) : null,
@@ -116,6 +119,25 @@ function plansFor(userId, { includePast = false, includeDeclined = false } = {})
   return ids.map((id) => planFor(id, userId)).filter(Boolean).filter((p) => includePast || p.stage !== 'past');
 }
 
+/**
+ * The plan circle (owner, 2026-10-13: agents in the same plan "speak to each other
+ * differently than an outside agent"). Two users are insiders of a plan when it isn't
+ * cancelled and each is its host or has said yes (deferring counts — they're in).
+ * Computed live from the guest list, so it follows every RSVP with nothing stored.
+ */
+function inCircle(eventId, userA, userB) {
+  if (!eventId || !userA || !userB || userA === userB) return false;
+  const e = db._raw().prepare('SELECT host_user_id, status FROM social_events WHERE id = ?').get(eventId);
+  if (!e || e.status === 'cancelled') return false;
+  const inIt = (uid) => {
+    if (uid === e.host_user_id) return true;
+    const u = db.getUser(uid);
+    return !!(u?.phone && db._raw().prepare(`SELECT 1 FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+      WHERE ei.event_id = ? AND c.phone = ? AND ei.status = 'accepted'`).get(eventId, u.phone));
+  };
+  return inIt(userA) && inIt(userB);
+}
+
 /** Normalized plan name for "is this the same plan?" (case, punctuation, spacing). */
 function sameName(a, b) {
   const n = (s) => String(s || '').toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -129,4 +151,4 @@ function existingByName(hostUserId, title) {
   return rows.find((r) => sameName(r.title, title)) || null;
 }
 
-module.exports = { planFor, plansFor, existingByName, sameName };
+module.exports = { planFor, plansFor, existingByName, sameName, inCircle };

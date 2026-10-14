@@ -20,7 +20,7 @@ const push = require('./push');
 const topics = require('./topics');
 const { createAnthropicClient, DEFAULT_MODEL } = require('./anthropic-client');
 
-const MAX_PER_TICK = 10;
+const MAX_PER_TICK = 30;   // grows with the task list (every behavior change adds one)
 const now = () => Math.floor(Date.now() / 1000);
 const RETRY = Symbol('retry');
 
@@ -252,6 +252,49 @@ const TASKS = [
       const n = db._raw().prepare(`UPDATE agent_messages SET processed = 1 WHERE from_user = ? AND kind = 'query' AND processed = 0
         AND created_at < ? AND (thread_id IS NULL OR thread_id NOT IN (SELECT id FROM social_events))`).run(user.id, now() - 2 * 86400).changes;
       return `closed ${n}`;
+    },
+  },
+  {
+    id: '2026-10-13-free-todos-of-guests-who-are-out',
+    added: Date.UTC(2026, 9, 13) / 1000,
+    kind: 'internal',
+    about: 'Ripples (creating): to-dos assigned to someone who said no or was removed go back to "anyone can take it".',
+    run(user) {
+      const n = db._raw().prepare(`UPDATE event_todos SET assignee_phone = NULL, assignee_name = NULL
+        WHERE done_at IS NULL AND assignee_phone IS NOT NULL AND event_id IN (SELECT id FROM social_events WHERE host_user_id = ?)
+        AND assignee_phone != COALESCE((SELECT phone FROM users WHERE id = ?), '')
+        AND NOT EXISTS (SELECT 1 FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+          WHERE ei.event_id = event_todos.event_id AND c.phone = event_todos.assignee_phone AND ei.status != 'declined')`).run(user.id, user.id).changes;
+      return `freed ${n}`;
+    },
+  },
+  {
+    id: '2026-10-13-avoid-heads-up-for-existing-yes',
+    added: Date.UTC(2026, 9, 13) / 1000,
+    kind: 'propose',
+    about: 'Ripples (avoid-heads-up): if someone on your avoid list already said yes to a plan you are still deciding on, you get the heads-up now.',
+    run(user) {
+      if (!user.phone) return 'no phone';
+      const avoid = require('./avoid');
+      const list = avoid.listAvoid(user.id, { context: 'retro heads-up' });
+      if (!list.length) return 'no avoid list';
+      const mine = db._raw().prepare(`SELECT ei.id, ei.event_id, se.title FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+        JOIN social_events se ON se.id = ei.event_id WHERE c.phone = ? AND ei.status IN ('invited', 'accepted') AND ei.dismissed_at IS NULL
+        AND ei.needs_owner_decision = 0 AND COALESCE(se.status, 'open') != 'cancelled' AND (se.date_tbd = 1 OR se.scheduled_at > ?)`).all(user.phone, now());
+      let told = 0;
+      for (const m of mine) {
+        const yes = db._raw().prepare(`SELECT c.phone FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+          WHERE ei.event_id = ? AND ei.id != ? AND ei.status = 'accepted'`).all(m.event_id, m.id);
+        const entry = yes.map((y) => avoid.findByPhone(list, y.phone)).find(Boolean);
+        if (!entry) continue;
+        require('./planops').askOwner(m.id, { via: 'retro' });
+        avoid.recordActivity(user.id, 'needs_decision', { eventId: m.event_id, avoidId: entry.id,
+          text: `${entry.name} (on your avoid list) has said yes to "${m.title}". Paused your answer and asked you.` });
+        require('./ripples/notice').inApp(user.id, m.event_id, `⚠️ Heads-up: ${String(entry.name).split(/\s+/)[0]} said yes to ${m.title}. Still going? Answer on the plan — your ButterflAI won't answer for you until you do.`,
+          { url: `/app/events?event=${encodeURIComponent(m.event_id)}` });
+        told++;
+      }
+      return `told ${told}`;
     },
   },
 ];
