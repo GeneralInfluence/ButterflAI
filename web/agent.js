@@ -2638,17 +2638,42 @@ const ACTION_CLAIMS = [
       + 'Call lookup_contact with the name exactly as your user said it (it also syncs their Google contacts), and only then answer.',
     fallback: null,     // if it still won't look, keep its reply rather than invent one
   },
+  {
+    // 2026-10-13: "Liam's Birthday Party locked in for Sunday at noon" — the date was saved
+    // but the plan stayed tentative ("Proposed"). What the reply says about the plan's state
+    // must be what's stored, not just "some tool ran".
+    what: 'a locked-in plan',
+    claim: /\b(?:locked(?: it)? in|lock(?:ed)? (?:it|that) in|(?:it'?s|is) (?:now )?(?:confirmed|official|locked)|confirmed for)\b/i,
+    done: (log, ctx) => !ctx.planId || db._raw().prepare('SELECT tentative FROM social_events WHERE id = ?').get(ctx.planId)?.tentative === 0,
+    challenge: '[System check — not from the user] Your reply says the plan is locked in / confirmed, but it is still tentative (it shows as Proposed). '
+      + 'If your user settled it, call update_event with tentative: false now; otherwise don\'t say it\'s locked in.',
+    fallback: null,
+  },
+  {
+    // 2026-10-13: "noon till closing which is 6:00… it'll probably just go to 3 hours at most"
+    // → the time was saved, how long wasn't. When the user says how long and the plan's
+    // time is set this turn, the length must be saved too. Checked against the user's words.
+    what: 'how long the plan lasts',
+    source: 'user',
+    claim: /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?)\b|\b(?:till|until|to)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b|\ball (?:day|night)\b/i,
+    done: (log) => !log.some((t) => t.name === 'update_event' && !t.result?.error && (t.input?.scheduled_at || t.input?.when))
+      || log.some((t) => ['update_event', 'create_social_event'].includes(t.name) && !t.result?.error && t.input?.duration_mins),
+    challenge: '[System check — not from the user] Your user said how long it lasts, and you set the time without saving that. '
+      + 'Call update_event with duration_mins (e.g. 180 for "3 hours"; use what they expect, not the venue\'s hours).',
+    fallback: null,
+  },
 ];
 const ACTION_NEGATED = /\b(not|n't|never|unable to|couldn't|can't|wasn't|haven't|hasn't|didn't|want me to|should i|shall i)\b/i;
 
 function unbackedActionClaim(replyText, toolLog, ctx = {}) {
   if (!replyText) return null;
   for (const c of ACTION_CLAIMS) {
-    const m = c.claim.exec(replyText);
+    const text = c.source === 'user' ? String(ctx.userText || '') : replyText;
+    const m = c.claim.exec(text);
     if (!m) continue;
     // Look at the sentence the claim is in: "I couldn't add…" / "Want me to add…" aren't claims.
-    const start = Math.max(replyText.lastIndexOf('.', m.index), replyText.lastIndexOf('\n', m.index), replyText.lastIndexOf('?', m.index)) + 1;
-    if (c.negations !== false && ACTION_NEGATED.test(replyText.slice(start, m.index + m[0].length))) continue;
+    const start = Math.max(text.lastIndexOf('.', m.index), text.lastIndexOf('\n', m.index), text.lastIndexOf('?', m.index)) + 1;
+    if (c.source !== 'user' && c.negations !== false && ACTION_NEGATED.test(text.slice(start, m.index + m[0].length))) continue;
     if (!c.done(toolLog, ctx)) return c;
   }
   return null;
@@ -2815,7 +2840,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   const failedSends = [];
   let sentClaimChallenged = false;
   let agentQueryChallenged = false;
-  let actionClaimChallenged = false;
+  const claimsChallenged = new Set();
   let ideaChallenged = false;
   const toolLog = [];   // { name, input, result } for every tool run this turn
   let lastReplyText = '';
@@ -2867,10 +2892,12 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
 
       // Guard: a reply that says something was done (e.g. added to a group) when no tool did it.
       const unbacked = msg.channel === 'agent_query' ? null
-        : unbackedActionClaim(replyText, toolLog, { openQuestions: openQuestionsFor(userId).length });
+        : unbackedActionClaim(replyText, toolLog, { openQuestions: openQuestionsFor(userId).length, userText: msg.text,
+          // The plan this turn is about: the discussion it's in, else the one plan its tools changed.
+          planId: (msg.event_id && msg.event_id !== topics.GENERAL) ? msg.event_id : (topics.eventsTouched(userId, toolLog).length === 1 ? topics.eventsTouched(userId, toolLog)[0] : null) });
       if (unbacked) {
-        if (!actionClaimChallenged) {
-          actionClaimChallenged = true;
+        if (!claimsChallenged.has(unbacked.what)) {
+          claimsChallenged.add(unbacked.what);   // each kind of claim gets its own nudge
           turnTrace.event('guard', `blocked unbacked claim (${unbacked.what}): ${replyText.slice(0, 200)}`);
           messages.push({ role: 'user', content: unbacked.challenge ||
             `[System check — not from the user] Your reply says you made ${unbacked.what}, but no tool did that in this turn. `

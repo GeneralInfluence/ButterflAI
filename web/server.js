@@ -2251,7 +2251,8 @@ app.get('/api/events/:id/manage', webAuth.requireAuth, (req, res) => {
 // PATCH /api/events/:id — update event_type or status
 app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => {
   // Every plan change goes through planops.js — the same rules as the agent's tools.
-  const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address', 'host_attending'];
+  // + tentative ("Lock it in") and duration_mins (2026-10-13: hosts fix their plans themselves).
+  const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address', 'host_attending', 'tentative', 'duration_mins'];
   const changes = {};
   for (const k of allowed) if (req.body[k] !== undefined) changes[k] = req.body[k];
   if (!Object.keys(changes).length) return res.status(400).json({ error: 'Nothing to update' });
@@ -2259,6 +2260,20 @@ app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => 
   if (r.error === 'EVENT_NOT_FOUND' || r.error === 'NOT_HOST') return res.status(403).json({ error: 'Not your event' });
   if (r.error) return res.status(400).json(r);
   res.json({ ok: true, updated: r.updated });
+});
+
+// The host's own controls (2026-10-13: "how do we ensure this going forward without me
+// having to use my admin ability?"): recent changes, and undo the last one.
+app.get('/api/events/:id/changes', webAuth.requireAuth, (req, res) => {
+  const e = multiparty.getEvent(req.params.id);
+  if (!e || e.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
+  res.json({ changes: planops.recentChanges(req.params.id) });
+});
+app.post('/api/events/:id/undo', webAuth.requireAuth, (req, res) => {
+  const r = planops.undoLast(req.user.id, req.params.id);
+  if (r.error === 'NOT_HOST' || r.error === 'EVENT_NOT_FOUND') return res.status(403).json({ error: 'Not your event' });
+  if (r.error) return res.status(400).json(r);
+  res.json(r);
 });
 
 // POST /api/events/:id/invite — invite additional contacts

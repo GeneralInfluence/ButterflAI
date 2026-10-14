@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_990_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_994_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -865,6 +865,16 @@ wrong date — because nothing tied a change to the plan being discussed.
   plan can be put back to just before any logged moment — logged (`via: undo`) and rippled.
   Used once to repair Melanie's weekend (retro, matched to that exact change).
 - Tests: `tests/integration/plan-scope.test.js` (Sean's exact message).
+- **What the reply says must be what's stored** (Sean: "how do we ensure this going forward
+  without me having to use my admin ability?" — the agent said Liam's party was "locked in"
+  and left it tentative, 2h instead of ~3h): ACTION_CLAIMS now checks outcomes, not just that
+  a tool ran — "locked in / confirmed" needs the plan's `tentative = 0`; a length in the
+  user's words ("3 hours", "till 6") needs `duration_mins` saved when the time is set. Each
+  kind of false claim gets its own nudge.
+- **Hosts fix their own plans in the app** (plan summary): 🔒 Lock it in (when the date is
+  set), Recent changes ("ButterflAI changed the notes · 2m ago", `/api/events/:id/changes`),
+  ↩︎ Undo last change (`/api/events/:id/undo` → `planops.undoLast`). PATCH also takes
+  `tentative`, `duration_mins`.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

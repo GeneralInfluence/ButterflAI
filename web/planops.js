@@ -406,9 +406,43 @@ function revert(actorId, eventId, { at, via = 'undo' } = {}) {
   return { ok: true, reverted: fields };
 }
 
+// How a logged change reads to a person ("ButterflAI changed the notes", "You locked it in").
+const FIELD_WORDS = { title: 'the name', notes: 'the notes', venue_name: 'the place', venue_address: 'the address', scheduled_at: 'the date/time',
+  date_tbd: 'the date', proposed_dates: 'the proposed dates', tentative: 'locked in / tentative', flexible_time: 'the time', duration_mins: 'how long',
+  status: 'cancelled / reopened', group_id: 'the group', event_type: 'who can see it', host_attending: 'whether you\'re going', activity_type: 'what it is' };
+const VIA_WORDS = { agent: 'ButterflAI', app: 'You', undo: 'Undo', retro: 'ButterflAI (cleanup)', negotiation: 'Agents', desire: 'ButterflAI', share: 'You', ripple: 'ButterflAI' };
+
+/**
+ * Recent changes to a plan's own details, grouped by moment, newest first — what the host
+ * sees under the plan and can undo (2026-10-13: "how do we ensure this going forward without
+ * me having to use my admin ability?").
+ */
+function recentChanges(eventId, limit = 5) {
+  const rows = db._raw().prepare(`SELECT created_at, via, field, new_value FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT 60`).all(eventId)
+    .filter((r) => FIELD_WORDS[r.field]);
+  // What happened, in words: "locked it in", "changed the notes".
+  const phrase = (r) => r.field === 'tentative' ? (String(r.new_value) === '0' ? 'locked it in' : 'made it tentative again')
+    : r.field === 'status' ? (r.new_value === 'cancelled' ? 'cancelled it' : 'reopened it') : `changed ${FIELD_WORDS[r.field]}`;
+  const groups = [];
+  for (const r of rows) {
+    const g = groups.find((x) => x.at === r.created_at && x.via === r.via);
+    if (g) { if (!g.fields.includes(FIELD_WORDS[r.field])) { g.fields.push(FIELD_WORDS[r.field]); g.what.push(phrase(r)); } }
+    else groups.push({ at: r.created_at, via: r.via, by: VIA_WORDS[r.via] || r.via, fields: [FIELD_WORDS[r.field]], what: [phrase(r)] });
+  }
+  return groups.slice(0, limit);
+}
+
+/** Undo the latest change to a plan's details (not an undo itself). Host only. */
+function undoLast(actorId, eventId) {
+  const last = recentChanges(eventId, 20).find((g) => g.via !== 'undo');
+  if (!last) return { error: 'NOTHING_TO_UNDO' };
+  const r = revert(actorId, eventId, { at: last.at, via: 'undo' });
+  return r.error ? r : { ...r, undid: last };
+}
+
 /** What changed on a plan, newest first (for the admin / feedback). */
 function history(eventId, limit = 50) {
   return db._raw().prepare('SELECT * FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT ?').all(eventId, limit);
 }
 
-module.exports = { create, update, invite, merge, revert, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };
+module.exports = { create, update, invite, merge, revert, undoLast, recentChanges, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };

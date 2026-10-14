@@ -430,6 +430,18 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-14-lock-in-liams-party',
+    added: Date.UTC(2026, 9, 14) / 1000,
+    kind: 'internal',
+    about: 'Sean, 2026-10-13: "yes, it should be locked in" — ButterflAI told him Liam\'s Birthday Party was locked in for Sunday at noon but left it tentative and 2 hours long (he said ~3 hours). Lock it in for 3 hours — only if it\'s still exactly as found.',
+    run(user) {
+      const e = db._raw().prepare("SELECT id FROM social_events WHERE host_user_id = ? AND title = 'Liam''s Birthday Party' AND tentative = 1 AND date_tbd = 0 AND scheduled_at = ?").get(user.id, Date.UTC(2026, 9, 25, 19) / 1000);
+      if (!e) return 'not as found';
+      const r = require('./planops').update(user.id, e.id, { tentative: false, duration_mins: 180 }, { via: 'retro' });
+      return r.ok ? `locked in (${r.updated.join(',')})` : r.error;
+    },
+  },
+  {
     id: '2026-10-13-agent-questions-onto-plans',
     added: Date.UTC(2026, 9, 13) / 1000,
     kind: 'internal',

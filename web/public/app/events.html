@@ -795,7 +795,38 @@
         <button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>
       <div class="ps-rows">${rows}</div>${asked}${people}${said}${notes}${creating}
       ${p.next ? `<div class="ps-next">👉 ${escHtml(p.next)}</div>` : ''}
+      ${p.host.is_you ? hostControls(p) : ''}
       <div class="ps-actions">${answer}<a class="${answer ? 'ps-secondary' : 'ps-primary'}" href="/app/chat?event=${encodeURIComponent(p.id)}${summaryDay && (p.days || []).includes(summaryDay) ? '&day=' + summaryDay : ''}">💬 Discussion${summaryDay && (p.days || []).includes(summaryDay) ? ` · ${new Date(summaryDay + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short' })}` : ''}</a></div>`;
+  }
+  // The host fixes their own plan (2026-10-13: "without me having to use my admin ability"):
+  // lock it in when the date is set, see what changed and who changed it, undo the last change.
+  function hostControls(p) {
+    const lock = p.tentative && p.dates.kind === 'set'
+      ? `<button class="ps-primary" onclick="lockIn('${escHtml(p.id)}', this)">🔒 Lock it in</button>`
+      : p.tentative && p.dates.kind !== 'set' ? `<div class="ps-rows" style="font-size:13px;color:#6e6e76">Pick the date in the discussion to lock it in.</div>` : '';
+    setTimeout(() => loadChanges(p.id), 0);
+    return `${lock ? `<div class="ps-actions">${lock}</div>` : ''}
+      <div class="ps-label">Recent changes</div><div id="ps-changes" class="ps-rows" style="font-size:13px">Loading…</div>`;
+  }
+  async function loadChanges(id) {
+    const el = document.getElementById('ps-changes'); if (!el) return;
+    const r = await fetch('/api/events/' + encodeURIComponent(id) + '/changes').then((x) => x.json()).catch(() => ({ changes: [] }));
+    const list = r.changes || [];
+    const ago = (t) => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 60 ? `${Math.max(m, 1)}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`; };
+    el.innerHTML = list.length
+      ? list.map((c) => `<div>${escHtml(c.by)} ${escHtml((c.what || c.fields).join(', '))} · ${ago(c.at)}</div>`).join('')
+        + (list.some((c) => c.via !== 'undo') ? `<button class="ps-secondary" style="margin-top:8px;padding:8px 14px;border-radius:10px;border:none;font-weight:600;cursor:pointer" onclick="undoLast('${escHtml(id)}', this)">↩︎ Undo last change</button>` : '')
+      : '<div>No changes yet.</div>';
+  }
+  async function lockIn(id, btn) {
+    btn.disabled = true;
+    await fetch('/api/events/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tentative: false }) }).catch(() => {});
+    await refreshPlans();
+  }
+  async function undoLast(id, btn) {
+    btn.disabled = true; btn.textContent = 'Undoing…';
+    await fetch('/api/events/' + encodeURIComponent(id) + '/undo', { method: 'POST' }).catch(() => {});
+    await refreshPlans();
   }
   async function summaryRsvp(invitationId, status, going) {
     document.querySelectorAll('#plan-summary .ps-actions button').forEach(b => { b.disabled = true; b.style.opacity = '.5'; });
