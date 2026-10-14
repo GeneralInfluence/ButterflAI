@@ -380,9 +380,35 @@ function purgeCancelled({ days = CANCELLED_KEEP_DAYS } = {}) {
   return ids.length;
 }
 
+/**
+ * Undo: put a plan's fields back to what they were before the changes logged at one moment
+ * (`at`, a plan_changes created_at) — every change records its old value, so nothing is
+ * lost. Logged and rippled like any change (calendars, FYIs follow). Host only.
+ * (2026-10-13: the agent rewrote Melanie's weekend from Liam's party's discussion.)
+ */
+const NUMERIC = new Set(['scheduled_at', 'date_tbd', 'tentative', 'flexible_time', 'duration_mins', 'host_attending', 'cancelled_at']);
+function revert(actorId, eventId, { at, via = 'undo' } = {}) {
+  const e = db._raw().prepare('SELECT * FROM social_events WHERE id = ?').get(eventId);
+  if (!e) return { error: 'EVENT_NOT_FOUND' };
+  if (e.host_user_id !== actorId) return { error: 'NOT_HOST' };
+  const rows = db._raw().prepare('SELECT field, old_value FROM plan_changes WHERE event_id = ? AND created_at = ? ORDER BY id').all(eventId, at);
+  const back = {};
+  for (const r of rows) if (SET_FIELDS.includes(r.field) && !(r.field in back)) back[r.field] = r.old_value == null ? null : NUMERIC.has(r.field) ? Number(r.old_value) : r.old_value;
+  const fields = Object.keys(back).filter((k) => String(back[k] ?? '') !== String(e[k] ?? ''));
+  if (!fields.length) return { ok: true, reverted: [] };
+  let batch;
+  db._raw().transaction(() => {
+    db._raw().prepare(`UPDATE social_events SET ${fields.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...fields.map((k) => back[k]), eventId);
+    for (const k of fields) log(eventId, actorId, via, k, e[k], back[k]);
+    batch = ripples.emit(changesFor(eventId, actorId, via, fields, e, { ...e, ...back }));
+  })();
+  ripples.run(batch);
+  return { ok: true, reverted: fields };
+}
+
 /** What changed on a plan, newest first (for the admin / feedback). */
 function history(eventId, limit = 50) {
   return db._raw().prepare('SELECT * FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT ?').all(eventId, limit);
 }
 
-module.exports = { create, update, invite, merge, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };
+module.exports = { create, update, invite, merge, revert, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };

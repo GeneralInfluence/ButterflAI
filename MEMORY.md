@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_983_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_990_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -850,6 +850,21 @@ a solo thing. This app is falling apart!!" Nothing was deleted — causes and fi
   (IDEA_WORDS guard + rule); the after-reply check sees the Creating list. Tested with Melanie's
   exact words (scripted) AND nightly with the real model (`tests/eval-massage-friday.js`, part of
   `npm run test:eval`; 10/10 locally, 5 runs nightly). The case anonymizer no longer treats words like "user" in "New user" as a name.
+
+## 22. A change stays inside the plan being discussed; undo from the log `[LOCKED 2026-10-13]`
+
+Sean: "updates to Liam's birthday affected Melanie's birthday. We have some sort of
+architecture issue." In Liam's party's discussion ("noon till closing… kids won't last") the
+agent also rewrote Melanie's weekend — dropped "Friday: massage" and her proposed dates, set a
+wrong date — because nothing tied a change to the plan being discussed.
+- **Scope, in code** (`agent.js` `planOutOfScope`, checked in `executeTool` for every
+  plan-writing tool: update_event, manage_todos, merge_plans, record_rsvp): in a plan's
+  discussion, changing a DIFFERENT plan returns `OTHER_PLAN` unless the user's own words name
+  it (`planNamedIn`). Outside any plan (All) there's no restriction. Prompt: ONE PLAN AT A TIME.
+- **Undo** (`planops.revert(actor, eventId, { at })`): every change logs its old value, so a
+  plan can be put back to just before any logged moment — logged (`via: undo`) and rippled.
+  Used once to repair Melanie's weekend (retro, matched to that exact change).
+- Tests: `tests/integration/plan-scope.test.js` (Sean's exact message).
 
 ## 12. Research & planning tools `[2026-10-09]`
 

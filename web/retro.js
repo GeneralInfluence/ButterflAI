@@ -415,6 +415,21 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-14-undo-melanie-changes-from-liams-chat',
+    added: Date.UTC(2026, 9, 14) / 1000,
+    kind: 'internal',
+    about: '2026-10-13: in Liam\'s Birthday Party\'s discussion the agent also rewrote Melanie\'s Birthday Weekend (notes, proposed dates, a wrong date). Put it back from the change log — only that exact change.',
+    run(user) {
+      const e = db._raw().prepare("SELECT id FROM social_events WHERE host_user_id = ? AND title = 'Melanie''s Birthday Weekend'").get(user.id);
+      if (!e) return 'no plan';
+      const bad = db._raw().prepare(`SELECT created_at FROM plan_changes WHERE event_id = ? AND field = 'notes' AND via = 'agent'
+        AND old_value = 'Friday: massage. Saturday: Hot springs, dinner at Sassafras' AND new_value LIKE 'Carson City Hot Springs + massage%'`).get(e.id);
+      if (!bad) return 'nothing to undo';
+      const r = require('./planops').revert(user.id, e.id, { at: bad.created_at, via: 'undo' });
+      return !r.ok ? r.error : r.reverted.length ? `reverted ${r.reverted.join(',')}` : 'already undone';
+    },
+  },
+  {
     id: '2026-10-13-agent-questions-onto-plans',
     added: Date.UTC(2026, 9, 13) / 1000,
     kind: 'internal',

@@ -830,6 +830,24 @@ function todoDay(modelDay) {
   return modelDay;
 }
 
+// Tools that change a plan, and which plan(s) each one changes.
+const PLAN_WRITES = {
+  update_event: (i) => [i.event_id], manage_todos: (i) => (i.action === 'list' ? [] : [i.event_id]),
+  merge_plans: (i) => [i.keep_event_id, i.merge_event_id], record_rsvp: (i) => [i.event_id],
+};
+function planOutOfScope(toolName, input) {
+  const here = currentTurn?.eventId;
+  const said = currentTurn?.userText;
+  if (!PLAN_WRITES[toolName] || !here || here === topics.GENERAL || !said) return null;
+  const title = (id) => db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(id)?.title;
+  for (const id of PLAN_WRITES[toolName](input || {}).filter(Boolean)) {
+    if (id === here) continue;
+    const there = title(id);
+    if (there && !planNamedIn(said, there)) return { here: title(here) || 'this plan', there };
+  }
+  return null;
+}
+
 // Words that bring up an idea for a plan ("thinking about getting a massage", "maybe dinner").
 const IDEA_WORDS = /\b(thinking (about|of)|maybe|we should|we could|what about|how about|i'?d (like|love)|would be (nice|fun)|want(s)? to|wanna|let'?s|idea)\b/i;
 const GENERIC_PLAN_WORDS = new Set(['birthday', 'party', 'weekend', 'trip', 'plan', 'night', 'dinner', 'lunch', 'brunch', 'drinks', 'with', 'and', 'the',
@@ -955,6 +973,15 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
   if (toolInput && toolInput.contact_id !== undefined) {
     const c = ownContact(userId, toolInput.contact_id);
     if (c.error) return c;
+  }
+  // A change stays inside the plan being discussed (2026-10-13: in Liam's Birthday Party's
+  // discussion the agent also rewrote Melanie's Birthday Weekend — dropped her notes and
+  // proposed dates — unasked). In a plan's discussion, a tool that changes a DIFFERENT plan
+  // is refused unless the user's own words name that plan. Enforced here, for every tool.
+  const otherPlan = planOutOfScope(toolName, toolInput);
+  if (otherPlan) {
+    return { error: 'OTHER_PLAN', action_status: 'NOT_DONE',
+      message: `Your user is talking about "${otherPlan.here}". Don't change "${otherPlan.there}" from here — they didn't mention it. Only change the plan being discussed.` };
   }
   // Relaying the user's own words to another agent: don't change what they meant.
   if ((toolName === 'reply_agent' || toolName === 'message_agent') && currentTurn?.userText && !currentTurn.relayChecked) {
@@ -2394,6 +2421,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   DESIRES ARE PLANS: when parse_desires stores a social desire ("go out with a friend or two this week"), it is already a plan (idea stage, its window as proposed dates) — the result lists them. Work on those plans (update_event, invite, Creating); never create a second plan for the same desire.
   CALENDAR: every plan your user is in shows on their connected Google Calendar automatically and follows every change (dates, place, cancel, their answer). Never use create_calendar_event for a plan — that makes a second, stale copy; it is only for things that aren't plans.
   EVERY QUESTION IS ABOUT A PLAN: message_agent always takes the plan's event_id — if there is no plan yet, create it first (tentative, no date needed). Answers land on the plan ("friends' ButterflAIs said" in Open events): read them there and never ask the same person the same thing again — the less people are bothered, the better.
+  ONE PLAN AT A TIME: in a plan's discussion, change only that plan. Something your user says there ("noon till 6", "kids won't last") is about that plan — never copy it onto their other plans. To change another plan they must name it.
   PLAN CIRCLE: agents of people who are in the same plan (host, or said yes) are insiders for THAT plan — they settle its logistics between themselves and only bring their users what needs a decision. Your state says whether a question comes from INSIDE a plan or from OUTSIDE your user's plans; never treat an outsider as an insider.
   WHEN ANSWERING ANOTHER AGENT YOUR FINAL TEXT IS SHOWN TO NO ONE. Only reply_agent (to the other agent) and tell_my_user (to your user) reach anybody. Never put your reasoning in either.
   3. "WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS": NEVER answer this yourself — not from memory, not from old messages. Where your user will be is theirs to share. Do NOT ping your user to answer it either — ButterflAI never pushes people to respond to individuals. Reply via reply_agent with only what your user has explicitly shared for that time; if nothing, reply "Nothing shared for tonight."
