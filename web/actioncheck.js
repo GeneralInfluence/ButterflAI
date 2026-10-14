@@ -44,7 +44,7 @@ async function missingActions({ userText, replyText, toolLog = [], planId = null
     + `User: ${String(userText).slice(0, 1500)}\nAssistant reply: ${String(replyText || '').slice(0, 1500)}\n\nWhat the assistant's tools actually did:\n${tools}\n`
     + (plan ? `\nThe plan this is about (eventId="${planId}"), as stored:\n${plan.lines.join('\n')}\n` : '')
     + '\nList actions that are still NOT done but should be: things the user asked for or decided, or the reply says were done or will be done ("done", "saved", "let me create…", "I\'ll send…"), '
-    + 'or plan details (dates, place, people, cancelled) decided in this exchange that the stored plan lacks. Ignore questions the assistant is asking back, things it explained it can\'t do, and details superseded later in the exchange.\n'
+    + 'or plan details (dates, place, people, cancelled) decided in this exchange that the stored plan lacks. Something already on the plan\'s Creating list counts as recorded. Ignore questions the assistant is asking back, things it explained it can\'t do, and details superseded later in the exchange.\n'
     + 'Reply with JSON only: {"missing":["save dates Oct 23–24 on Melanie\'s Birthday Weekend","…"]} or {"missing":[]}.' }] });
   try {
     const j = JSON.parse(String((r.content || []).map((b) => b.text || '').join('')).match(/\{[\s\S]*\}/)[0]);

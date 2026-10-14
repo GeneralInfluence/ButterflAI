@@ -34,10 +34,15 @@ function storedPlan(eventId) {
   if (!dates) dates = e.date_tbd ? 'none (date TBD)' : e.flexible_time ? 'open invite, no fixed time' : new Date(e.scheduled_at * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
   const people = db._raw().prepare(`SELECT COALESCE(c.nickname, c.name) AS name, ei.status FROM event_invitations ei
     JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ?`).all(eventId).map((r) => `${r.name} (${r.status})`);
+  // Its Creating list too, with days — so a check doesn't ask for something already on it
+  // (2026-10-13: "save the massage to Creating" after it had been saved).
+  const creating = db._raw().prepare('SELECT text, day, suggested FROM event_todos WHERE event_id = ? AND done_at IS NULL ORDER BY created_at').all(eventId)
+    .map((t) => `${t.day ? t.day + ': ' : ''}${t.text}${t.suggested ? ' (suggested)' : ''}`);
   return {
     title: e.title,
     lines: [`title: ${e.title}`, `what: ${e.activity_type}`, `dates: ${dates}`, `place: ${e.venue_name || 'none'}`,
-      `people invited: ${people.join(', ') || 'none'}`, `notes: ${e.notes || 'none'}`, `status: ${e.status}${e.tentative ? ', tentative' : ''}`],
+      `people invited: ${people.join(', ') || 'none'}`, `notes: ${e.notes || 'none'}`, `status: ${e.status}${e.tentative ? ', tentative' : ''}`,
+      `Creating list (to-dos and ideas): ${creating.join('; ') || 'none'}`],
   };
 }
 

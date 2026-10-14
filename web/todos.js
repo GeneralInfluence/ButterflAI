@@ -46,9 +46,19 @@ function resolveAssignee(eventId, assignee, userId) {
   return { phone: scored[0].m.phone, name: scored[0].m.name };
 }
 
+const dayName = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
 function view(t) {
-  return { id: t.id, text: t.text, assignee: t.assignee_name ? first(t.assignee_name) : null, assignee_phone: t.assignee_phone,
+  return { id: t.id, text: t.text, day: t.day || null, day_label: t.day ? dayName(t.day) : null,
+    shown: t.day ? `${dayName(t.day)}: ${t.text}` : t.text,
+    assignee: t.assignee_name ? first(t.assignee_name) : null, assignee_phone: t.assignee_phone,
     suggested: !!t.suggested, done: !!t.done_at };
+}
+
+// A day the plan covers, or null (to-dos can't be for a day outside the plan).
+function planDay(userId, eventId, day) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))) return null;
+  const p = require('./plan').planFor(eventId, userId);
+  return p && (p.days || []).includes(day) ? day : null;
 }
 
 function list(userId, eventId) {
@@ -59,7 +69,7 @@ function list(userId, eventId) {
     members: members(eventId).map((m) => ({ name: first(m.name) })) };
 }
 
-function add(userId, eventId, { text, assignee, suggested = false }) {
+function add(userId, eventId, { text, assignee, suggested = false, day = null }) {
   if (!topics.canSee(userId, eventId)) return { error: 'NOT_IN_PLAN' };
   const t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT);
   if (!t) return { error: 'EMPTY' };
@@ -68,8 +78,8 @@ function add(userId, eventId, { text, assignee, suggested = false }) {
   const a = resolveAssignee(eventId, assignee, userId);
   if (a.error) return a;
   const id = uuidv4();
-  db._raw().prepare(`INSERT INTO event_todos (id, event_id, text, assignee_phone, assignee_name, suggested, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, eventId, t, a.phone, a.name, suggested ? 1 : 0, userId);
+  db._raw().prepare(`INSERT INTO event_todos (id, event_id, text, assignee_phone, assignee_name, suggested, created_by, day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, eventId, t, a.phone, a.name, suggested ? 1 : 0, userId, planDay(userId, eventId, day));
   return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(id)) };
 }
 
@@ -129,7 +139,7 @@ function forHome(userId) {
   const q = `SELECT t.*, se.title AS event_title, se.scheduled_at, se.date_tbd FROM event_todos t JOIN social_events se ON se.id = t.event_id
     WHERE t.event_id IN (${plans.map(() => '?').join(',')}) AND t.done_at IS NULL AND COALESCE(se.status, 'open') != 'cancelled'`;
   const rows = db._raw().prepare(q).all(...plans);
-  const item = (t, who) => ({ todo_id: t.id, event_id: t.event_id, text: t.text, title: t.event_title, at: t.date_tbd ? null : t.scheduled_at, who });
+  const item = (t, who) => ({ todo_id: t.id, event_id: t.event_id, text: view(t).shown, day: t.day || null, title: t.event_title, at: t.date_tbd ? null : t.scheduled_at, who });
   const items = [
     ...rows.filter((t) => !t.suggested && t.assignee_phone === u.phone).map((t) => item(t, 'you')),
     ...rows.filter((t) => !t.suggested && !t.assignee_phone).map((t) => item(t, 'anyone')),

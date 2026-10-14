@@ -444,6 +444,7 @@ const TOOL_DEFINITIONS = [
         items:    { type: 'array', items: { type: 'string' }, description: 'For suggest/add: the to-do texts' },
         todo_id:  { type: 'string', description: 'For keep/done/undo/assign/remove (from list)' },
         assignee: { type: 'string', description: 'For add/assign: a person in the plan, or "me"' },
+        day:      { type: 'string', description: 'For suggest/add: YYYY-MM-DD when the item is for one day of the plan (e.g. a Friday massage). Defaults to the calendar day your user opened the discussion from.' },
       },
       required: ['event_id', 'action'],
     },
@@ -818,6 +819,19 @@ const LOOKUP_MEMORY_SECS = 30 * 60;
 const recentLookups = new Map();   // userId → [{ query, ids, at }]
 // Did the user's own words name this plan? Its distinctive words (not "birthday", "party",
 // "weekend"…), matched as whole words or a 3+ letter start ("Mel" → Melanie).
+// The day a to-do is for: the day the user was looking at when they said it, unless their
+// own words name a day — then the model's day stands (🐛 #15: the model put Melanie's Friday
+// massage on Saturday though she never said Saturday). Enforced in code.
+const NAMES_A_DAY = /\b(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?\b|\b(tonight|tomorrow|today)\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}\b|\b\d{1,2}(st|nd|rd|th)\b|\b\d{4}-\d{2}-\d{2}\b/i;
+function todoDay(modelDay) {
+  const ctx = currentTurn?.contextDay || null;
+  if (!modelDay) return ctx;
+  if (ctx && modelDay !== ctx && !NAMES_A_DAY.test(currentTurn?.userText || '')) return ctx;
+  return modelDay;
+}
+
+// Words that bring up an idea for a plan ("thinking about getting a massage", "maybe dinner").
+const IDEA_WORDS = /\b(thinking (about|of)|maybe|we should|we could|what about|how about|i'?d (like|love)|would be (nice|fun)|want(s)? to|wanna|let'?s|idea)\b/i;
 const GENERIC_PLAN_WORDS = new Set(['birthday', 'party', 'weekend', 'trip', 'plan', 'night', 'dinner', 'lunch', 'brunch', 'drinks', 'with', 'and', 'the',
   'for', 'at', 'of', 'a', 'an', 'to', 'in', 'on', 'hangout', 'event', 'tonight', 'week', 'day']);
 function planNamedIn(text, title) {
@@ -1353,10 +1367,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (action === 'suggest' || action === 'add') {
         const added = [], problems = [];
         for (const text of items.slice(0, 8)) {
-          const r = todos.add(userId, event_id, { text, assignee, suggested: action === 'suggest' });
+          // The day: the one the model named, else the calendar day the user was looking at
+          // (🐛 #15 — Melanie's Friday massage was recorded as Saturday). Enforced here.
+          const r = todos.add(userId, event_id, { text, assignee, suggested: action === 'suggest', day: todoDay(toolInput.day) });
           if (r.error) problems.push(`${text}: ${r.message || r.error}`); else added.push(r.todo.text);
         }
+        const dayUsed = todoDay(toolInput.day);
         return { [action === 'suggest' ? 'suggested' : 'added']: added, problems: problems.length ? problems : undefined,
+          day: dayUsed && added.length ? `${dayUsed} — recorded for that day${dayUsed === currentTurn?.contextDay ? ' (the day your user opened the plan from); don\'t ask which day' : ''}` : undefined,
           note: action === 'suggest' ? 'Suggestions show at the top of the plan\'s chat with Keep / ✕. Mention them briefly; keep the ones your user wants with action keep.' : undefined };
       }
       const change = { keep: { keep: true }, done: { done: true }, undo: { done: false }, assign: { assignee } }[action];
@@ -2102,7 +2120,7 @@ async function processMessage(msg) {
     // The calendar day they tapped to get here (🐛 #15: Melanie tapped Friday, then said
     // "thinking about getting a massage" — it was for Friday).
     const dayLine = msg.context_day
-      ? ` They opened it from ${new Date(msg.context_day + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' })} on the calendar: anything day-specific they say ("a massage", "dinner") is for that day unless they name another — record it with that day.`
+      ? ` They opened it from ${new Date(msg.context_day + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' })} on the calendar: anything they bring up for the plan ("a massage", "dinner") is for that day unless they name another — record it now with manage_todos add (day "${msg.context_day}"), don't ask first.`
       : '';
     return `\n## Current discussion\nYour user is writing in the discussion for "${e.title}"${e.tentative ? ' (tentative)' : ''} (eventId="${e.id}"). Take their message as being about this plan unless it's clearly about something else — "she", "the trip", "Saturday" refer to it.${dayLine}`;
   })();
@@ -2370,7 +2388,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   REFLECTION FOLLOW-UPS: you sometimes check back later ("Earlier I told Sean you'd rather reschedule — did I get that right?"). If your user corrects you, fix it with the other side right away (message_agent / send_logistics_sms with the correction, keeping their words' meaning) and tell your user it's fixed. If they say it was right, just acknowledge.
   PASSING YOUR USER'S ANSWER BACK: keep what they meant. If they asked something ("how much is a cabin?"), answer it or include it — never drop it. If they hedged ("probably", "maybe"), keep it tentative — never turn it into a decision. Never tell your user what the other side is doing or planning unless their ButterflAI actually said so.
   GOING VS INTERESTED: when your user says they're going ("I'm going", "count me in", "I'll be there"), answer with going: true — it shows as going, not just interested. "Let everyone know I'm going" = their answer on the plan, which everyone in it sees; say so (you don't message each person).
-  YOUR USER IS IN A PLAN'S DISCUSSION: what they say there is about that plan. "Thinking about getting a massage" in their birthday weekend's discussion is an idea for that weekend — offer to add it to the plan's Creating list (manage_todos) or pass it to the host; never ask whether it's a solo thing or who it's with when the plan already says.
+  YOUR USER IS IN A PLAN'S DISCUSSION: what they say there is about that plan. An idea for it ("thinking about getting a massage", "maybe dinner after", "we should bring floats") gets RECORDED right away — manage_todos add on that plan (with the day, if they're on one) — then tell them it's on the plan's Creating list. Don't ask first whether to add it, whether it's for this plan, or whether it's a solo thing; nobody has to handle it, it just has to be written down (owner, 2026-10-13).
   WRITE IT FOR THEM: when your user gives the gist of a message ("tell her we should hang out", "let Bam know I'm coming"), write the message yourself and show it — never ask "what do you want to say?" (🐛 #2). Ask only if they gave no idea at all of what to say.
   SHARES BECOME PLANS: what someone shares ("Free tonight", "At Sully's from 9") is not a plan until someone makes it one. When your user wants to do what they or a friend shared, make the plan (create_social_event, tentative, with that friend in contact_ids) — Home also has a "Make it a plan" button for this.
   DESIRES ARE PLANS: when parse_desires stores a social desire ("go out with a friend or two this week"), it is already a plan (idea stage, its window as proposed dates) — the result lists them. Work on those plans (update_event, invite, Creating); never create a second plan for the same desire.
@@ -2739,7 +2757,8 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   // the message is scrubbed, so no plain-text copy is left at rest.
   const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
   const turnStart = Math.floor(Date.now() / 1000);   // chat rows from here on belong to this turn (topics.js)
-  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id, eventId: msg.event_id || null };
+  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id, eventId: msg.event_id || null,
+    contextDay: msg.context_day || null };
   if (msg.channel === 'agent_query') {
     // Who's asking (for tell_my_user's avoid-list check), from the queued "thread=<id>".
     const thread = /\bthread=([\w-]+)/.exec(msg.text || '')?.[1];
@@ -2769,6 +2788,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   let sentClaimChallenged = false;
   let agentQueryChallenged = false;
   let actionClaimChallenged = false;
+  let ideaChallenged = false;
   const toolLog = [];   // { name, input, result } for every tool run this turn
   let lastReplyText = '';
   let planRouted = false;    // routed this turn to a plan (topics.route)
@@ -2831,6 +2851,21 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         }
         turnTrace.event('guard', `repeated unbacked claim (${unbacked.what}): ${replyText.slice(0, 200)}`);
         if (unbacked.fallback !== null) replyText = unbacked.fallback || NOT_DONE_FALLBACK;
+      }
+
+      // An idea raised in a plan's discussion gets written down, not asked about (owner,
+      // 2026-10-13: "it just needs to be recorded"; Melanie's "thinking about getting a
+      // massage" got "is that solo?"). In code: an idea-like message in a plan's pill, a turn
+      // that touched nothing on the plan, and a reply that asks → once, record it first.
+      if (USER_CHANNELS.includes(msg.channel) && msg.event_id && msg.event_id !== topics.GENERAL && !isPrivate && !ideaChallenged
+          && IDEA_WORDS.test(msg.text || '') && /\?\s*$|\?\s*\S{0,4}$/.test(String(replyText || '').trim())
+          && !toolLog.some((t) => ['manage_todos', 'update_event'].includes(t.name) && !t.result?.error)) {
+        ideaChallenged = true;
+        turnTrace.event('guard', `idea in plan discussion not recorded: ${replyText.slice(0, 160)}`);
+        messages.push({ role: 'user', content:
+          `[System check — not from the user] Your user brought up an idea in this plan's discussion. Record it first with manage_todos add (event_id="${msg.event_id}"${msg.context_day ? `, day "${msg.context_day}"` : ''}), `
+          + 'then tell them it\'s on the plan\'s Creating list. Don\'t ask whether to add it, whether it\'s for this plan, or whether it\'s solo. Don\'t mention this check.' });
+        continue;
       }
 
       // Every conversation is about a plan (owner, 2026-10-09): new, existing, or a merge.

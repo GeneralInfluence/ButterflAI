@@ -1593,7 +1593,7 @@ app.get('/api/events/:id/todos', webAuth.requireAuth, (req, res) => {
   return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
 });
 app.post('/api/events/:id/todos', webAuth.requireAuth, express.json(), (req, res) => {
-  const r = todos.add(req.user.id, req.params.id, { text: req.body?.text, assignee: req.body?.assignee });
+  const r = todos.add(req.user.id, req.params.id, { text: req.body?.text, assignee: req.body?.assignee, day: req.body?.day });
   return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
 });
 app.patch('/api/todos/:id', webAuth.requireAuth, express.json(), (req, res) => {

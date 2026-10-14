@@ -734,7 +734,7 @@
     const kept = todos.filter(t => !t.suggested);
     box.querySelector('.todo-toggle').textContent = `✨ Creating${progress.total ? ` ${progress.done}/${progress.total}` : ''} ▾`;
     ul.innerHTML = kept.map(t => `<li class="${t.done ? 'done' : ''}"><label><input type="checkbox" ${t.done ? 'checked' : ''}
-        onchange="checkTodo('${escHtml(t.id)}', this.checked, this)"> ${escHtml(t.text)}</label>${t.assignee ? ` <span class="who">${escHtml(t.assignee)}</span>` : ''}</li>`).join('')
+        onchange="checkTodo('${escHtml(t.id)}', this.checked, this)"> ${escHtml(t.shown || t.text)}</label>${t.assignee ? ` <span class="who">${escHtml(t.assignee)}</span>` : ''}</li>`).join('')
       + `<li><a href="/app/chat?event=${encodeURIComponent(id)}">${kept.length ? 'Add or change in the discussion' : 'Nothing yet — add in the discussion'} ›</a></li>`;
   }
   async function checkTodo(id, done, el) {

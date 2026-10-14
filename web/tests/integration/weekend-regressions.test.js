@@ -95,7 +95,7 @@ describe('"Melanie said she wants a massage and was asked if that\'s a solo thin
   test('in a plan\'s discussion, what they say is about that plan', () => {
     const p = agent.buildSystemPrompt({ name: 'X', phone: '+1' }, '');
     assert.ok(p.includes("YOUR USER IS IN A PLAN'S DISCUSSION: what they say there is about that plan"));
-    assert.ok(p.includes("never ask whether it's a solo thing"));
+    assert.ok(p.includes("Don't ask first whether to add it, whether it's for this plan, or whether it's a solo thing"));
     assert.ok(p.includes('GOING VS INTERESTED'));
   });
 });

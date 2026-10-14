@@ -491,11 +491,11 @@
       toggle.setAttribute('aria-expanded', String(todoOpen));
       document.getElementById('todo-body').hidden = !todoOpen;
       document.getElementById('todo-list').innerHTML = kept.map(t => `<li class="${t.done ? 'done' : ''}" data-id="${esc(t.id)}">
-          <input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done"><span class="t">${esc(t.text)}</span>
+          <input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done"><span class="t">${esc(t.shown || t.text)}</span>
           ${t.assignee ? `<span class="who">${esc(t.assignee)}</span>` : ''}<button type="button" class="todo-x" aria-label="Remove">✕</button></li>`).join('')
         || '<li style="color:#8e8e93;font-size:13px">Nothing yet — add what needs doing, or ask your ButterflAI what this plan needs.</li>';
       document.getElementById('todo-suggested').innerHTML = sug.length ? '<div style="font-size:12px;color:#8e8e93;margin-top:4px">Suggested by ButterflAI</div>' + sug.map(t =>
-        `<div class="sug" data-id="${esc(t.id)}"><span>${esc(t.text)}</span><button type="button" class="tpill keep">Keep</button><button type="button" class="todo-x" aria-label="Dismiss">✕</button></div>`).join('') : '';
+        `<div class="sug" data-id="${esc(t.id)}"><span>${esc(t.shown || t.text)}</span><button type="button" class="tpill keep">Keep</button><button type="button" class="todo-x" aria-label="Dismiss">✕</button></div>`).join('') : '';
       bar.hidden = false;
     }
     async function todoCall(method, url, body) {
@@ -521,7 +521,7 @@
       const text = input.value.trim();
       if (!text) return;
       input.value = '';
-      todoCall('POST', '/api/events/' + encodeURIComponent(topicEvent) + '/todos', { text });
+      todoCall('POST', '/api/events/' + encodeURIComponent(topicEvent) + '/todos', { text, ...(topicDay ? { day: topicDay } : {}) });
     });
 
     function renamePlan(plan) {

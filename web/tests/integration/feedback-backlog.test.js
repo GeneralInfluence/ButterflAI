@@ -162,6 +162,68 @@ describe('🐛 #15: the day you tapped goes with what you say', () => {
   });
 });
 
+// Owner, 2026-10-13: "the tests should ensure the massage is on Friday." Melanie's exact
+// path: she taps Friday Oct 23 on the calendar, opens her birthday weekend's discussion and
+// writes "thinking about getting a massage". Whatever the model writes, the item it adds is
+// stored on Friday, and that's what everyone in the plan sees.
+describe('🐛 #15: the massage is on Friday', () => {
+  async function melaniesWeekend() {
+    const sean = mkUser('Sean Fri'); const mel = mkUser('Melanie Fri');
+    const r = await planops.create(sean.id, { title: "Melanie's Birthday Weekend", proposed_dates: [{ from: '2027-01-08', to: '2027-01-09' }],   // Fri–Sat
+      contact_ids: [db.upsertContact({ invited_by_user_id: sean.id, name: mel.name, phone: mel.phone, tier: 1 })] });
+    return { sean, mel, eventId: r.eventId };
+  }
+  async function sayFromFriday(user, eventId, text, toolInput) {
+    let i = 0;
+    const steps = [{ id: 'a', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'manage_todos', input: { event_id: eventId, action: 'add', ...toolInput } }] },
+      { id: 'b', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Added to the weekend.' }] }];
+    agent._setAnthropic({ messages: { create: async () => steps[Math.min(i++, steps.length - 1)] } });
+    db.storeInboundMessage({ from_phone: user.phone, from_type: 'user', from_id: user.id, channel: 'webchat', text, event_id: eventId, context_day: '2027-01-08' });
+    await agent.tick();
+  }
+  const todosOf = (u, eventId) => require('../../todos').list(u.id, eventId).todos;
+
+  test('opened from Friday: the massage is stored on Friday, and shows as Friday to everyone', async () => {
+    const w = await melaniesWeekend();
+    await sayFromFriday(w.mel, w.eventId, 'thinking about getting a massage', { items: ['Massages for everyone'] });   // the model didn't say a day
+    const [t] = todosOf(w.mel, w.eventId);
+    assert.equal(t.day, '2027-01-08', 'Friday');
+    assert.notEqual(t.day, '2027-01-09', 'not Saturday');
+    assert.equal(todosOf(w.sean, w.eventId)[0].shown, 'Fri, Jan 8: Massages for everyone', 'the host sees it on Friday');
+    const home = require('../../home').feedFor(w.sean.id).creating.find((c) => c.todo_id === t.id);
+    assert.match(home.text, /^Fri, Jan 8: /, 'and on Home');
+  });
+
+  test('the model picking Saturday when she never said Saturday is overruled: Friday', async () => {
+    const w = await melaniesWeekend();
+    await sayFromFriday(w.mel, w.eventId, 'thinking about getting a massage', { items: ['Get a massage'], day: '2027-01-09' });
+    assert.equal(todosOf(w.mel, w.eventId)[0].day, '2027-01-08');
+  });
+
+  test('if they name another day, that day wins', async () => {
+    const w = await melaniesWeekend();
+    await sayFromFriday(w.mel, w.eventId, 'dinner on Saturday?', { items: ['Book dinner'], day: '2027-01-09' });
+    assert.equal(todosOf(w.mel, w.eventId)[0].day, '2027-01-09');
+  });
+
+  test('a day the plan doesn\'t cover is never stored', async () => {
+    const w = await melaniesWeekend();
+    const r = require('../../todos').add(w.mel.id, w.eventId, { text: 'Brunch', day: '2027-02-01' });
+    assert.equal(r.todo.day, null);
+  });
+
+  test('added from the plan chat\'s own box while on Friday: Friday too', async () => {
+    const w = await melaniesWeekend();
+    const supertest = require('supertest');
+    const request = supertest(require('../../server').app);
+    await request.post('/auth/otp/send').send({ phone: w.mel.phone });
+    const { code } = db._raw().prepare('SELECT code FROM otp_codes WHERE phone = ? AND used = 0 ORDER BY created_at DESC LIMIT 1').get(w.mel.phone);
+    const cookie = (await request.post('/auth/otp/verify').send({ phone: w.mel.phone, code })).headers['set-cookie'][0];
+    const res = await request.post(`/api/events/${w.eventId}/todos`).set('Cookie', cookie).send({ text: 'Massage', day: '2027-01-08' });
+    assert.equal(res.body.todo.day, '2027-01-08');
+  });
+});
+
 // 🐛 #14 (Melanie, 2026-10-13): "no not solo, i mentioned this in my bday weekend group because
 // its a group idea" — covered by weekend-regressions.test.js (plan discussion rule).
 
