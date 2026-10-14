@@ -2215,7 +2215,7 @@ app.post('/api/events/rsvp', webAuth.requireAuth, express.json(), (req, res) => 
   if (!invitation_id || !['accepted', 'declined'].includes(status)) {
     return res.status(400).json({ error: 'invitation_id and status (accepted|declined) required' });
   }
-  const result = planops.respond(invitation_id, status, { by: 'guest', phone: req.user.phone, via: 'app' });
+  const result = planops.respond(invitation_id, status, { by: 'guest', phone: req.user.phone, via: 'app', going: req.body.going === undefined ? undefined : !!req.body.going });
   if (!result.ok) return res.status(403).json({ ok: false, error: result.error });
   res.json({ ok: true, status: result.status });
 });

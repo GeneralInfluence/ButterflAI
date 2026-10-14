@@ -641,7 +641,7 @@
           : dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' ' +
             dt.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
       const isPending = e.rsvp_status === 'invited';
-      const statusLabel = { invited: '⏳ Pending', accepted: e.tentative ? '⭐ Interested' : '✅ Going', declined: '❌ Declined' }[e.rsvp_status] || e.rsvp_status;
+      const statusLabel = { invited: '⏳ Pending', accepted: e.tentative && !e.plan?.invitation?.going ? '⭐ Interested' : '✅ Going', declined: '❌ Declined' }[e.rsvp_status] || e.rsvp_status;
       return `<div class="card" id="invite-${e.invitation_id}">
         <div class="card-header">
           <div style="flex:1;min-width:0">
@@ -746,7 +746,7 @@
   let summaryId = null;
   const PEOPLE_STATUS = (p, tentative) => p.deferring_to && p.deferring_to.length
     ? `🤝 whatever ${p.deferring_to.join(' & ')} decide${p.deferring_to.length === 1 && p.deferring_to[0] !== 'you' ? 's' : ''}`
-    : ({ accepted: tentative ? '⭐ interested' : '✅ going', invited: '⏳ hasn’t answered', declined: '❌ can’t make it' }[p.status] || p.status);
+    : ({ accepted: p.going ? '✅ going' : '⭐ interested', invited: '⏳ hasn’t answered', declined: '❌ can’t make it' }[p.status] || p.status);
   function renderSummary() {
     const el = document.getElementById('plan-summary');
     if (!summaryId) { el.hidden = true; return; }
@@ -778,8 +778,15 @@
       ? `<button class="ps-primary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted')">Still going</button>
          <button class="ps-secondary" onclick="summaryRsvp('${escHtml(inv.id)}','declined')">Not going</button>`
       : inv && inv.status === 'invited'
-      ? `<button class="ps-primary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted')">${p.tentative ? '⭐ I’m interested' : '✓ I’m in'}</button>
-         <button class="ps-secondary" onclick="summaryRsvp('${escHtml(inv.id)}','declined')">${p.tentative ? 'Not this time' : 'Can’t make it'}</button>` : '';
+      ? (p.tentative
+        ? `<button class="ps-primary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted',true)">✅ I’m going</button>
+           <button class="ps-secondary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted',false)">⭐ Interested</button>
+           <button class="ps-secondary" onclick="summaryRsvp('${escHtml(inv.id)}','declined')">Not this time</button>`
+        : `<button class="ps-primary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted',true)">✓ I’m in</button>
+           <button class="ps-secondary" onclick="summaryRsvp('${escHtml(inv.id)}','declined')">Can’t make it</button>`)
+      // Interested in a tentative plan → can say they're going (2026-10-13).
+      : inv && inv.status === 'accepted' && !inv.going
+      ? `<button class="ps-primary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted',true)">✅ I’m going</button>` : '';
     el.innerHTML = `<div class="ps-head"><div class="ps-title">${escHtml(p.title)}</div>
         <span class="cal-chip stage-${p.stage}" style="width:auto;font-size:11px;line-height:20px;padding:0 8px;flex-shrink:0">${STAGE_LABEL[p.stage] || p.stage}</span>
         <button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>
@@ -787,9 +794,9 @@
       ${p.next ? `<div class="ps-next">👉 ${escHtml(p.next)}</div>` : ''}
       <div class="ps-actions">${answer}<a class="${answer ? 'ps-secondary' : 'ps-primary'}" href="/app/chat?event=${encodeURIComponent(p.id)}">💬 Discussion</a></div>`;
   }
-  async function summaryRsvp(invitationId, status) {
+  async function summaryRsvp(invitationId, status, going) {
     document.querySelectorAll('#plan-summary .ps-actions button').forEach(b => { b.disabled = true; b.style.opacity = '.5'; });
-    await fetch('/api/events/rsvp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invitation_id: invitationId, status }) }).catch(() => {});
+    await fetch('/api/events/rsvp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invitation_id: invitationId, status, going }) }).catch(() => {});
     const ev = invitedEvents.find(e => e.invitation_id === invitationId);
     if (ev) ev.rsvp_status = status;
     await refreshPlans();

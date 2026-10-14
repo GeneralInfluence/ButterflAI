@@ -110,6 +110,7 @@ function ensureEventTables() {
       responded_at INTEGER,
       response_note TEXT,
       dismissed_at INTEGER,              -- set when user hides this invite (migration 021)
+      going INTEGER NOT NULL DEFAULT 0,  -- said they're going, not just interested (migration 057)
       needs_owner_decision INTEGER NOT NULL DEFAULT 0, -- invitee must decide before their agent responds (migration 030)
       defers_to    TEXT,                 -- JSON array of names the invitee defers to (migration 037)
       deferred_at  INTEGER,              -- when they deferred (migration 037)
@@ -186,7 +187,10 @@ function queueHostRsvpNotice({ title, scheduled_at, host_user_id }, inviteeUser,
   const host = db.getUser(host_user_id);
   if (!host) return false;
   const emoji = status === 'accepted' ? '✅' : '❌';
-  const ts = new Date(scheduled_at * 1000).toLocaleString('en-US', {
+  // The plan's dates as everyone sees them (plan.js) — an undated plan's placeholder time
+  // used to go out as if it were the date ("Tue, Nov 24, 12:18 PM", 2026-10-13).
+  const planView = arguments[0].id ? require('./plan').planFor(arguments[0].id, host_user_id) : null;
+  const ts = planView ? planView.dates.label : new Date(scheduled_at * 1000).toLocaleString('en-US', {
     timeZone: host.timezone || 'America/Los_Angeles',
     weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
   });

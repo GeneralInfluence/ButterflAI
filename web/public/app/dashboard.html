@@ -231,7 +231,8 @@
     if (i.type === 'invite') return `<a class="card feed-item needs-you" href="/app/events?event=${esc(i.event_id)}"><span class="feed-icon">📩</span><div><div class="card-title">${esc(i.host)} ${i.tentative ? 'is planning' : 'invited you'}: ${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''}</div>${action(i)}</div></a>`;
     if (i.type === 'event') {
       const who = i.role === 'host'
-        ? [i.interested && i.interested.length ? `${names(i.interested.map(esc))} ${i.tentative ? 'interested' : 'in'}` : '',
+        ? [(i.going || []).length ? `${names(i.going.map(esc))} going` : '',
+           (i.interested || []).filter((x) => !(i.going || []).includes(x)).length ? `${names(i.interested.filter((x) => !(i.going || []).includes(x)).map(esc))} interested` : '',
            i.waiting_on && i.waiting_on.length ? `waiting on ${names(i.waiting_on.map(esc))}` : '',
            i.asked && i.asked.length ? `asked ${names(i.asked.map(esc))}, no answer yet` : '',
            i.out && i.out.length ? `${names(i.out.map(esc))} out` : '',
@@ -302,6 +303,11 @@
   }
   const friendsFeeling = (items) => (items || []).filter(i => i.type === 'plan' || i.type === 'interest');
 
+  function homeHappenings(items) {
+    const soon = Date.now() / 1000 + 14 * 86400;
+    const picked = items.filter((i) => i.action || ((i.type === 'event' || i.type === 'invite') && (i.sort_at || i.at || 0) <= soon && (i.sort_at || i.at)));
+    return (picked.length ? picked : items).slice(0, 4);
+  }
   function renderHome() {
     const { items, my_plans, creating, creating_suggestions, summary } = feed;
     for (const k of Object.keys(SECTIONS)) {
@@ -312,7 +318,10 @@
     document.getElementById('my-plans').innerHTML = minePlansHtml((my_plans || []).slice(0, 1));
     document.getElementById('creating').innerHTML = (creating || []).length ? creatingHtml(creating.slice(0, 1), [])
       : (creating_suggestions || []).length ? creatingHtml([], creating_suggestions.slice(0, 1)) : creatingHtml([], []);
-    document.getElementById('feed').innerHTML = items && items.length ? feedItemHtml(items[0]) : EMPTY_HAPPENINGS;
+    // Happenings on Home: everything that needs you, then your plans in the next two weeks
+    // (up to 4). One item hid Melanie's Birthday Weekend behind Liam's party — "all the
+    // events for the weekend were deleted" (2026-10-13). The rest is one tap away (›).
+    document.getElementById('feed').innerHTML = items && items.length ? homeHappenings(items).map(feedItemHtml).join('') : EMPTY_HAPPENINGS;
   }
 
   // Creating in full: grouped by plan (yours first within each, then open, then suggestions).

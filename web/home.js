@@ -48,12 +48,16 @@ function feedFor(userId) {
   for (const p of require('./plan').plansFor(userId)) {
     if (p.at && (p.at < from || p.at > to)) continue;
     shownEventIds.add(p.id);
+    // A plan with proposed dates sorts by its first proposed day (2026-10-13: Liam's Oct 25
+    // party came before Melanie's Oct 23 weekend — undated plans all counted as "now").
+    const firstDay = p.dates.proposals?.[0]?.from;
     const base = { event_id: p.id, title: p.title, venue: p.place, at: p.at, tentative: p.tentative,
+      sort_at: p.at || (firstDay ? Date.parse(firstDay + 'T12:00:00Z') / 1000 : null),
       date_tbd: p.dates.kind === 'tbd', proposed_dates: p.dates.proposals.length ? p.dates.proposals : undefined };
     if (p.stage === 'invited') {
       items.push({ ...base, type: 'invite', role: 'guest', invitation_id: p.invitation.id, host: p.host.name, action: p.next });
     } else {
-      items.push({ ...base, type: 'event', role: p.role, host: p.host.name, interested: p.interested, waiting_on: p.waiting_on,
+      items.push({ ...base, type: 'event', role: p.role, host: p.host.name, interested: p.interested, going: p.going, waiting_on: p.waiting_on,
         asked: p.asked, out: p.out, deferring: p.deferring, action: p.next || null });
     }
   }
@@ -92,21 +96,21 @@ function feedFor(userId) {
     items.push({ type: 'interest', who: firstName({ name: s.from_name, nickname: s.from_nickname }), about: s.about, created_at: s.created_at });
   }
 
-  const daysOut = (at) => Math.max(0, (at - t) / 86400);
+  const daysOut = (at) => (at ? Math.max(0, (at - t) / 86400) : 365);   // no date at all = after everything dated
   const hoursAgo = (ts) => Math.max(0, (t - (ts || t)) / 3600);
   const score = (i) => {
     // 1. Things waiting on you — soonest first.
-    if (i.type === 'invite') return 3000 - daysOut(i.at) * 10;
+    if (i.type === 'invite') return 3000 - daysOut(i.sort_at) * 10;
     if (i.type === 'question') return 3000 - hoursAgo(i.created_at) * 0.1;
     if (i.type === 'checkin') return 2500;   // after what needs you to move a plan on
-    if (i.type === 'event' && i.action) return 3000 - daysOut(i.at) * 10;
+    if (i.type === 'event' && i.action) return 3000 - daysOut(i.sort_at) * 10;
     // 2. Happening in the next day.
-    if (i.type === 'event' && daysOut(i.at) <= 1) return 2000 - daysOut(i.at) * 24;
+    if (i.type === 'event' && daysOut(i.sort_at) <= 1) return 2000 - daysOut(i.sort_at) * 24;
     // 3. What friends shared / who's up for something — newest first.
     if (i.type === 'plan') return 1500 - hoursAgo(i.created_at);
     if (i.type === 'interest') return 1400 - hoursAgo(i.created_at);
     // 4. Waiting on others, then everything else by how soon.
-    return 1000 - daysOut(i.at) * 10;
+    return 1000 - daysOut(i.sort_at) * 10;
   };
   items.sort((a, b) => score(b) - score(a));
 

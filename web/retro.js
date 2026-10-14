@@ -87,7 +87,10 @@ const TASKS = [
       const msgs = db._raw().prepare(`SELECT role, text FROM conversation_history WHERE user_id = ? AND private_ct IS NULL
         AND created_at > ? AND kind IS NULL ORDER BY created_at, rowid LIMIT 200`).all(user.id, now() - 14 * 86400);
       if (msgs.filter((m) => m.role === 'user').length < 2) return 'too little to go on';
-      const existing = db._raw().prepare(`SELECT title FROM social_events WHERE host_user_id = ? AND COALESCE(status, 'open') != 'cancelled'`).all(user.id).map((e) => e.title);
+      // Plans they host AND plans they're invited to (2026-10-13: Bam Bam was offered to "set
+      // up" Grover — the same weekend as Melanie's Birthday Weekend, which he was already in).
+      const existing = require('./plan').plansFor(user.id, { includePast: true })
+        .map((p) => `${p.title}${p.dates.label ? ` (${p.dates.label}${p.role === 'guest' ? `, ${p.host.name}'s plan` : ''})` : ''}`);
       const first = String(user.name || 'the user').split(/\s+/)[0];
       const r = await c.messages.create({ model: DEFAULT_MODEL, max_tokens: 600, messages: [{ role: 'user', content:
         `Below is ${first}'s recent chat with their social-planning assistant. List the plans ${first} is actually making (trips, dinners, parties, outings — with or without a date) that are NOT already one of these plans: ${existing.length ? existing.map((t) => `"${t}"`).join(', ') : '(none)'}.\n`
@@ -348,6 +351,39 @@ const TASKS = [
         } catch (err) { console.error(`[retro] case for feedback ${r.id}:`, err.message); }
       }
       return `built ${n}`;
+    },
+  },
+  {
+    id: '2026-10-13-going-not-just-interested',
+    added: Date.UTC(2026, 9, 13) / 1000,
+    kind: 'internal',
+    about: 'Going vs interested (2026-10-13): a yes to a plan from someone who said "I\'m going" in its discussion is going (Bam Bam showed as interested).',
+    run(user) {
+      if (!user.phone) return 'no phone';
+      const rows = db._raw().prepare(`SELECT ei.id, ei.event_id FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+        WHERE c.phone = ? AND ei.status = 'accepted' AND ei.going = 0`).all(user.phone);
+      let n = 0;
+      for (const r of rows) {
+        const said = db._raw().prepare("SELECT 1 FROM conversation_history WHERE user_id = ? AND event_id = ? AND role = 'user' AND (lower(text) LIKE '%i''m going%' OR lower(text) LIKE '%im going%' OR lower(text) LIKE '%i am going%' OR lower(text) LIKE '%count me in%' OR lower(text) LIKE '%i''ll be there%')").get(user.id, r.event_id);
+        if (said) { require('./planops').respond(r.id, 'accepted', { by: 'guest', phone: user.phone, via: 'retro', going: true }); n++; }
+      }
+      return `going ${n}`;
+    },
+  },
+  {
+    id: '2026-10-13-correct-setup-offers',
+    added: Date.UTC(2026, 9, 14) / 1000,
+    kind: 'propose',
+    about: 'Offers to "set up" plans from earlier chats only looked at plans the person hosts (2026-10-13: Bam Bam was offered Grover — the weekend he was already in). Anyone who got such an offer and is in plans hears which ones already exist.',
+    async run(user) {
+      const offer = db._raw().prepare(`SELECT created_at FROM conversation_history WHERE user_id = ? AND role = 'assistant' AND text LIKE 'I now keep a plan for everything%'
+        AND created_at >= ? ORDER BY created_at DESC LIMIT 1`).get(user.id, Date.UTC(2026, 9, 13) / 1000);
+      if (!offer) return 'no offer';
+      const when = (p) => p.at || (p.dates.proposals?.[0] ? Date.parse(p.dates.proposals[0].from) / 1000 : Infinity);
+      const theirs = require('./plan').plansFor(user.id).filter((p) => p.role === 'guest').sort((a, b) => when(a) - when(b));
+      if (!theirs.length) return 'not in any';
+      await tellUser(user, `A correction: when I offered to set up plans from our chats, I missed the ones you're already in — ${theirs.map((p) => `${p.title} (${p.dates.label}, ${p.host.name}'s plan)`).join('; ')}. If what I listed is one of these, there's nothing to set up — it's already on your Events.`);
+      return `corrected (${theirs.length})`;
     },
   },
   {

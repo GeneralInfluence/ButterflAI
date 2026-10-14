@@ -414,6 +414,7 @@ const TOOL_DEFINITIONS = [
         invitation_id: { type: 'string', description: 'inv_id from the coordination invite in your state snapshot' },
         status: { type: 'string', enum: ['accepted', 'declined'], description: 'Your response' },
         add_to_calendar: { type: 'boolean', description: 'Ignored — plans are on the calendar automatically (kept for older calls)' },
+        going:           { type: 'boolean', description: 'true when your user said they ARE going / in / will be there; false or omit when they are only interested. Shown to everyone as "going" vs "interested".' },
       },
       required: ['invitation_id', 'status'],
     },
@@ -1609,7 +1610,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
       // The answer goes through planops, which ripples it: the host is told, Creating and
       // anyone avoiding this user in the plan follow (ripples/). Also clears a pause.
-      const answered = planops.respond(invitation_id, status, { by: 'guest', phone: user?.phone, via: 'agent' });
+      // "I'm going" is going, not just interested (Bam Bam, 2026-10-13) — from the tool input
+      // or the user's own words this turn.
+      const saidGoing = /\b(i'?m|i am|we'?re)\s+(going|in|coming)\b|\bwill be there\b|\bcount (me|us) in\b|\bi'?ll be there\b/i.test(currentTurn?.userText || '');
+      const answered = planops.respond(invitation_id, status, { by: 'guest', phone: user?.phone, via: 'agent',
+        going: status === 'accepted' ? (toolInput.going === true || saidGoing) : undefined });
       if (!answered.ok) return { error: 'Invitation not found', message: 'Use an inv_id from "You have been invited to" in your state.' };
 
       // Their Google Calendar follows on its own (calendar ripple, calmirror.js) — no
@@ -2035,7 +2040,7 @@ async function processMessage(msg) {
   // The plans this user hosts — described from the plan object (plan.js), the same one
   // the calendar and Home use, not re-derived from tables here (owner, 2026-10-12).
   const describePeople = (p) => [
-    ...p.people.filter((x) => !x.deferring_to.length).map((x) => `${x.name} (${x.status === 'accepted' && p.tentative ? 'interested' : x.status})`),
+    ...p.people.filter((x) => !x.deferring_to.length).map((x) => `${x.name} (${x.status === 'accepted' ? (x.going ? 'going' : 'interested') : x.status})`),
     ...p.deferring.map((d) => `${d.who} (in — goes with whatever ${defer.joinNames(d.to)} decide; don't ask them about it)`),
   ].join(', ') || 'no invitees yet';
   const nowS = Math.floor(Date.now() / 1000);
@@ -2359,6 +2364,8 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join", or asks your user's opinion on a plan): pass it to your user with tell_my_user — ONLY the message they should read, e.g. "Sean's heading to [place] tonight around [time] — want to go?" When your user answers, pass it back with message_agent. Do not reveal agent-to-agent mechanics.
   REFLECTION FOLLOW-UPS: you sometimes check back later ("Earlier I told Sean you'd rather reschedule — did I get that right?"). If your user corrects you, fix it with the other side right away (message_agent / send_logistics_sms with the correction, keeping their words' meaning) and tell your user it's fixed. If they say it was right, just acknowledge.
   PASSING YOUR USER'S ANSWER BACK: keep what they meant. If they asked something ("how much is a cabin?"), answer it or include it — never drop it. If they hedged ("probably", "maybe"), keep it tentative — never turn it into a decision. Never tell your user what the other side is doing or planning unless their ButterflAI actually said so.
+  GOING VS INTERESTED: when your user says they're going ("I'm going", "count me in", "I'll be there"), answer with going: true — it shows as going, not just interested. "Let everyone know I'm going" = their answer on the plan, which everyone in it sees; say so (you don't message each person).
+  YOUR USER IS IN A PLAN'S DISCUSSION: what they say there is about that plan. "Thinking about getting a massage" in their birthday weekend's discussion is an idea for that weekend — offer to add it to the plan's Creating list (manage_todos) or pass it to the host; never ask whether it's a solo thing or who it's with when the plan already says.
   WRITE IT FOR THEM: when your user gives the gist of a message ("tell her we should hang out", "let Bam know I'm coming"), write the message yourself and show it — never ask "what do you want to say?" (🐛 #2). Ask only if they gave no idea at all of what to say.
   SHARES BECOME PLANS: what someone shares ("Free tonight", "At Sully's from 9") is not a plan until someone makes it one. When your user wants to do what they or a friend shared, make the plan (create_social_event, tentative, with that friend in contact_ids) — Home also has a "Make it a plan" button for this.
   DESIRES ARE PLANS: when parse_desires stores a social desire ("go out with a friend or two this week"), it is already a plan (idea stage, its window as proposed dates) — the result lists them. Work on those plans (update_event, invite, Creating); never create a second plan for the same desire.

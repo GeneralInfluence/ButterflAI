@@ -201,7 +201,7 @@ function guestRows(eventId) {
     FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ?`).all(eventId);
 }
 function guestRow(invitationId) {
-  return db._raw().prepare(`SELECT ei.id AS invitation_id, ei.event_id, ei.contact_id, ei.status, ei.source, ei.needs_owner_decision, ei.defers_to,
+  return db._raw().prepare(`SELECT ei.id AS invitation_id, ei.event_id, ei.contact_id, ei.status, ei.going, ei.source, ei.needs_owner_decision, ei.defers_to,
       c.phone, COALESCE(c.nickname, c.name) AS name, se.host_user_id, se.title
     FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id JOIN social_events se ON se.id = ei.event_id WHERE ei.id = ?`).get(invitationId);
 }
@@ -213,22 +213,25 @@ function guestRow(invitationId) {
  * public event page). An answer that doesn't change their status only clears a pause
  * ("Still going?" → yes) and ripples nothing.
  */
-function respond(invitationId, status, { by = 'guest', phone = null, userId = null, via = 'app' } = {}) {
+function respond(invitationId, status, { by = 'guest', phone = null, userId = null, via = 'app', going = undefined } = {}) {
   if (!['accepted', 'declined'].includes(status)) return { ok: false, error: 'BAD_STATUS' };
   const g = guestRow(invitationId);
   if (!g) return { ok: false, error: 'INVITATION_NOT_FOUND' };
   if ((by === 'guest' || by === 'contact') && (!phone || g.phone !== phone)) return { ok: false, error: 'Not authorized' };
   if (by === 'host' && g.host_user_id !== userId) return { ok: false, error: 'NOT_HOST' };
+  // going: they said they're going, not just interested (only a yes can be going).
+  const goingNow = status === 'accepted' ? (going === undefined ? (g.going ? 1 : 0) : (going ? 1 : 0)) : 0;
   let batch = null;
   db._raw().transaction(() => {
-    db._raw().prepare(`UPDATE event_invitations SET status = ?, responded_at = strftime('%s','now'), needs_owner_decision = 0 WHERE id = ?`).run(status, invitationId);
+    db._raw().prepare(`UPDATE event_invitations SET status = ?, going = ?, responded_at = strftime('%s','now'), needs_owner_decision = 0 WHERE id = ?`).run(status, goingNow, invitationId);
+    if (goingNow !== (g.going ? 1 : 0)) log(g.event_id, userId, via, 'going', g.going ? 'going' : 'not going', goingNow ? 'going' : 'not going');
     log(g.event_id, userId, via, 'guest_status', `${g.name}: ${g.status}`, `${g.name}: ${status}`);
-    if (g.status !== status) {
+    if (g.status !== status || goingNow !== (g.going ? 1 : 0)) {
       batch = ripples.emit([{ type: 'guest_responded', event_id: g.event_id, actor_id: userId, via,
-        data: { invitation_id: g.invitation_id, contact_id: g.contact_id, phone: g.phone, name: g.name, source: g.source, status, previous: g.status, by } }]);
+        data: { invitation_id: g.invitation_id, contact_id: g.contact_id, phone: g.phone, name: g.name, source: g.source, status, previous: g.status, by, going: !!goingNow } }]);
     }
   })();
-  return { ok: true, status, previous: g.status, event_id: g.event_id, unchanged: g.status === status, ripples: ripples.run(batch) };
+  return { ok: true, status, going: !!goingNow, previous: g.status, event_id: g.event_id, unchanged: !batch, ripples: ripples.run(batch) };
 }
 
 /** The host records an answer they heard about elsewhere ("Allie's in"). Adds them if not invited. */

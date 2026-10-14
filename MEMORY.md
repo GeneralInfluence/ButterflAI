@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_950_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_963_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -819,6 +819,26 @@ in prod none of 15 agent messages were on a plan (event-map #6).
   what needs them.
 - Retro: earlier questions between two people in exactly one plan are linked to it (their
   replies become answers); unanswered ones that can't be linked, or are over a week old, closed.
+
+## 21. The Oct 23–25 weekend regressions `[2026-10-13]`
+
+Sean: "all the events for the weekend of October 23-25 were deleted, Bam Bam was shown as
+interested when he said he was going, Melanie said she wants a massage and was asked if that's
+a solo thing. This app is falling apart!!" Nothing was deleted — causes and fixes:
+- **Home showed one Happening** (my "one preview" default) and undated plans sorted at random,
+  so Melanie's weekend was hidden behind Liam's party. Home now shows everything that needs you
+  plus plans in the next two weeks (up to 4); proposed plans sort by their first proposed day.
+- **Going vs interested:** `event_invitations.going` (migration 057). A yes is "interested" on
+  a tentative plan unless they said they're going ("I'm going", "count me in", "I'll be there"
+  — tool `going`, or their words, in code). Shown everywhere; the summary offers "I'm going".
+- **Massage:** what a user says inside a plan's discussion is about that plan — offer to add it
+  to Creating / tell the host, never ask "solo?" (prompt rule).
+- **Host RSVP notice** used an undated plan's placeholder time ("Tue, Nov 24, 12:18 PM") —
+  now the plan's dates label.
+- **"Set up plans from earlier chats"** only knew plans the person hosts → offered Bam Bam
+  "Grover", the weekend he was already in. Now includes plans they're invited to; a correction
+  went to anyone who got such an offer.
+- I now check screens in a real (headless) phone browser before shipping UI changes.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

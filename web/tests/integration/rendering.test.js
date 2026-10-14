@@ -890,7 +890,8 @@ describe('Home feed + Events show tentative plans and what needs you', () => {
   test('events page: Tentative badge, "Interested" instead of "Going"', () => {
     const html = read('events.html');
     assert.ok(html.includes(">Tentative</span>"));
-    assert.ok(html.includes("accepted: e.tentative ? '⭐ Interested' : '✅ Going'"));
+    // Since 2026-10-13 someone who said they're going shows as going even on a tentative plan.
+    assert.ok(html.includes("accepted: e.tentative && !e.plan?.invitation?.going ? '⭐ Interested' : '✅ Going'"));
   });
 });
 
@@ -952,7 +953,9 @@ describe('Home at a glance: three sections, each opens full screen', () => {
   });
   test('summary lines come from the server, previews are one item each', () => {
     assert.ok(home.includes("el.textContent = sm.line || ''"));
-    assert.ok(home.includes('feedItemHtml(items[0])') && home.includes('(my_plans || []).slice(0, 1)') && home.includes('creating.slice(0, 1)'));
+    // Happenings shows everything needing you + plans in the next 2 weeks (up to 4) since
+    // 2026-10-13 — one item hid a whole weekend's plans.
+    assert.ok(home.includes('homeHappenings(items).map(feedItemHtml)') && home.includes('(my_plans || []).slice(0, 1)') && home.includes('creating.slice(0, 1)'));
   });
   test('full section is addressable and the back button closes it', () => {
     assert.ok(home.includes('<div id="sec-full" hidden'));

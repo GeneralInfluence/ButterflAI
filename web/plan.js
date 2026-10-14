@@ -53,7 +53,7 @@ function planFor(eventId, viewerId) {
   if (!viewer) return null;
   const tz = viewer.timezone || 'America/Los_Angeles';
   const host = db.getUser(e.host_user_id);
-  const invitations = db._raw().prepare(`SELECT ei.id, ei.status, ei.defers_to, ei.dismissed_at, ei.needs_owner_decision, c.phone, COALESCE(c.nickname, c.name) AS name
+  const invitations = db._raw().prepare(`SELECT ei.id, ei.status, ei.going, ei.defers_to, ei.dismissed_at, ei.needs_owner_decision, c.phone, COALESCE(c.nickname, c.name) AS name
     FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ?`).all(e.id);
   const isHost = e.host_user_id === viewerId;
   const mine = invitations.find((i) => i.phone && i.phone === viewer.phone);
@@ -61,6 +61,8 @@ function planFor(eventId, viewerId) {
 
   const people = invitations.map((i) => ({
     name: first(i.name), status: i.status,
+    // On a tentative plan a yes is "interested" unless they said they're going (2026-10-13).
+    going: i.status === 'accepted' && (!!i.going || !e.tentative),
     deferring_to: parseJson(i.defers_to, []).map((n) => (isHost && n === first(viewer.name) ? 'you' : n)),
   }));
   const plain = people.filter((p) => !p.deferring_to.length);
@@ -82,7 +84,8 @@ function planFor(eventId, viewerId) {
     : e.tentative ? 'proposed'
     : 'confirmed';
 
-  const interested = plain.filter((p) => p.status === 'accepted').map((p) => p.name);
+  const interested = plain.filter((p) => p.status === 'accepted').map((p) => p.name);   // everyone who said yes
+  const going = plain.filter((p) => p.going).map((p) => p.name);                         // …of whom these said they're going
   const waiting = plain.filter((p) => p.status === 'invited').map((p) => p.name);
   // Paused after a heads-up (ripples/reactions/avoid-heads-up.js): they said yes before.
   const stillGoing = !isHost && mine && mine.status === 'accepted' && mine.needs_owner_decision;
@@ -95,11 +98,11 @@ function planFor(eventId, viewerId) {
   return {
     id: e.id, title: e.title, what: e.activity_type, place: e.venue_name || null, notes: e.notes || null,
     host: { name: first(host?.name), is_you: isHost }, role: isHost ? 'host' : 'guest',
-    invitation: mine ? { id: mine.id, status: mine.status, must_ask: !!mine.needs_owner_decision && mine.status !== 'declined',
+    invitation: mine ? { id: mine.id, status: mine.status, going: mine.status === 'accepted' && (!!mine.going || !e.tentative), must_ask: !!mine.needs_owner_decision && mine.status !== 'declined',
       deferred_to: parseJson(mine.defers_to, []) } : null,
     tentative: !!e.tentative, stage, dates, days: dates.days, at: dates.kind === 'set' ? dates.start : null,
     group: e.group_id ? (db._raw().prepare('SELECT id, name FROM contact_groups WHERE id = ?').get(e.group_id) || null) : null,
-    people, interested, waiting_on: waiting, out: plain.filter((p) => p.status === 'declined').map((p) => p.name),
+    people, interested, going, waiting_on: waiting, out: plain.filter((p) => p.status === 'declined').map((p) => p.name),
     deferring: people.filter((p) => p.deferring_to.length).map((p) => ({ who: p.name, to: p.deferring_to })),
     asked, creating: { done: todo.done || 0, total: todo.kept || 0, suggested: todo.suggested || 0 },
     // What friends' ButterflAIs answered this viewer's questions about this plan (answers.js).
