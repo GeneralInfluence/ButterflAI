@@ -1,4 +1,6 @@
 # Coordination Plan — Agent-to-Agent Desire Coordination
+
+> **2026-10-13:** social desires now become plans on first mention, and an agreed time lands on the plan (`web/desireplans.js`, MEMORY.md §17). Sessions no longer end without a plan.
 > Status: In progress. Resume here next session.
 > Last updated: 2026-06-19
 

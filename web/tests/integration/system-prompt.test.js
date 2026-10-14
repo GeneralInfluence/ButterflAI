@@ -741,3 +741,12 @@ describe('Calendar mirror', () => {
     assert.ok(p.includes('Never use create_calendar_event for a plan'));
   });
 });
+
+// 2026-10-13: social desires become plans (desireplans.js) — the agent must not make a duplicate.
+describe('Desires are plans', () => {
+  test('the agent works on the plans parse_desires made', () => {
+    const p = buildSystemPrompt(STUB_USER, '');
+    assert.ok(p.includes('DESIRES ARE PLANS: when parse_desires stores a social desire'));
+    assert.ok(p.includes('never create a second plan for the same desire'));
+  });
+});

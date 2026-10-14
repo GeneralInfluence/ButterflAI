@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_898_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_907_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -751,6 +751,23 @@ Event-map contradiction #2: the "Did you make it?" check-in, lift and FLAI read 
 - `lift.js` measures plans; a plan's cadence is found through the people in it (`cadenceFor`).
 - `/api/dashboard/upcoming` reads plans. The `activities` helpers in db.js remain only for the
   retained Telegram bot.
+
+## 17. Social desires are plans `[LOCKED 2026-10-13]`
+
+Owner: "make them plans" (event-map contradiction #3 — desires negotiated a time between
+agents and ended "scheduled" with no plan anywhere). `web/desireplans.js`:
+- `parse_desires` → each **social** desire becomes plans right away, one per time it should
+  happen (frequency, max 3): idea stage, tentative, the desire's window as proposed dates
+  (≤14 days), named from its kind ("Meal out with a friend or two — week of Oct 13"); people
+  the user named are invited. Recurring templates: each spawned instance gets its plan.
+  Linked in `desire_plans` (migration 051). The agent is told and never creates a second one.
+- Negotiation agreeing a time (`coordination.humanApproved`) sets the next undated plan's date
+  and invites who agreed — through planops, so it ripples (calendar, Creating, …).
+- Deleting desires cancels their plans nobody has said yes to.
+- Solo and protective desires ("work out", "chill night") stay holds for the user's own agent.
+- Fixed with it: the `coord_desires` view never had the v2 columns (horizon, candidate_*),
+  so recurring desires and named people were silently invisible to the coord loop.
+- No retro: prod had no desires.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

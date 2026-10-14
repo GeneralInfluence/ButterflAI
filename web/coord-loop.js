@@ -268,6 +268,12 @@ async function tickRecurring() {
       try {
         const instanceId = desires.spawnRecurringInstance(template.id, today, windowEnd);
         console.log(`[coord] spawned recurring instance ${instanceId} from template ${template.id}`);
+        // Each instance of a recurring social desire is a plan (desireplans.js).
+        if (template.social_size_min > 0) {
+          await require('./desireplans').forDesire(userId, instanceId, { category: template.category, sizeMin: template.social_size_min,
+            sizeMax: template.social_size_max, frequency: 1, windowStart: today, windowEnd, candidateStrategy: template.candidate_strategy },
+          (() => { try { return JSON.parse(template.candidate_ids || '[]'); } catch (_) { return []; } })());
+        }
       } catch (err) {
         console.error(`[coord] failed to spawn instance for template ${template.id}:`, err.message);
       }
@@ -361,5 +367,6 @@ module.exports = {
   notifyUser,
   // Exported for testing
   processDesire,
-  resolvePeerAgentIds
+  resolvePeerAgentIds,
+  _tickRecurring: tickRecurring,
 };

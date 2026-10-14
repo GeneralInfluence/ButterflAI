@@ -349,6 +349,9 @@ async function humanApproved(transport, sessionId) {
     agreed_slot_duration: peers[0]?.proposed_slot_dur
   });
   db.updateDesireStatus(session.desire_id, 'scheduled');
+  // The agreed time lands on the desire's plan (desireplans.js) — it used to stop here, so
+  // nothing appeared anywhere.
+  await require('./desireplans').scheduled(sessionId).catch((err) => console.error('[coord] plan from session:', err.message));
 }
 
 /**

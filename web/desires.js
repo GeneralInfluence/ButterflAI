@@ -193,6 +193,11 @@ function sanitizeDesire(item) {
  */
 async function parseAndStore(userId, rawText, windowStart, windowEnd, candidateIds = []) {
   const parsed = await parseDesires(rawText, windowStart, windowEnd);
+  return storeParsed(userId, rawText, parsed, candidateIds);
+}
+
+/** Store parsed desires; social ones become plans (desireplans.js, owner 2026-10-13). */
+async function storeParsed(userId, rawText, parsed, candidateIds = []) {
 
   if (!parsed.length) {
     return {
@@ -233,7 +238,12 @@ async function parseAndStore(userId, rawText, windowStart, windowEnd, candidateI
     // Zero raw_text immediately — we have everything we need in structured fields
     db.zeroDesireRawText(id);
 
-    stored.push({ id, ...d });
+    // A social desire is plans (one per time it should happen) — on Home, the calendar
+    // and in chat from now. Recurring templates get theirs as each instance spawns.
+    const plans = d.type === 'social' && !isRecurring
+      ? await require('./desireplans').forDesire(userId, id, d, candidateIds).catch((err) => { console.error('[desires] plans:', err.message); return []; })
+      : [];
+    stored.push({ id, ...d, plans });
 
     // Track which categories reveal general preferences (for preference update advice)
     if (d.alsoUpdatesPreference) {
@@ -383,6 +393,8 @@ async function _deleteDesires(userId, desireId, transport) {
 
   const desireIds = toDelete.map(d => d.id);
   let sessionsCancelled = 0;
+  // Their plans that nobody has joined yet go too (desireplans.js).
+  const plansCancelled = require('./desireplans').cancelFor(userId, desireIds);
 
   // Cancel any in-flight coordination sessions for these desires
   for (const did of desireIds) {
@@ -430,7 +442,7 @@ async function _deleteDesires(userId, desireId, transport) {
     'INSERT INTO desire_deletions (id, user_id, desire_count, session_count) VALUES (?, ?, ?, ?)'
   ).run(receiptId, userId, desireIds.length, sessionsCancelled);
 
-  return { deleted: desireIds.length, sessionsCancelled, receiptId };
+  return { deleted: desireIds.length, sessionsCancelled, plansCancelled, receiptId };
 }
 
 // ─── Summary builder ──────────────────────────────────────────────────────────
@@ -456,7 +468,8 @@ function buildSummary(desires, candidateIds = []) {
     const times = d.frequency > 1 ? ` ×${d.frequency}` : '';
     const freq  = d.horizon === 'recurring' ? ` (${d.recurrence})` : '';
     const who   = _candidateHint(d.candidateStrategy, candidateIds);
-    lines.push(`  ✓ ${_label(d.category)} with ${size}${times}${freq} — ${who}`);
+    const plans = (d.plans || []).length ? ` · on your plans as ${d.plans.map((p) => `“${p.title}”`).join(', ')}` : '';
+    lines.push(`  ✓ ${_label(d.category)} with ${size}${times}${freq} — ${who}${plans}`);
   }
 
   // Advice on follow-up needed
@@ -511,6 +524,7 @@ const TOOL_DEFINITION = {
     'Handles vague candidates ("any close friend"), recurring desires ("lunch every week"), and one-off events.',
     'raw_text is stored briefly for parsing then zeroed immediately — it never reaches coordination.',
     'Returns a summary + asks for clarification only when needed (e.g. specific person named but not in contacts).',
+    'Social desires become plans right away (returned in plans: eventId + title) — update those with update_event; never also create_social_event for them.',
     'Do NOT call for a single specific plan already in motion — use create_social_event for that.'
   ].join(' '),
   input_schema: {
@@ -566,6 +580,8 @@ async function handleParseTool(input, userId) {
     protective_count:    result.desires.filter(d => d.type === 'protective').length,
     recurring_count:     result.desires.filter(d => d.horizon === 'recurring').length,
     desire_ids:          result.desires.map(d => d.id),
+    // Social desires are already plans — update these with update_event; don't create_social_event again.
+    plans:               result.desires.flatMap(d => (d.plans || []).map(p => ({ eventId: p.event_id, title: p.title }))),
     preference_updates:  result.preferenceUpdates, // agent should also call update_preferences with these
     needs_candidates:    result.desires.some(d => d.type === 'social' && d.candidateStrategy === 'specific' && !candidate_ids?.length),
     summary:             result.summary
@@ -596,6 +612,7 @@ async function handleDeleteTool(input, userId, transport) {
 module.exports = {
   parseDesires,
   parseAndStore,
+  storeParsed,
   spawnRecurringInstance,
   getDueRecurringTemplates,
   resolveCandidates,
