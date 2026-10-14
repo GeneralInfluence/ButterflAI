@@ -310,8 +310,16 @@ It captures a screenshot of what's on screen (in the browser; the person sees it
 it out), the page and what it was showing, app version and device. When a plan is on screen,
 the server attaches that plan as the person sees it (`plan.js` — only plans they're in).
 Screenshots can show friends' names and plans, so: sent only when the person taps Send, viewable
-by the admin only (`/admin/feedback`), and **screenshots and screen state are deleted after 90
-days** (coord-loop purge); the written note is kept.
+by the admin only (`/admin/feedback`), and **screenshots, screen state and the raw recent
+conversation are deleted after 90 days** (coord-loop purge); the written note is kept.
+
+**Every 🐛 becomes a test (2026-10-13):** each report also saves an **anonymized case**
+(`feedbackcase.js`) — the plan as the person saw it, its change history and the conversation
+about it, with every person replaced by a stand-in name (Aspen, Birch…; the reporter is
+"Viewer"), and phone numbers, emails, ids and links removed. It is kept (it is what the
+regression test is built from, and test fixtures live in the code repository), so it must
+never carry real names: the anonymizer is tested (`feedback-cases.test.js`). Private-mode
+messages are never included.
 
 ## Ripples that touch private data `[2026-10-13]`
 

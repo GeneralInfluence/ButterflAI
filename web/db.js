@@ -494,7 +494,7 @@ module.exports = {
   // Screenshots are served separately (/api/admin/feedback/:id/screenshot), not in the list.
   getRecentFeedback(limit = 100, status = null) {
     const cols = `f.id, f.user_id, f.rating, f.agent_message, f.user_note, f.context_json, f.model, f.status, f.created_at,
-      f.page, f.state_json, f.app_version, f.device, f.screenshot IS NOT NULL AS has_screenshot, u.name AS user_name`;
+      f.page, f.state_json, f.app_version, f.device, f.screenshot IS NOT NULL AS has_screenshot, f.case_json, f.test_ref, u.name AS user_name`;
     if (status) {
       return db.prepare(`SELECT ${cols} FROM feedback f LEFT JOIN users u ON u.id = f.user_id WHERE f.status = ? ORDER BY f.created_at DESC LIMIT ?`).all(status, limit);
     }

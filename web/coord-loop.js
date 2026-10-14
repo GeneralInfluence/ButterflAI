@@ -171,10 +171,11 @@ function tickPurge() {
   } catch (err) {
     console.error('[coord] trace purge error:', err.message);
   }
-  // Feedback screenshots and screen state hold friends' names and plans: kept 90 days.
+  // Feedback screenshots, screen state and the raw recent conversation hold friends' names
+  // and plans: kept 90 days. The anonymized case (case_json) stays — tests are built from it.
   try {
-    const f = require('./db')._raw().prepare(`UPDATE feedback SET screenshot = NULL, state_json = NULL
-      WHERE created_at < strftime('%s','now') - 90 * 86400 AND (screenshot IS NOT NULL OR state_json IS NOT NULL)`).run().changes;
+    const f = require('./db')._raw().prepare(`UPDATE feedback SET screenshot = NULL, state_json = NULL, context_json = NULL
+      WHERE created_at < strftime('%s','now') - 90 * 86400 AND (screenshot IS NOT NULL OR state_json IS NOT NULL OR context_json IS NOT NULL)`).run().changes;
     if (f) console.log(`[coord] cleared ${f} old feedback screenshot(s)`);
   } catch (err) {
     console.error('[coord] feedback purge error:', err.message);

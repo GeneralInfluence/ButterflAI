@@ -1,0 +1,36 @@
+{
+  "feedback_id": null,
+  "reported": "2026-10-12",
+  "about": "Example from the 2026-10-12 bug (before cases existed): I gave the dates and the calendar showed one event across two days with the dates removed. Proposed dates must stay proposed and cover their days.",
+  "case": {
+    "version": 1,
+    "reported": "2026-10-12",
+    "page": "events",
+    "note": "I gave it the dates and now the calendar is messed up",
+    "people": ["Viewer", "Aspen", "Birch"],
+    "plan": {
+      "title": "Aspen's Birthday Weekend",
+      "what": "trip",
+      "place": "Carson City Hot Springs",
+      "notes": null,
+      "role": "host",
+      "host": "Viewer",
+      "tentative": true,
+      "stage": "proposed",
+      "dates": { "kind": "proposed", "proposals": [{ "from": "2026-10-23", "to": "2026-10-24" }], "label": "Fri, Oct 23 – Sat, Oct 24 (proposed)", "days": ["2026-10-23", "2026-10-24"] },
+      "group": null,
+      "people": [{ "name": "Aspen", "status": "accepted", "deferring_to": [] }, { "name": "Birch", "status": "accepted", "deferring_to": ["Aspen", "you"] }],
+      "invitation": null,
+      "asked": [], "creating": { "done": 0, "total": 0, "suggested": 0 }, "next": null, "answers": []
+    },
+    "history": [], "ripples": [], "conversation": []
+  },
+  "expect": {
+    "stage": "proposed",
+    "dates.kind": "proposed",
+    "dates.days.length": 2,
+    "dates.label~": "(proposed)",
+    "waiting_on": [],
+    "deferring.0.who": "Birch"
+  }
+}

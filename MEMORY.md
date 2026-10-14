@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_926_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_931_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -351,6 +351,8 @@ npm run test:eval      # LLM agent evals (slow + costs credits — manual only)
 1. **Every new route, migration, or feature ships with tests.** No exceptions. If you add a table, add DB helper tests. If you add a route, add an integration test. If you add a tool to the agent, add an eval scenario.
 
 1b. **Every behavior change is applied retroactively, in perpetuity** (owner, 2026-10-10: "when we make updates to this app, we need to be retrospective about its applications"). Ship it with a task in `web/retro.js` that brings existing users' data in line — runs once per user who existed before it, from the coord loop. `internal` tasks fix our own data directly; `propose` tasks (anything that creates things or reaches people) only *offer* it to the user in chat. If no retro is needed, say why in the commit message. Test: `tests/integration/retro.test.js`.
+
+1c. **Every 🐛 becomes a test** (owner, 2026-10-13: "each caterpillar should become a new test"). Each feedback report saves an anonymized case (`feedbackcase.js`, `feedback.case_json`: the plan as seen, its change history, ripples, the conversation; people as stand-ins Aspen/Birch/…, no phones/ids/links) that outlives the plan. Turn it into a test: `/admin/feedback` → Copy test fixture → `web/tests/fixtures/feedback/<id>.json` with `expect` (replayed by `feedback-cases.test.js`), or a test in `tests/integration` for agent behavior. A report can't be marked Fixed without its test (`test_ref`).
 
 2. **Every bug fix ships with a regression test** that would have caught the bug. Bugs caught by tests in this project: static middleware auth bypass, phone validation, migration 018 duplicate column, updateContact missing nickname in allowlist, conversation_history CHECK constraint blocking system role, referral redirect expectation mismatch.
 
@@ -780,7 +782,8 @@ Event-map #7:
 - The 6-hour same-title check in `multiparty.createEvent` is gone; planops' one-plan-per-name
   (`plan.existingByName`) is the only rule.
 - The nightly date-TBD roll is `planops.rollDateTbd` (every plan write in planops).
-- `[DEFAULT — confirm with owner]` **Cancelled plans are deleted 90 days after cancellation**
+- `[LOCKED 2026-10-13 — owner: "Undo and merged makes sense. 90 days makes sense."]`
+  **Cancelled plans are deleted 90 days after cancellation**
   (`social_events.cancelled_at`, migration 052; `planops.purgeCancelled` from the coord-loop
   purge): the plan, its invitations, to-dos, change log, ripples, check-ins, calendar rows and
   links. People's chat messages stay but no longer point at it. Plans cancelled before this

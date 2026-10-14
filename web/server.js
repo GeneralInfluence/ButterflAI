@@ -1371,6 +1371,11 @@ app.post('/api/feedback', webAuth.requireAuth, (req, res) => {
     shot = Buffer.from(m[2], 'base64');
     if (shot.length > FEEDBACK_SHOT_MAX) return res.status(413).json({ error: 'Screenshot too large' });
   }
+  // The anonymized case this 🐛 becomes a test from (feedbackcase.js) — kept after the
+  // screenshot, the raw state and the plan itself are gone.
+  let caseJson = null;
+  try { caseJson = JSON.stringify(require('./feedbackcase').build(req.user.id, { state: stateObj, agentMessage: agent_message, note, page })); }
+  catch (err) { console.error('[feedback] case:', err.message); }
   const id = db.createFeedback({
     user_id: req.user.id,
     rating: 'down',
@@ -1384,6 +1389,7 @@ app.post('/api/feedback', webAuth.requireAuth, (req, res) => {
     app_version: app_version ? String(app_version).slice(0, 80) : null,
     device: device ? String(device).slice(0, 300) : null,
   });
+  if (caseJson) db._raw().prepare('UPDATE feedback SET case_json = ? WHERE id = ?').run(caseJson, id);
   res.json({ ok: true, id });
 });
 
@@ -1419,11 +1425,28 @@ app.get('/api/admin/reflections', requireAdmin, (req, res) => {
   res.json({ reflections: rows });
 });
 
+// Every 🐛 becomes a test (owner, 2026-10-13): "fixed" needs the test that covers it.
 app.patch('/api/admin/feedback/:id', requireAdmin, express.json(), (req, res) => {
-  const status = req.body?.status;
-  if (!['new', 'triaged', 'fixed'].includes(status)) return res.status(400).json({ error: 'invalid status' });
-  db.updateFeedbackStatus(req.params.id, status);
+  const { status, test_ref } = req.body || {};
+  if (status !== undefined && !['new', 'triaged', 'fixed'].includes(status)) return res.status(400).json({ error: 'invalid status' });
+  const row = db._raw().prepare('SELECT test_ref FROM feedback WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  if (test_ref !== undefined) db._raw().prepare('UPDATE feedback SET test_ref = ? WHERE id = ?').run(String(test_ref).trim().slice(0, 300) || null, req.params.id);
+  if (status === 'fixed' && !(test_ref ?? row.test_ref)) {
+    return res.status(400).json({ error: 'TEST_REQUIRED', message: 'Name the test that covers this (e.g. tests/fixtures/feedback/42.json or tests/integration/x.test.js › "name") before marking it fixed.' });
+  }
+  if (status) db.updateFeedbackStatus(req.params.id, status);
   res.json({ ok: true });
+});
+
+// The anonymized case as a test fixture (drop into tests/fixtures/feedback/<id>.json and
+// fill in "expect"; tests/integration/feedback-cases.test.js replays it).
+app.get('/api/admin/feedback/:id/case', requireAdmin, (req, res) => {
+  const r = db._raw().prepare('SELECT id, user_note, case_json, created_at FROM feedback WHERE id = ?').get(req.params.id);
+  if (!r) return res.status(404).json({ error: 'not found' });
+  let c = null; try { c = JSON.parse(r.case_json || 'null'); } catch (_) {}
+  res.json({ feedback_id: r.id, reported: new Date(r.created_at * 1000).toISOString().slice(0, 10),
+    about: c?.note || '', case: c, expect: {}, note_to_author: 'Fill "expect" with what should have been true (dotted paths into the rebuilt plan; "path~" = contains). If the bug is agent behavior, write a test in tests/integration and put its name in test_ref instead.' });
 });
 
 // ── Admin page ────────────────────────────────────────────────────────────────

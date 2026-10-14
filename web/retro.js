@@ -331,6 +331,26 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-13-cases-for-earlier-feedback',
+    added: Date.UTC(2026, 9, 13) / 1000,
+    kind: 'internal',
+    about: 'Every 🐛 becomes a test (owner, 2026-10-13): build the anonymized case for this user\'s earlier feedback while the plan and conversation are still here.',
+    run(user) {
+      const rows = db._raw().prepare('SELECT id, state_json, agent_message, user_note, page FROM feedback WHERE user_id = ? AND case_json IS NULL').all(user.id);
+      const fc = require('./feedbackcase');
+      let n = 0;
+      for (const r of rows) {
+        let state = null; try { state = JSON.parse(r.state_json || 'null'); } catch (_) {}
+        try {
+          const c = fc.build(user.id, { state, agentMessage: r.agent_message, note: r.user_note, page: r.page });
+          db._raw().prepare('UPDATE feedback SET case_json = ? WHERE id = ?').run(JSON.stringify({ ...c, built_later: true }), r.id);
+          n++;
+        } catch (err) { console.error(`[retro] case for feedback ${r.id}:`, err.message); }
+      }
+      return `built ${n}`;
+    },
+  },
+  {
     id: '2026-10-13-agent-questions-onto-plans',
     added: Date.UTC(2026, 9, 13) / 1000,
     kind: 'internal',

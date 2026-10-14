@@ -107,8 +107,9 @@
   }
 
   async function setStatus(id, status, card) {
+    const test_ref = card.querySelector('.test-ref')?.value || undefined;
     const r = await fetch('/api/admin/feedback/' + id, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status })
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, test_ref })
     });
     if (r.ok) {
       card.querySelector('.pill').className = 'pill ' + status;
@@ -116,7 +117,10 @@
       card.querySelectorAll('.btn.status').forEach(b => b.classList.toggle('on', b.dataset.status === status));
       toast('Marked ' + status);
       if (current && current !== status) card.remove();
-    } else toast('Update failed');
+    } else {
+      const j = await r.json().catch(() => ({}));
+      toast(j.error === 'TEST_REQUIRED' ? 'Add the test that covers it first' : 'Update failed');
+    }
   }
 
   async function copyRepro(fb) {
@@ -224,15 +228,29 @@
         ${fb.state_json ? `<details><summary>What the screen was showing${fb.device ? ' · ' + esc(fb.device).slice(0, 80) : ''}</summary><pre style="white-space:pre-wrap;font-size:12px;max-height:400px;overflow:auto">${esc(JSON.stringify(JSON.parse(fb.state_json), null, 2))}</pre></details>` : ''}
         <details><summary>Conversation context (${turns.length})</summary>${turnsHtml}</details>
         <details open><summary>What the agent did (${(fb.trace || []).length})</summary>${traceHtml(fb.trace)}</details>
+        <details><summary>Test case (anonymized, kept)${fb.case_json ? '' : ' — none'}</summary><pre style="white-space:pre-wrap;font-size:12px;max-height:400px;overflow:auto">${fb.case_json ? esc(JSON.stringify(JSON.parse(fb.case_json), null, 2)) : ''}</pre></details>
+        <div class="label">Test that covers it ${fb.test_ref ? '✓' : '(needed before Fixed)'}</div>
+        <input class="test-ref" value="${esc(fb.test_ref || '')}" placeholder="tests/fixtures/feedback/${fb.id}.json  or  tests/integration/x.test.js › name" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px">
         <div class="actions">
           <button class="btn status ${fb.status === 'new' ? 'on' : ''}" data-status="new">New</button>
           <button class="btn status ${fb.status === 'triaged' ? 'on' : ''}" data-status="triaged">Triaged</button>
           <button class="btn status ${fb.status === 'fixed' ? 'on' : ''}" data-status="fixed">Fixed</button>
           <button class="btn repro">Copy sim input</button>
+          <button class="btn fixture">Copy test fixture</button>
         </div>`;
       card.querySelectorAll('.btn.status').forEach(b =>
         b.addEventListener('click', () => setStatus(fb.id, b.dataset.status, card)));
       card.querySelector('.btn.repro').addEventListener('click', () => copyRepro(fb));
+      // Every 🐛 becomes a test (2026-10-13): the fixture to drop into tests/fixtures/feedback/.
+      card.querySelector('.btn.fixture').addEventListener('click', async () => {
+        const j = await fetch('/api/admin/feedback/' + fb.id + '/case').then((r) => r.json());
+        try { await navigator.clipboard.writeText(JSON.stringify(j, null, 2)); toast('Fixture copied — save as tests/fixtures/feedback/' + fb.id + '.json'); }
+        catch (_) { toast('Couldn’t copy'); }
+      });
+      card.querySelector('.test-ref').addEventListener('change', async (e) => {
+        await fetch('/api/admin/feedback/' + fb.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ test_ref: e.target.value }) });
+        fb.test_ref = e.target.value; toast('Test saved');
+      });
       listEl.appendChild(card);
     }
   }
