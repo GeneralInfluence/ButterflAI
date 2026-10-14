@@ -28,7 +28,7 @@ const request = supertest(app);
 const db = require('../../db');
 const agent = require('../../agent');
 const topics = require('../../topics');
-const plans = require('../../plans');
+const home = require('../../home');
 const multiparty = require('../../multiparty');
 
 let n = 0;
@@ -74,7 +74,7 @@ describe('plans exist from their first mention', () => {
     assert.equal(e.tentative, 1);
     assert.equal(e.flexible_time, 0);
     assert.ok(e.scheduled_at > Date.now() / 1000 + 30 * 86400, 'placeholder well ahead');
-    assert.equal(plans.feedFor(u.id).items.find((i) => i.event_id === r.eventId).date_tbd, true);
+    assert.equal(home.feedFor(u.id).items.find((i) => i.event_id === r.eventId).date_tbd, true);
     assert.ok(topics.discussionsFor(u.id).some((d) => d.event_id === r.eventId));
     db._raw().prepare('UPDATE social_events SET scheduled_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000) + 86400, r.eventId);
     assert.ok(require('../../planops').rollDateTbd() >= 1);   // moved to planops 2026-10-13

@@ -42,7 +42,7 @@ const attendance = require('./attendance');
 const calmirror = require('./calmirror');
 const planops = require('./planops');
 const names = require('./names');
-const plans = require('./plans');
+const feeling = require('./feeling'); const home = require('./home');
 const webAuth  = require('./webapp-auth');
 const { handleOnboarding } = require('./onboarding');
 const { startAgentLoop } = require('./agent');
@@ -1883,19 +1883,26 @@ app.post('/api/chat/sensitive-mode', webAuth.requireAuth, express.json(), (req, 
 
 // ── Home feed + shared plans (MEMORY.md §11) ── owner-only, scoped to req.user.id
 app.get('/api/feed', webAuth.requireAuth, (req, res) => {
-  res.json(plans.feedFor(req.user.id));
+  res.json(home.feedFor(req.user.id));
+});
+
+// Make a share into a plan (event-map #5): your own share, or a friend's you can see.
+app.post('/api/shares/:id/plan', webAuth.requireAuth, async (req, res) => {
+  const r = await feeling.planFromShare(req.user.id, req.params.id);
+  if (r.error) return res.status(r.error === 'SHARE_NOT_FOUND' ? 404 : 400).json(r);
+  res.json(r);
 });
 
 // One-tap "Free tonight" / "Laying low tonight" etc. from the Home feed.
 app.post('/api/plans', webAuth.requireAuth, express.json(), (req, res) => {
   const { text, until, group } = req.body || {};
-  const r = plans.sharePlan(req.user.id, { text, until, group });
+  const r = feeling.sharePlan(req.user.id, { text, until, group });
   if (r.error) return res.status(400).json(r);
   res.json(r);
 });
 
 app.delete('/api/plans/:id', webAuth.requireAuth, (req, res) => {
-  res.json(plans.clearPlan(req.user.id, req.params.id));
+  res.json(feeling.clearPlan(req.user.id, req.params.id));
 });
 
 // GET /api/chat/sensitive-mode — the persisted state, so the chat page shows the truth on load

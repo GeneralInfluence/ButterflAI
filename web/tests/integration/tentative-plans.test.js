@@ -27,7 +27,7 @@ sms._setClient({ messages: { create: async (m) => { texts.push(m); return { sid:
 require('../../server');
 const db = require('../../db');
 const agent = require('../../agent');
-const plans = require('../../plans');
+const feeling = require('../../feeling'); const home = require('../../home');
 
 let n = 0;
 function mkUser(name) {
@@ -52,10 +52,10 @@ describe('a trip being planned', () => {
 
   test('created tentative; shows on everyone\'s Home 23 days out', () => {
     assert.equal(db._raw().prepare('SELECT tentative FROM social_events WHERE id = ?').get(eventId).tentative, 1);
-    const host = plans.feedFor(sean.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
+    const host = home.feedFor(sean.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
     assert.equal(host.tentative, true);
     assert.deepEqual(host.waiting_on.sort(), ['Allie', 'Melanie']);
-    const guest = plans.feedFor(allie.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
+    const guest = home.feedFor(allie.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
     assert.equal(guest.type, 'invite');
     assert.match(guest.action, /Interested/);
   });
@@ -74,10 +74,10 @@ describe('a trip being planned', () => {
   test('clearly in → recorded as interested; it\'s on their calendar and the host sees it', async () => {
     const r = await agent.executeTool('record_rsvp', { event_id: eventId, contact_phone: allie.phone, status: 'accepted', source: "her ButterflAI's reply" }, sean.id, sean.phone);
     assert.equal(r.action_status, 'RSVP_RECORDED');
-    const guest = plans.feedFor(allie.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
+    const guest = home.feedFor(allie.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
     assert.equal(guest.type, 'event');
     assert.equal(guest.tentative, true);
-    const host = plans.feedFor(sean.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
+    const host = home.feedFor(sean.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type));
     assert.deepEqual(host.interested, ['Allie']);
     assert.deepEqual(host.waiting_on, ['Melanie']);
     assert.equal(host.action, null, 'still waiting on Melanie');
@@ -85,7 +85,7 @@ describe('a trip being planned', () => {
 
   test('everyone answered and still tentative → "lock in" is the host\'s next step, at the top', async () => {
     await agent.executeTool('record_rsvp', { event_id: eventId, contact_phone: mel.phone, status: 'accepted' }, sean.id, sean.phone);
-    const feed = plans.feedFor(sean.id).items;
+    const feed = home.feedFor(sean.id).items;
     const host = feed.find((i) => i.event_id === eventId && i.type === 'event');
     assert.match(host.action, /Lock in/);
     // Above everything that doesn't need Sean (an unanswered question from Allie, from the
@@ -94,7 +94,7 @@ describe('a trip being planned', () => {
     assert.ok(feed.slice(0, idx).every((i) => i.type === 'question' || i.type === 'invite' || i.action), JSON.stringify(feed.slice(0, idx)));
     const u = await agent.executeTool('update_event', { event_id: eventId, tentative: false }, sean.id, sean.phone);
     assert.deepEqual(u.updated, ['tentative']);
-    assert.equal(plans.feedFor(sean.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type)).action, null);
+    assert.equal(home.feedFor(sean.id).items.find((i) => i.event_id === eventId && ['event', 'invite'].includes(i.type)).action, null);
   });
 
   test("record_rsvp only works on your own event", async () => {
@@ -116,21 +116,21 @@ describe('questions on the feed', () => {
   test('a question waiting on you is at the top; the asker sees who they\'re waiting on', async () => {
     const a = mkUser('Asker Amy'); const b = mkUser('Bea Answer');
     const bc = knows(a, b);
-    plans.sharePlan(a.id, { text: 'Free tonight', until: 'tonight' });   // something else on b's feed
+    feeling.sharePlan(a.id, { text: 'Free tonight', until: 'tonight' });   // something else on b's feed
     knows(b, a);
     await agent.executeTool('message_agent', { contact_id: bc, topic: 'availability', message: 'Free Saturday for a hike?' }, a.id, a.phone);
-    const bFeed = plans.feedFor(b.id).items;
+    const bFeed = home.feedFor(b.id).items;
     assert.equal(bFeed[0].type, 'question');
     assert.equal(bFeed[0].who, 'Asker');
     assert.equal(bFeed[0].action, 'Answer in chat');
     // Since 2026-10-12 there are no free-floating "waiting" items: who you're waiting on is
     // shown on the plan's card (plan.js); a question tied to no plan isn't on the asker's Home.
-    assert.ok(!plans.feedFor(a.id).items.some((i) => i.type === 'waiting'));
+    assert.ok(!home.feedFor(a.id).items.some((i) => i.type === 'waiting'));
     // Once answered, both go away.
     const q = db._raw().prepare("SELECT id FROM agent_messages WHERE from_user = ? AND kind = 'query'").get(a.id);
     await agent.executeTool('reply_agent', { message_id: q.id, body: 'Yes!' }, b.id, b.phone);
-    assert.ok(!plans.feedFor(b.id).items.some((i) => i.type === 'question'));
-    assert.ok(!plans.feedFor(a.id).items.some((i) => i.type === 'waiting'));
+    assert.ok(!home.feedFor(b.id).items.some((i) => i.type === 'question'));
+    assert.ok(!home.feedFor(a.id).items.some((i) => i.type === 'waiting'));
   });
 });
 
@@ -144,7 +144,7 @@ describe('proposed dates', () => {
     assert.equal(e.tentative, 1);
     assert.equal(e.date_tbd, 1, 'no single date chosen yet');
     assert.deepEqual(JSON.parse(e.proposed_dates), [{ from: '2026-10-23', to: '2026-10-25' }, { from: '2026-11-06', to: '2026-11-08' }]);
-    assert.ok(plans.feedFor(u.id).items.find((i) => i.event_id === r.eventId).proposed_dates.length === 2, 'Home shows them');
+    assert.ok(home.feedFor(u.id).items.find((i) => i.event_id === r.eventId).proposed_dates.length === 2, 'Home shows them');
     const bad = await agent.executeTool('create_social_event', { title: 'x', activity_type: 'x', proposed_dates: [{ from: 'next friday' }] }, u.id, u.phone);
     assert.equal(bad.error, 'BAD_PROPOSED_DATES');
     const long = await agent.executeTool('update_event', { event_id: r.eventId, proposed_dates: [{ from: '2026-10-01', to: '2026-11-30' }] }, u.id, u.phone);

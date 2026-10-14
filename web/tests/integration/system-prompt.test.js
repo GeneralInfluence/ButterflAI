@@ -750,3 +750,10 @@ describe('Desires are plans', () => {
     assert.ok(p.includes('never create a second plan for the same desire'));
   });
 });
+
+// 2026-10-13 (event-map #5): a share can become a plan.
+describe('Shares become plans', () => {
+  test('the agent makes the plan when the user wants to do what was shared', () => {
+    assert.ok(buildSystemPrompt(STUB_USER, '').includes('SHARES BECOME PLANS: what someone shares'));
+  });
+});

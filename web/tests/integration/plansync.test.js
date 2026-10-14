@@ -151,13 +151,13 @@ describe('every reply is checked for an action that should have happened (2026-1
   });
 
   test("Home's Creating: yours, then anyone's, then suggestions waiting to be kept", async () => {
-    const plans = require('../../plans');
+    const home = require('../../home');
     const u = mkUser('Sean Home');
     const ev = (await agent.executeTool('create_social_event', { title: 'Melanie weekend', activity_type: 'trip' }, u.id, u.phone)).eventId;
     await agent.executeTool('manage_todos', { event_id: ev, action: 'suggest', items: ['Book a room', 'Plan dinner'] }, u.id, u.phone);
     await agent.executeTool('manage_todos', { event_id: ev, action: 'add', items: ['Buy a cake'] }, u.id, u.phone);
     await agent.executeTool('manage_todos', { event_id: ev, action: 'add', items: ['Call the spa'], assignee: 'me' }, u.id, u.phone);
-    const f = plans.feedFor(u.id);
+    const f = home.feedFor(u.id);
     assert.deepEqual(f.creating.map((i) => [i.text, i.who]), [['Call the spa', 'you'], ['Buy a cake', 'anyone']]);
     assert.deepEqual(f.creating_suggestions.map((x) => [x.title, x.count]), [['Melanie weekend', 2]]);
   });

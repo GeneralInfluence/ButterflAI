@@ -28,7 +28,7 @@ const { app } = require('../../server');
 const request = supertest(app);
 const db = require('../../db');
 const agent = require('../../agent');
-const plans = require('../../plans');
+const feeling = require('../../feeling'); const home = require('../../home');
 const avoid = require('../../avoid');
 const multiparty = require('../../multiparty');
 const { resolveUntil } = require('../../datetime');
@@ -74,9 +74,9 @@ describe('sharing + visibility', () => {
   });
 
   test("dave's plan: his contacts see it; strangers and people he avoids don't", () => {
-    const r = plans.sharePlan(dave.id, { text: "At Sully's from 9 — come by", until: 'tonight' });
+    const r = feeling.sharePlan(dave.id, { text: "At Sully's from 9 — come by", until: 'tonight' });
     assert.equal(r.ok, true);
-    const seenBy = (u) => plans.plansVisibleTo(u).some((p) => p.text.includes('Sully'));
+    const seenBy = (u) => feeling.plansVisibleTo(u).some((p) => p.text.includes('Sully'));
     assert.equal(seenBy(sean), true);
     assert.equal(seenBy(stranger), false, 'not his contact');
     assert.equal(seenBy(avoided), false, 'on his avoid list');
@@ -85,14 +85,14 @@ describe('sharing + visibility', () => {
   test('a group-scoped plan is visible only to that group', () => {
     const gid = db.upsertContactGroup(dave.id, 'The Boys');
     db.addContactToGroup(gid, db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(dave.id, boy.phone).id);
-    const r = plans.sharePlan(dave.id, { text: 'Poker at mine', until: 'saturday', group: 'my boys' });
+    const r = feeling.sharePlan(dave.id, { text: 'Poker at mine', until: 'saturday', group: 'my boys' });
     assert.equal(r.ok, true, '"my boys" matches "The Boys"');
-    assert.ok(plans.plansVisibleTo(boy).some((p) => p.text === 'Poker at mine'));
-    assert.ok(!plans.plansVisibleTo(sean).some((p) => p.text === 'Poker at mine'));
+    assert.ok(feeling.plansVisibleTo(boy).some((p) => p.text === 'Poker at mine'));
+    assert.ok(!feeling.plansVisibleTo(sean).some((p) => p.text === 'Poker at mine'));
   });
 
   test('unknown group → clear error listing groups', () => {
-    assert.equal(plans.sharePlan(dave.id, { text: 'x', group: 'cousins' }).error, 'GROUP_NOT_FOUND');
+    assert.equal(feeling.sharePlan(dave.id, { text: 'x', group: 'cousins' }).error, 'GROUP_NOT_FOUND');
   });
 });
 
@@ -105,14 +105,14 @@ describe('"what\'re my boys up to tonight" — answers from shared plans, pings 
     offApp = db.upsertContact({ invited_by_user_id: sean.id, name: 'Off App', phone: '+12025557999', tier: 0 });
     db.addContactToGroup(gid, offApp);
     for (const u of [mike, tom, quiet, hater]) knows(u, sean);         // they have Sean too
-    plans.sharePlan(mike.id, { text: 'Free after 8', until: 'tonight' });
-    plans.sharePlan(tom.id, { text: "At Sully's from 9", until: 'tonight' });
+    feeling.sharePlan(mike.id, { text: 'Free after 8', until: 'tonight' });
+    feeling.sharePlan(tom.id, { text: "At Sully's from 9", until: 'tonight' });
     avoid.addAvoid(hater.id, db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(hater.id, sean.phone).id);
   });
 
   test('reports shared plans, who shared nothing, who is not on ButterflAI', () => {
     const before = counts();
-    const r = plans.checkFriendsPlans(sean.id, { group: 'my boys', when: 'tonight' });
+    const r = feeling.checkFriendsPlans(sean.id, { group: 'my boys', when: 'tonight' });
     const byName = Object.fromEntries(r.friends.map((f) => [f.name, f.plans]));
     assert.deepEqual(byName.Mike, ['Free after 8']);
     assert.deepEqual(byName.Tom, ["At Sully's from 9"]);
@@ -122,9 +122,9 @@ describe('"what\'re my boys up to tonight" — answers from shared plans, pings 
   });
 
   test('leaves a quiet interest signal — except for someone who avoids the asker', () => {
-    const quietFeed = plans.feedFor(quiet.id).items;
+    const quietFeed = home.feedFor(quiet.id).items;
     assert.ok(quietFeed.some((i) => i.type === 'interest' && i.who === 'Sean' && i.about === 'tonight'));
-    assert.ok(!plans.feedFor(hater.id).items.some((i) => i.type === 'interest'), 'no signal to someone who avoids Sean');
+    assert.ok(!home.feedFor(hater.id).items.some((i) => i.type === 'interest'), 'no signal to someone who avoids Sean');
     // Hater's own plans also stay hidden from Sean (he avoids Sean)
   });
 
@@ -147,11 +147,11 @@ describe('Home feed ranking', () => {
     // invite waiting on me
     const ev = multiparty.createEvent(host.id, { title: 'Host Party', activity_type: 'party', scheduled_at: t + 2 * 86400 });
     await multiparty.inviteContacts(ev, [knows(host, me)]);
-    plans.sharePlan(pal.id, { text: 'Bowling tonight', until: 'tonight' });
-    plans.checkFriendsPlans(pal.id, { when: 'tonight' });          // pal is up for something → signal to me
-    plans.sharePlan(me.id, { text: 'Free tonight', until: 'tonight' });
+    feeling.sharePlan(pal.id, { text: 'Bowling tonight', until: 'tonight' });
+    feeling.checkFriendsPlans(pal.id, { when: 'tonight' });          // pal is up for something → signal to me
+    feeling.sharePlan(me.id, { text: 'Free tonight', until: 'tonight' });
 
-    const { items, my_plans } = plans.feedFor(me.id);
+    const { items, my_plans } = home.feedFor(me.id);
     assert.deepEqual(items.map((i) => i.type), ['invite', 'event', 'plan', 'interest', 'event']);
     assert.equal(items[1].title, 'Soon Drinks');
     assert.equal(items[4].title, 'Later Dinner');
@@ -163,7 +163,7 @@ describe('retention + API', () => {
   test('expired plans and signals are hard-deleted', () => {
     const u = mkUser('Exp');
     db._raw().prepare(`INSERT INTO shared_plans (id, user_id, text, expires_at) VALUES (?, ?, 'old', ?)`).run(uuidv4(), u.id, Math.floor(Date.now() / 1000) - 10);
-    assert.ok(plans.purgeExpired() >= 1);
+    assert.ok(feeling.purgeExpired() >= 1);
     assert.equal(db._raw().prepare('SELECT count(*) c FROM shared_plans WHERE user_id = ?').get(u.id).c, 0);
   });
 
@@ -182,9 +182,9 @@ describe('retention + API', () => {
     assert.deepEqual(feed.body.my_plans.map((p) => p.text), ['Free tonight']);
     assert.match(feed.body.summary.feeling.line, /^You: Free tonight/);   // Home's summary line (2026-10-13)
     await request.delete('/api/plans/' + s.body.plan_id).set('Cookie', cb);   // B can't remove A's
-    assert.equal(plans.myPlans(a.id).length, 1);
+    assert.equal(feeling.myPlans(a.id).length, 1);
     await request.delete('/api/plans/' + s.body.plan_id).set('Cookie', ca);
-    assert.equal(plans.myPlans(a.id).length, 0);
+    assert.equal(feeling.myPlans(a.id).length, 0);
   });
 });
 
@@ -200,8 +200,8 @@ describe('resolveEventDateTime — relative times (2026-10-09)', () => {
 
 // 2026-10-13 (owner): one line per Home section, computed on the server so the page and
 // the full views always agree.
-describe('Home summary lines (plans.homeSummary)', () => {
-  const { homeSummary } = require('../../plans');
+describe('Home summary lines (home.homeSummary)', () => {
+  const { homeSummary } = require('../../home');
   test('counts what each section shows, and flags what needs you', () => {
     const s = homeSummary({
       items: [{ type: 'invite' }, { type: 'event', action: 'Lock in the plan' }, { type: 'event' }, { type: 'plan' }, { type: 'plan' }, { type: 'interest' }, { type: 'question' }],

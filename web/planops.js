@@ -66,7 +66,7 @@ async function create(hostId, input, { via = 'agent' } = {}) {
   // People: a named group invites its members; inviting a whole group makes it that group's plan.
   let contactIds = input.contact_ids || [];
   if (input.group) {
-    const { group: g, groups: all } = require('./plans').findGroup(hostId, input.group);
+    const { group: g, groups: all } = require('./feeling').findGroup(hostId, input.group);
     if (!g) return { error: 'GROUP_NOT_FOUND', message: `No group called "${input.group}". Groups: ${all.map((x) => x.name).join(', ') || 'none yet'}.` };
     data.group_id = g.id;
     contactIds = [...new Set([...contactIds, ...g.members.map((m) => m.id).filter(Boolean)])];

@@ -26,7 +26,7 @@ sms._setClient({ messages: { create: async (m) => { texts.push(m); return { sid:
 require('../../server');
 const db = require('../../db');
 const agent = require('../../agent');
-const plans = require('../../plans');
+const home = require('../../home');
 
 let n = 0;
 function mkUser(name) {
@@ -67,7 +67,7 @@ describe('deferring on a plan', () => {
   });
 
   test("Sean's feed: not waiting on Allie — shows she goes with whatever you & Melanie decide", () => {
-    const card = plans.feedFor(sean.id).items.find((i) => i.event_id === eventId && i.type === 'event');
+    const card = home.feedFor(sean.id).items.find((i) => i.event_id === eventId && i.type === 'event');
     assert.deepEqual(card.waiting_on, ['Melanie']);
     assert.deepEqual(card.deferring, [{ who: 'Allie', to: ['Melanie', 'you'] }]);
     assert.ok(!card.interested.includes('Allie'));

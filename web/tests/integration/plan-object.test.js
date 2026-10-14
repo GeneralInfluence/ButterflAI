@@ -27,7 +27,7 @@ const request = supertest(app);
 const db = require('../../db');
 const agent = require('../../agent');
 const retro = require('../../retro');
-const plans = require('../../plans');
+const home = require('../../home');
 const multiparty = require('../../multiparty');
 
 let n = 0;
@@ -74,7 +74,7 @@ describe('one plan per name', () => {
     assert.deepEqual(JSON.parse(kept.proposed_dates), [{ from: '2026-10-23', to: '2026-10-24' }]);
     assert.equal(db._raw().prepare('SELECT status FROM social_events WHERE id = ?').get(dup).status, 'cancelled');
     assert.equal(db._raw().prepare('SELECT count(*) c FROM event_invitations WHERE event_id = ?').get(orig).c, 1, 'Mel moved over');
-    assert.ok(plans.feedFor(mel.id).items.filter((i) => i.title === "Melanie's Birthday Weekend").length === 1, 'one card for Mel');
+    assert.ok(home.feedFor(mel.id).items.filter((i) => i.title === "Melanie's Birthday Weekend").length === 1, 'one card for Mel');
   });
 });
 
@@ -84,9 +84,9 @@ describe('questions belong to plans', () => {
     const ac = knows(sean, allie);
     const ev = (await agent.executeTool('create_social_event', { title: 'Grover', activity_type: 'camping', contact_ids: [ac] }, sean.id, sean.phone)).eventId;
     await agent.executeTool('message_agent', { contact_id: ac, topic: 'coordination', event_id: ev, message: 'Heater OK?' }, sean.id, sean.phone);
-    const card = plans.feedFor(sean.id).items.find((i) => i.event_id === ev);
+    const card = home.feedFor(sean.id).items.find((i) => i.event_id === ev);
     assert.deepEqual(card.asked, ['Allie']);
-    assert.ok(!plans.feedFor(sean.id).items.some((i) => i.type === 'waiting'));
+    assert.ok(!home.feedFor(sean.id).items.some((i) => i.type === 'waiting'));
   });
 
   test('retro: old questions tied to no plan are closed', async () => {

@@ -159,7 +159,7 @@ function tickPurge() {
   }
   // Shared plans and interest signals are deleted once they expire.
   try {
-    const n = require('./plans').purgeExpired();
+    const n = require('./feeling').purgeExpired();
     if (n) console.log(`[coord] purged ${n} expired plans/interest signals`);
   } catch (err) {
     console.error('[coord] plans purge error:', err.message);

@@ -200,7 +200,7 @@ describe('avoid-list heads-up when someone says yes', () => {
     db._raw().prepare('UPDATE event_invitations SET needs_owner_decision = 0 WHERE event_id = ?').run(eventId);
     planops.respond(invOf(eventId, julie).id, 'accepted', { by: 'guest', phone: julie.phone });
     assert.equal(plan.planFor(eventId, allie.id).next, 'Still going? Tap to answer');
-    const item = require('../../plans').feedFor(allie.id).items.find((i) => i.event_id === eventId);
+    const item = require('../../home').feedFor(allie.id).items.find((i) => i.event_id === eventId);
     assert.equal(item.action, 'Still going? Tap to answer');
     // "Still going" = yes again: unchanged answer, pause cleared, no new ripples to others.
     const r = planops.respond(invOf(eventId, allie).id, 'accepted', { by: 'guest', phone: allie.phone });

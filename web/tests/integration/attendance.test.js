@@ -28,7 +28,7 @@ const request = supertest(app);
 const db = require('../../db');
 const multiparty = require('../../multiparty');
 const cadence = require('../../cadence');
-const plans = require('../../plans');
+const home = require('../../home');
 
 let n = 0;
 function mkUser(name) {
@@ -83,9 +83,9 @@ describe('asking', () => {
     texts.length = 0;
     await cadence.runAttendanceGate();
     assert.equal(texts.filter((m) => m.to === allie.phone).length, 0);
-    const item = plans.feedFor(allie.id).items.find((i) => i.type === 'checkin' && i.event_id === id);
+    const item = home.feedFor(allie.id).items.find((i) => i.type === 'checkin' && i.event_id === id);
     assert.ok(item, 'on Home');
-    assert.equal(plans.feedFor(allie.id).summary.happenings.needs_you, true);
+    assert.equal(home.feedFor(allie.id).summary.happenings.needs_you, true);
   });
 });
 
@@ -109,7 +109,7 @@ describe('answering', () => {
     assert.equal(db._raw().prepare('SELECT last_fulfilled_at FROM cadences WHERE id = ?').get(cadId).last_fulfilled_at, evDate);
     await new Promise((r) => setTimeout(r, 50));
     assert.ok(db._raw().prepare('SELECT count(*) c FROM lift_observations WHERE event_id = ?').get(id).c >= 4, 'lift measured for the plan');
-    assert.equal(plans.feedFor(allie.id).items.some((i) => i.type === 'checkin' && i.event_id === id), false, 'off Home');
+    assert.equal(home.feedFor(allie.id).items.some((i) => i.type === 'checkin' && i.event_id === id), false, 'off Home');
   });
 
   test("someone else's check-in can't be answered", async () => {

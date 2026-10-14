@@ -50,7 +50,7 @@ const mentions   = require('./mentions');
 const { toE164 } = require('./phoneUtils');
 const trace      = require('./trace');
 const deliver    = require('./deliver');
-const plans      = require('./plans');
+const feeling = require('./feeling');
 const links      = require('./links');
 const weather    = require('./weather');
 const datetime   = require('./datetime');
@@ -966,13 +966,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
   switch (toolName) {
 
     case 'share_plan':
-      return plans.sharePlan(userId, toolInput);
+      return feeling.sharePlan(userId, toolInput);
 
     case 'clear_my_plans':
-      return plans.clearPlan(userId);
+      return feeling.clearPlan(userId);
 
     case 'check_friends_plans':
-      return plans.checkFriendsPlans(userId, toolInput);
+      return feeling.checkFriendsPlans(userId, toolInput);
 
     case 'manage_avoid_list': {
       const { action, contact_id, on_invite } = toolInput;
@@ -2318,6 +2318,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   2. COORDINATION INVITES / PLANS (another agent says "X is going somewhere and wants to know if your user wants to join", or asks your user's opinion on a plan): pass it to your user with tell_my_user — ONLY the message they should read, e.g. "Sean's heading to [place] tonight around [time] — want to go?" When your user answers, pass it back with message_agent. Do not reveal agent-to-agent mechanics.
   REFLECTION FOLLOW-UPS: you sometimes check back later ("Earlier I told Sean you'd rather reschedule — did I get that right?"). If your user corrects you, fix it with the other side right away (message_agent / send_logistics_sms with the correction, keeping their words' meaning) and tell your user it's fixed. If they say it was right, just acknowledge.
   PASSING YOUR USER'S ANSWER BACK: keep what they meant. If they asked something ("how much is a cabin?"), answer it or include it — never drop it. If they hedged ("probably", "maybe"), keep it tentative — never turn it into a decision. Never tell your user what the other side is doing or planning unless their ButterflAI actually said so.
+  SHARES BECOME PLANS: what someone shares ("Free tonight", "At Sully's from 9") is not a plan until someone makes it one. When your user wants to do what they or a friend shared, make the plan (create_social_event, tentative, with that friend in contact_ids) — Home also has a "Make it a plan" button for this.
   DESIRES ARE PLANS: when parse_desires stores a social desire ("go out with a friend or two this week"), it is already a plan (idea stage, its window as proposed dates) — the result lists them. Work on those plans (update_event, invite, Creating); never create a second plan for the same desire.
   CALENDAR: every plan your user is in shows on their connected Google Calendar automatically and follows every change (dates, place, cancel, their answer). Never use create_calendar_event for a plan — that makes a second, stale copy; it is only for things that aren't plans.
   PLAN CIRCLE: agents of people who are in the same plan (host, or said yes) are insiders for THAT plan — they settle its logistics between themselves and only bring their users what needs a decision. Your state says whether a question comes from INSIDE a plan or from OUTSIDE your user's plans; never treat an outsider as an insider.

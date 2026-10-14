@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_910_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_916_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -602,7 +602,7 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   items assigned to you, soonest plan first; the bar in a plan's chat; Events cards); "Your
   feed" → **Happenings**.
   **All three at a glance (owner, 2026-10-13):** each section is a compact block — title,
-  one summary line beside it (`plans.homeSummary`, served in `/api/feed` `summary`; purple
+  one summary line beside it (`home.homeSummary`, served in `/api/feed` `summary`; purple
   when something needs you), one preview item (your active share + the one-tap shares; your
   next to-do; the top happening) — and › opens it full screen (`/app/dashboard#creating`;
   back closes it): Feeling = share box, your shares, friends' shares/interest; Creating =
@@ -641,7 +641,9 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   checked in `todos.js` for every read/write. Retro: existing plans get suggestions offered.
 - **Agent-to-agent:** "what is your user up to" is never answered from memory and never
   triggers a ping; agents answer only from what the user explicitly shared.
-- Code: `web/plans.js`, `datetime.resolveUntil`, migration 033, `/api/feed`, `/api/plans`.
+- Code: `web/feeling.js` (shares, interest), `web/home.js` (Home feed + summary) — split from
+  the old `plans.js` 2026-10-13 so "plans" means only real plans; `datetime.resolveUntil`,
+  migration 033, `/api/feed`, `/api/plans`.
   Tests: `tests/integration/plans-feed.test.js`.
 
 ## 14. Feedback from any screen `[2026-10-12]`
@@ -780,6 +782,17 @@ Event-map #7:
   purge): the plan, its invitations, to-dos, change log, ripples, check-ins, calendar rows and
   links. People's chat messages stay but no longer point at it. Plans cancelled before this
   count from 2026-10-13.
+
+## 19. Shares become plans `[2026-10-13]`
+
+Event-map #5: "Free tonight" lived beside plans and could never turn into one.
+`feeling.planFromShare` (`POST /api/shares/:id/plan`, Home buttons): your own share → your
+plan (quick shares get a name: "Something tonight", "Something this weekend", "Night in"),
+nobody invited yet; a friend's share you can see → a plan you host with them invited
+("At Sully's from 9 — with Allie"), through planops (avoid lists, opt-outs, ripples). Proposed
+dates: today → the day the share ends. Same person + same share → the same plan
+(`share_plans`, migration 053); Home then shows "Open plan". Shares themselves stay
+lightweight and expire as before. Agent rule: SHARES BECOME PLANS.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

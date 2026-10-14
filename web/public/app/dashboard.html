@@ -251,7 +251,9 @@
       <button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', null)">Skip</button></div></div></div>`;
     const chatLink = (i) => i.event_id ? `/app/chat?event=${esc(i.event_id)}` : '/app/chat';
     if (i.type === 'question') return `<a class="card feed-item needs-you" href="${chatLink(i)}"><span class="feed-icon">❓</span><div><div class="card-title">${esc(i.who)} asked</div><div class="card-sub">${esc(i.text)}</div>${action(i)}</div></a>`;
-    if (i.type === 'plan') return `<div class="card feed-item"><span class="feed-icon">🟢</span><div><div class="card-title">${esc(i.who)}: ${esc(i.text)}</div><div class="card-sub">until ${when(i.until)}</div></div></div>`;
+    // A friend's share can become a plan you host with them (event-map #5, 2026-10-13).
+    if (i.type === 'plan') return `<div class="card feed-item"><span class="feed-icon">🟢</span><div style="flex:1;min-width:0"><div class="card-title">${esc(i.who)}: ${esc(i.text)}</div><div class="card-sub">until ${when(i.until)}</div>
+      ${shareAction(i.plan_id, i.made_plan, `Make a plan with ${esc(i.who)}`)}</div></div>`;
     if (i.type === 'interest') return `<div class="card feed-item"><span class="feed-icon">👋</span><div><div class="card-title">${esc(i.who)}'s up for something ${esc(i.about)}</div><div class="card-sub">Share what you're up to above if you're in</div></div></div>`;
     return '';
   }
@@ -283,8 +285,21 @@
   let feed = null;
   const SECTIONS = { feeling: 'Feeling', creating: 'Creating', happenings: 'Happenings' };
   const EMPTY_HAPPENINGS = '<div class="empty-state">Nothing yet. Share what you\'re up to, or ask your agent "what are my friends up to tonight?"</div>';
+  // A share → a plan (event-map #5): "Make it a plan", or "Open plan" once it is one.
+  const shareAction = (shareId, madePlan, label) => madePlan
+    ? `<a class="feed-action" href="/app/events?event=${esc(madePlan)}" style="text-decoration:none">Open plan ›</a>`
+    : `<button type="button" class="feed-action share-plan-btn" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit" onclick="planFromShare('${esc(shareId)}', this)">${label} ›</button>`;
   const minePlansHtml = (list) => (list || []).map(p =>
-    `<div class="mine"><span>You: ${esc(p.text)} · until ${when(p.until)}</span><button title="Remove" onclick="removePlan('${esc(p.plan_id)}')">✕</button></div>`).join('');
+    `<div class="mine"><span>You: ${esc(p.text)} · until ${when(p.until)}<br>${shareAction(p.plan_id, p.made_plan, 'Make it a plan')}</span><button title="Remove" onclick="removePlan('${esc(p.plan_id)}')">✕</button></div>`).join('');
+  async function planFromShare(shareId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Making the plan…'; }
+    try {
+      const r = await fetch('/api/shares/' + encodeURIComponent(shareId) + '/plan', { method: 'POST' });
+      const j = await r.json();
+      if (r.ok && j.eventId) { location.href = '/app/events?event=' + encodeURIComponent(j.eventId); return; }
+      if (btn) btn.textContent = j.message || 'Couldn’t make it a plan';
+    } catch (_) { if (btn) btn.textContent = 'Couldn’t make it a plan — try again'; }
+  }
   const friendsFeeling = (items) => (items || []).filter(i => i.type === 'plan' || i.type === 'interest');
 
   function renderHome() {

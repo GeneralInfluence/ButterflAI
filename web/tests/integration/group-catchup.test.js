@@ -29,7 +29,7 @@ const request = supertest(app);
 const db = require('../../db');
 const agent = require('../../agent');
 const avoid = require('../../avoid');
-const plans = require('../../plans');
+const home = require('../../home');
 
 let n = 0;
 function mkUser(name) {
@@ -68,7 +68,7 @@ describe('adding someone to a group catches them up on its plans', () => {
     const card = history(bam).find((m) => m.kind === 'incoming');
     assert.match(card.text, /^💬 From Sean's ButterflAI: You're now in Sean's "Favorite Mama's" group\. What's planned:\n• Grover Hot Springs \(tentative\) — \w{3}, \w{3} \d+ – \w{3}, \w{3} \d+ · Grover Hot Springs State Park · plan so far: heated shiftpod for everyone · in: Sean, Melanie/);
     assert.ok(!card.text.includes('budget'), 'nothing from the discussion');
-    assert.ok(plans.feedFor(bam.id).items.some((i) => i.event_id === eventId), 'on their Home');
+    assert.ok(home.feedFor(bam.id).items.some((i) => i.event_id === eventId), 'on their Home');
   });
 
   test('someone not on ButterflAI: one first-contact text that identifies itself and offers STOP', async () => {
