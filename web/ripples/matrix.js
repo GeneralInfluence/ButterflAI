@@ -41,30 +41,30 @@ const MATRIX = {
   },
   renamed: {
     guest_list: NA('names don\'t change who is in.'), creating: NA('to-dos belong to the plan, not its name.'),
-    plan_circle: CIRCLE_LIVE, avoid_lists: NA('nobody new is involved.'), host: NA('the host renamed it.'),
+    plan_circle: CIRCLE_LIVE, avoid_lists: NA('nobody new is involved.'), host: 'reaction:co-creator-fyi',
     deferrers: NA('only date, place, lock-in and cancellation are worth an FYI (owner, 2026-10-09).'),
     screens: LIVE, chat: 'Pills show the current name (plan.js).', calendar: CAL, change_log: LOG,
   },
   dates_changed: {
     guest_list: NA('answers stand; guests can change theirs.'), creating: NA('to-dos aren\'t dated.'),
-    plan_circle: CIRCLE_LIVE, avoid_lists: NA('nobody new is involved.'), host: NA('the host changed it.'),
+    plan_circle: CIRCLE_LIVE, avoid_lists: NA('nobody new is involved.'), host: 'reaction:co-creator-fyi',
     deferrers: 'reaction:deferrers-fyi', screens: LIVE, chat: NA('no message needed; the plan shows the new dates.'),
     calendar: CAL, change_log: LOG,
   },
   place_changed: {
     guest_list: NA('answers stand.'), creating: NA('to-dos stay.'), plan_circle: CIRCLE_LIVE,
-    avoid_lists: NA('nobody new is involved.'), host: NA('the host changed it.'), deferrers: 'reaction:deferrers-fyi',
+    avoid_lists: NA('nobody new is involved.'), host: 'reaction:co-creator-fyi', deferrers: 'reaction:deferrers-fyi',
     screens: LIVE, chat: NA('the plan shows the new place.'), calendar: CAL, change_log: LOG,
   },
   details_changed: {
     guest_list: NA('answers stand.'), creating: NA('to-dos stay.'), plan_circle: CIRCLE_LIVE,
-    avoid_lists: NA('nobody new is involved.'), host: NA('the host changed it.'),
+    avoid_lists: NA('nobody new is involved.'), host: 'reaction:co-creator-fyi',
     deferrers: NA('notes, kind, group and visibility aren\'t worth an FYI.'), screens: LIVE,
     chat: NA('the plan shows the change.'), calendar: CAL, change_log: LOG,
   },
   locked_in: {
     guest_list: NA('interested guests stay in; the plan now reads "confirmed".'), creating: NA('to-dos stay.'),
-    plan_circle: CIRCLE_LIVE, avoid_lists: NA('nobody new is involved.'), host: NA('the host locked it in.'),
+    plan_circle: CIRCLE_LIVE, avoid_lists: NA('nobody new is involved.'), host: 'reaction:co-creator-fyi',
     deferrers: 'reaction:deferrers-fyi', screens: LIVE, chat: NA('the plan shows it.'), calendar: CAL, change_log: LOG,
   },
   cancelled: {
@@ -75,8 +75,8 @@ const MATRIX = {
   },
   merged: {
     guest_list: 'mergeEvents moves invitations (the more committed answer wins), in the same transaction.',
-    creating: NA('to-dos of the folded plan stay with it (not moved yet).'), plan_circle: CIRCLE_LIVE,
-    avoid_lists: NA('the same people, now in one plan (owner asked first).'), host: NA('the host asked for it.'),
+    creating: 'mergeEvents moves open Creating items (an item repeating one already there stays behind).', plan_circle: CIRCLE_LIVE,
+    avoid_lists: NA('the same people, now in one plan (owner asked first).'), host: 'reaction:co-creator-fyi',
     deferrers: 'mergeEvents carries deferrals over.', screens: LIVE,
     chat: 'mergeEvents moves the discussion, agent threads and mentions.', calendar: CAL, change_log: LOG,
   },

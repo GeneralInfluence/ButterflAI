@@ -45,6 +45,7 @@ const REACTIONS = [
   require('./reactions/creating'),
   require('./reactions/avoid-heads-up'),
   require('./reactions/calendar'),
+  require('./reactions/co-creator-fyi'),
 ];
 const MAX_ATTEMPTS = 5;
 

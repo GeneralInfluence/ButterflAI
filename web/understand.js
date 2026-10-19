@@ -120,7 +120,10 @@ function decide(actions, { userId, userText, eventId, plans, isNamed }) {
     if (!a.event_id && eventId && ['add_todo', 'rsvp', 'set_details', 'lock_in', 'cancel'].includes(a.kind) && byId.has(eventId)) out.event_id = eventId;
     const p = out.event_id ? byId.get(out.event_id) : null;
     if (['add_todo', 'rsvp', 'set_details', 'lock_in', 'cancel'].includes(a.kind) && !p) return { ...out, decision: 'drop', why: 'no plan' };
-    if (['set_details', 'lock_in', 'cancel'].includes(a.kind) && p.role !== 'host') return { ...out, decision: 'agent', why: 'only the host can change it' };
+    // Plans are made together (2026-10-19): the host and anyone who said yes can change them;
+    // only cancelling stays with the host.
+    if (['set_details', 'lock_in'].includes(a.kind) && !p.can_edit) return { ...out, decision: 'agent', why: 'say yes first' };
+    if (a.kind === 'cancel' && p.role !== 'host') return { ...out, decision: 'agent', why: 'only the host can cancel' };
     if (a.kind === 'rsvp' && (p.role !== 'guest' || !['going', 'interested', 'declined'].includes(a.answer))) return { ...out, decision: 'drop', why: 'not an answer they can give' };
     if (a.kind === 'add_todo' && !String(a.text || '').trim()) return { ...out, decision: 'drop', why: 'no item' };
     if (a.kind === 'lock_in' && p.dates?.kind !== 'set') return { ...out, decision: 'agent', why: 'no date set yet' };
@@ -230,7 +233,8 @@ function noteFor({ applied, asks, agent }) {
     if (a.kind === 'find_options') lines.push(`They want options: ${a.what}${a.near ? ` near ${a.near}` : ''}. Search the web now and list 3–5 real options with links (and anything that matters: price, hours). Don't ask clarifying questions first — give options, then ask if they want any changes.`);
     else if (a.kind === 'message') lines.push(`They want you to message ${a.who}: ${a.gist}. Do it with the usual tools and rules.`);
     else if (a.kind === 'cancel') lines.push(`They want to cancel ${a.event_id ? `eventId="${a.event_id}"` : 'a plan'}. Confirm once, then update_event cancel.`);
-    else if (a.why === 'only the host can change it') lines.push(`They want to change a plan they don't host (${a.kind}). Tell them only the host can, and offer to pass it on to the host.`);
+    else if (a.why === 'say yes first') lines.push(`They want to change a plan they haven't said yes to (${a.kind}). Offer to mark them as in (then they can change it), or to pass it on to the host.`);
+    else if (a.why === 'only the host can cancel') lines.push('They want to cancel a plan someone else hosts. Only the host can cancel — offer to tell the host, or to take them off it (decline).');
     else if (a.why === 'no date set yet') lines.push('They want to lock in a plan that has no date yet — ask which date.');
   }
   for (const q of asks) lines.push(`Ask them exactly one short question: ${q.ask}`);

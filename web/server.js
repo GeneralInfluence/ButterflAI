@@ -2273,7 +2273,7 @@ app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => 
   for (const k of allowed) if (req.body[k] !== undefined) changes[k] = req.body[k];
   if (!Object.keys(changes).length) return res.status(400).json({ error: 'Nothing to update' });
   const r = planops.update(req.user.id, req.params.id, changes, { via: 'app' });
-  if (r.error === 'EVENT_NOT_FOUND' || r.error === 'NOT_HOST') return res.status(403).json({ error: 'Not your event' });
+  if (['EVENT_NOT_FOUND', 'NOT_HOST', 'NOT_IN_PLAN', 'HOST_ONLY'].includes(r.error)) return res.status(403).json({ error: 'Not your event', reason: r.error, message: r.message });
   if (r.error) return res.status(400).json(r);
   res.json({ ok: true, updated: r.updated });
 });
@@ -2282,12 +2282,20 @@ app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => 
 // having to use my admin ability?"): recent changes, and undo the last one.
 app.get('/api/events/:id/changes', webAuth.requireAuth, (req, res) => {
   const e = multiparty.getEvent(req.params.id);
-  if (!e || e.host_user_id !== req.user.id) return res.status(403).json({ error: 'Not your event' });
-  res.json({ changes: planops.recentChanges(req.params.id) });
+  if (!e || !plan.canEdit(e.id, req.user.id)) return res.status(403).json({ error: 'Not your event' });
+  // Plans are made together: say who ("Melanie's ButterflAI changed the notes"), not just how.
+  const label = (c) => {
+    if (!c.actor_id || ['undo', 'retro', 'ripple', 'negotiation'].includes(c.via)) return c.by;
+    const viaAgent = ['agent', 'understood', 'desire'].includes(c.via);
+    if (c.actor_id === req.user.id) return viaAgent ? 'Your ButterflAI' : 'You';
+    const name = String(db.getUser(c.actor_id)?.name || 'Someone').split(/\s+/)[0];
+    return viaAgent ? `${name}'s ButterflAI` : name;
+  };
+  res.json({ changes: planops.recentChanges(req.params.id).map(({ actor_id, ...c }) => ({ ...c, who: label({ ...c, actor_id }) })) });
 });
 app.post('/api/events/:id/undo', webAuth.requireAuth, (req, res) => {
   const r = planops.undoLast(req.user.id, req.params.id);
-  if (r.error === 'NOT_HOST' || r.error === 'EVENT_NOT_FOUND') return res.status(403).json({ error: 'Not your event' });
+  if (['NOT_HOST', 'NOT_IN_PLAN', 'EVENT_NOT_FOUND'].includes(r.error)) return res.status(403).json({ error: 'Not your event' });
   if (r.error) return res.status(400).json(r);
   res.json(r);
 });

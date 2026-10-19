@@ -95,10 +95,14 @@ describe('planops.update', () => {
     assert.equal(p.days.length, 1);
   });
 
-  test('only the host can change a plan', async () => {
-    const sean = mkUser('Sean Host'); const other = mkUser('Not Host');
-    const r = await planops.create(sean.id, { title: 'Mine' });
-    assert.equal(planops.update(other.id, r.eventId, { title: 'Hijacked' }).error, 'NOT_HOST');
+  // Was "only the host can change a plan" (expected NOT_HOST). Changed 2026-10-19 — owner:
+  // "Hosting doesn't mean that I'm the only one who can do anything." Now people outside the
+  // plan, and guests who haven't said yes, still can't; anyone who said yes can (🐛 #20).
+  test('people outside the plan, or who haven\'t said yes, can\'t change it', async () => {
+    const sean = mkUser('Sean Host'); const other = mkUser('Not Host'); const maybe = mkUser('Maybe Guest');
+    const r = await planops.create(sean.id, { title: 'Mine', contact_ids: [knows(sean, maybe)] });
+    assert.equal(planops.update(other.id, r.eventId, { title: 'Hijacked' }).error, 'NOT_IN_PLAN');
+    assert.equal(planops.update(maybe.id, r.eventId, { title: 'Hijacked' }).error, 'NOT_IN_PLAN');
     assert.equal(row(r.eventId).title, 'Mine');
   });
 

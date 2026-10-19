@@ -141,12 +141,12 @@ describe('understood and done in code', () => {
     assert.ok(e.proposed_dates, 'proposed dates are back');
   });
 
-  test('a guest can\'t change the plan: nothing saved, the reply is told to offer to pass it on', async () => {
+  test('a guest who hasn\'t said yes can\'t change the plan: nothing saved, the reply offers to mark them in or pass it on', async () => {
     const w = await weekend();
     const s = script([{ kind: 'set_details', event_id: w.m, venue_name: 'Steamboat Springs', quote: 'Steamboat Springs', confidence: 0.9 }]);
     await say(w.mel, "let's do Steamboat Springs instead", { event_id: w.m });
     assert.equal(db._raw().prepare('SELECT venue_name FROM social_events WHERE id = ?').get(w.m).venue_name, null);
-    assert.match(lastUserText(s.seen[0]), /only the host can/);
+    assert.match(lastUserText(s.seen[0]), /haven't said yes to[\s\S]*mark them as in/);
   });
 
   test('unsure → nothing done, one question with the choices', async () => {

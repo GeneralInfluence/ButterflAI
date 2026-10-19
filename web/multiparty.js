@@ -577,13 +577,17 @@ function wasInvited(contactPhone, eventId) {
  * Combine two plans that turned out to be the same (owner, 2026-10-09: "…or to combine
  * two events"). Everything moves to `keepId`: invitations (the more committed status wins
  * when someone was invited to both), the discussion, agent threads, mentions; the group,
- * notes and a real date fill gaps. `mergeId` is cancelled with a pointer. Host only.
+ * notes and a real date fill gaps; Creating items move too (one that repeats an item already
+ * there isn't duplicated). The folded plan's host joins as a yes. `mergeId` is cancelled with
+ * a pointer. Whoever can change both plans (opts.canEdit — planops passes plan.canEdit), else
+ * host only.
  */
-function mergeEvents(hostUserId, keepId, mergeId) {
+function mergeEvents(hostUserId, keepId, mergeId, { canEdit = null } = {}) {
   const get = (id) => db._raw().prepare('SELECT * FROM social_events WHERE id = ?').get(id);
   const keep = get(keepId), drop = get(mergeId);
   if (!keep || !drop || keepId === mergeId) return { error: 'EVENT_NOT_FOUND' };
-  if (keep.host_user_id !== hostUserId || drop.host_user_id !== hostUserId) return { error: 'NOT_YOUR_PLANS', message: 'You can only combine plans you host.' };
+  const may = (e) => (canEdit ? canEdit(e.id, hostUserId) : e.host_user_id === hostUserId);
+  if (!may(keep) || !may(drop)) return { error: 'NOT_YOUR_PLANS', message: 'You can only combine plans you are in (as host or having said yes).' };
   if (keep.status === 'cancelled' || drop.status === 'cancelled') return { error: 'CANCELLED', message: 'One of these plans is cancelled.' };
   const rank = { accepted: 3, invited: 2, no_response: 1, declined: 0 };
   db._raw().transaction(() => {
@@ -597,6 +601,20 @@ function mergeEvents(hostUserId, keepId, mergeId) {
         db._raw().prepare('UPDATE event_invitations SET defers_to = ?, deferred_at = ? WHERE id = ?').run(inv.defers_to, inv.deferred_at, dup.id);
       }
       db._raw().prepare('DELETE FROM event_invitations WHERE id = ?').run(inv.id);
+    }
+    // The folded plan's host is in: a yes on the kept plan (from the kept plan's host's contacts).
+    const dropHost = drop.host_user_id !== keep.host_user_id ? db.getUser(drop.host_user_id) : null;
+    if (dropHost?.phone) {
+      let c = db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(keep.host_user_id, dropHost.phone);
+      if (!c) c = { id: db.upsertContact({ invited_by_user_id: keep.host_user_id, name: dropHost.name, phone: dropHost.phone, tier: 1 }) };
+      const had = db._raw().prepare('SELECT id, status FROM event_invitations WHERE event_id = ? AND contact_id = ?').get(keepId, c.id);
+      if (!had) db._raw().prepare(`INSERT INTO event_invitations (id, event_id, contact_id, status, responded_at) VALUES (?, ?, ?, 'accepted', strftime('%s','now'))`).run(require('uuid').v4(), keepId, c.id);
+      else if (had.status !== 'accepted') db._raw().prepare(`UPDATE event_invitations SET status = 'accepted', responded_at = strftime('%s','now') WHERE id = ?`).run(had.id);
+    }
+    // Creating items move; one that repeats an item already on the kept plan stays behind.
+    const todos = require('./todos');
+    for (const t of db._raw().prepare('SELECT id, text FROM event_todos WHERE event_id = ? AND done_at IS NULL').all(mergeId)) {
+      if (!todos.repeats(keepId, t.text)) db._raw().prepare('UPDATE event_todos SET event_id = ? WHERE id = ?').run(keepId, t.id);
     }
     db._raw().prepare('UPDATE conversation_history SET event_id = ? WHERE event_id = ?').run(keepId, mergeId);
     db._raw().prepare('UPDATE inbound_messages SET event_id = ? WHERE event_id = ?').run(keepId, mergeId);

@@ -19,5 +19,9 @@
   "19": {
     "note_starts": "expecting list of massage places",
     "test": "tests/integration/understand.test.js › asking for options → the reply must search and list them, not ask who and when"
+  },
+  "20": {
+    "note_starts": "Melanie had tried to add massages to her birthday weekend",
+    "test": "tests/integration/co-create.test.js › Sean folds Melanie's \"Massages\" into the weekend: one plan, her Creating items and her with it, both told"
   }
 }

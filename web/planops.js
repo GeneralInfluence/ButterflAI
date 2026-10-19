@@ -29,6 +29,8 @@ const defer = require('./defer');
 const ripples = require('./ripples');
 
 const MAX_TITLE = 80;
+// What only the host decides; everyone in the plan can change the rest (plan.canEdit).
+const HOST_ONLY = ['cancel', 'status', 'event_type', 'host_attending', 'group_id'];
 const SET_FIELDS = ['title', 'activity_type', 'notes', 'venue_name', 'venue_address', 'scheduled_at', 'date_tbd', 'proposed_dates',
   'tentative', 'flexible_time', 'duration_mins', 'event_type', 'host_attending', 'status', 'group_id', 'cancelled_at'];
 
@@ -105,7 +107,11 @@ async function create(hostId, input, { via = 'agent' } = {}) {
 function update(actorId, eventId, changes, { via = 'agent' } = {}) {
   const e = db._raw().prepare('SELECT * FROM social_events WHERE id = ?').get(eventId);
   if (!e) return { error: 'EVENT_NOT_FOUND' };
-  if (e.host_user_id !== actorId) return { error: 'NOT_HOST', message: 'Only the host can change this plan.' };
+  const isHost = e.host_user_id === actorId;
+  if (!isHost && !plan.canEdit(eventId, actorId)) return { error: 'NOT_IN_PLAN', message: 'Only people in the plan (the host and anyone who said yes) can change it.' };
+  if (!isHost && HOST_ONLY.some((k) => changes[k] !== undefined && !(k === 'status' && changes[k] === 'open'))) {
+    return { error: 'HOST_ONLY', message: `Only the host can ${changes.cancel || changes.status === 'cancelled' ? 'cancel the plan' : 'change who can see it or whether they\'re going'} — offer to ask them.` };
+  }
   const u = {};
 
   if (changes.title !== undefined) {
@@ -337,7 +343,9 @@ function deferOn(userId, { invitation_id, defer_to, undo = false }) {
 
 /** Fold `dropId` into `keepId` (people, discussion, dates, place). Host only. */
 function merge(actorId, keepId, dropId, { via = 'agent' } = {}) {
-  const r = multiparty.mergeEvents(actorId, keepId, dropId);
+  // Anyone in both plans can combine them (owner, 2026-10-19 — Melanie's "Massages" and Sean's
+  // weekend, two hosts, couldn't be combined).
+  const r = multiparty.mergeEvents(actorId, keepId, dropId, { canEdit: plan.canEdit });
   if (r.merged) {
     log(keepId, actorId, via, 'merged_in', dropId, r.combined.title); log(dropId, actorId, via, 'status', 'open', 'cancelled');
     ripples.ripple([{ type: 'merged', event_id: keepId, actor_id: actorId, via, data: { from: dropId, title: r.combined.title } }]);
@@ -390,10 +398,11 @@ const NUMERIC = new Set(['scheduled_at', 'date_tbd', 'tentative', 'flexible_time
 function revert(actorId, eventId, { at, via = 'undo' } = {}) {
   const e = db._raw().prepare('SELECT * FROM social_events WHERE id = ?').get(eventId);
   if (!e) return { error: 'EVENT_NOT_FOUND' };
-  if (e.host_user_id !== actorId) return { error: 'NOT_HOST' };
+  if (e.host_user_id !== actorId && !plan.canEdit(eventId, actorId)) return { error: 'NOT_IN_PLAN' };
   const rows = db._raw().prepare('SELECT field, old_value FROM plan_changes WHERE event_id = ? AND created_at = ? ORDER BY id').all(eventId, at);
   const back = {};
-  for (const r of rows) if (SET_FIELDS.includes(r.field) && !(r.field in back)) back[r.field] = r.old_value == null ? null : NUMERIC.has(r.field) ? Number(r.old_value) : r.old_value;
+  const mayUndo = (f) => e.host_user_id === actorId || !HOST_ONLY.includes(f) && f !== 'cancelled_at';
+  for (const r of rows) if (SET_FIELDS.includes(r.field) && mayUndo(r.field) && !(r.field in back)) back[r.field] = r.old_value == null ? null : NUMERIC.has(r.field) ? Number(r.old_value) : r.old_value;
   const fields = Object.keys(back).filter((k) => String(back[k] ?? '') !== String(e[k] ?? ''));
   if (!fields.length) return { ok: true, reverted: [] };
   let batch;
@@ -418,16 +427,16 @@ const VIA_WORDS = { agent: 'ButterflAI', app: 'You', undo: 'Undo', retro: 'Butte
  * me having to use my admin ability?").
  */
 function recentChanges(eventId, limit = 5) {
-  const rows = db._raw().prepare(`SELECT created_at, via, field, new_value FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT 60`).all(eventId)
+  const rows = db._raw().prepare(`SELECT created_at, via, actor_id, field, new_value FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT 60`).all(eventId)
     .filter((r) => FIELD_WORDS[r.field]);
   // What happened, in words: "locked it in", "changed the notes".
   const phrase = (r) => r.field === 'tentative' ? (String(r.new_value) === '0' ? 'locked it in' : 'made it tentative again')
     : r.field === 'status' ? (r.new_value === 'cancelled' ? 'cancelled it' : 'reopened it') : `changed ${FIELD_WORDS[r.field]}`;
   const groups = [];
   for (const r of rows) {
-    const g = groups.find((x) => x.at === r.created_at && x.via === r.via);
+    const g = groups.find((x) => x.at === r.created_at && x.via === r.via && x.actor_id === r.actor_id);
     if (g) { if (!g.fields.includes(FIELD_WORDS[r.field])) { g.fields.push(FIELD_WORDS[r.field]); g.what.push(phrase(r)); } }
-    else groups.push({ at: r.created_at, via: r.via, by: VIA_WORDS[r.via] || r.via, fields: [FIELD_WORDS[r.field]], what: [phrase(r)] });
+    else groups.push({ at: r.created_at, via: r.via, actor_id: r.actor_id, by: VIA_WORDS[r.via] || r.via, fields: [FIELD_WORDS[r.field]], what: [phrase(r)] });
   }
   return groups.slice(0, limit);
 }

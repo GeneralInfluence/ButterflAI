@@ -69,12 +69,30 @@ function list(userId, eventId) {
     members: members(eventId).map((m) => ({ name: first(m.name) })) };
 }
 
+// The words that matter in an item ("Massages - before 3:00 PM Friday" → massage, before, 3:00, friday).
+const STOP = new Set(['the', 'a', 'an', 'and', 'or', 'for', 'to', 'of', 'at', 'in', 'on', 'with', 'get', 'some', 'our', 'we', 'pm', 'am']);
+const keyWords = (s) => String(s || '').toLowerCase().split(/[^a-z0-9:]+/).filter((w) => w && !STOP.has(w)).map((w) => w.replace(/(?<=[a-z]{3})s$/, ''));
+/**
+ * An open item on the plan that this text repeats: same words, or all of its words already
+ * in one item ("Massages" next to "Massages Friday (while kids at school)" — 🐛 #20, the
+ * weekend had five massage items). Returns its id or null.
+ */
+function repeats(eventId, text) {
+  const mine = keyWords(text);
+  if (!mine.length) return null;
+  for (const t of db._raw().prepare('SELECT id, text FROM event_todos WHERE event_id = ? AND done_at IS NULL').all(eventId)) {
+    const theirs = new Set(keyWords(t.text));
+    if (mine.every((w) => theirs.has(w))) return t.id;
+  }
+  return null;
+}
+
 function add(userId, eventId, { text, assignee, suggested = false, day = null }) {
   if (!topics.canSee(userId, eventId)) return { error: 'NOT_IN_PLAN' };
   const t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT);
   if (!t) return { error: 'EMPTY' };
-  const dup = db._raw().prepare('SELECT id FROM event_todos WHERE event_id = ? AND lower(text) = lower(?) AND done_at IS NULL').get(eventId, t);
-  if (dup) return { error: 'ALREADY_ON_LIST', todo_id: dup.id };
+  const dup = repeats(eventId, t);
+  if (dup) return { error: 'ALREADY_ON_LIST', todo_id: dup, message: `Already on the list: "${db._raw().prepare('SELECT text FROM event_todos WHERE id = ?').get(dup).text}"` };
   const a = resolveAssignee(eventId, assignee, userId);
   if (a.error) return a;
   const id = uuidv4();
@@ -162,4 +180,4 @@ function progressFor(eventIds) {
   return out;
 }
 
-module.exports = { list, add, update, remove, mine, forHome, members, progressFor };
+module.exports = { list, add, update, remove, mine, forHome, members, progressFor, repeats, keyWords };

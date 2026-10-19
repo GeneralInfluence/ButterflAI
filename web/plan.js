@@ -89,6 +89,7 @@ function planFor(eventId, viewerId) {
   const waiting = plain.filter((p) => p.status === 'invited').map((p) => p.name);
   // Paused after a heads-up (ripples/reactions/avoid-heads-up.js): they said yes before.
   const stillGoing = !isHost && mine && mine.status === 'accepted' && mine.needs_owner_decision;
+  const canEditIt = isHost || (mine?.status === 'accepted' && e.status !== 'cancelled');
   const next = stillGoing ? 'Still going? Tap to answer'
     : stage === 'invited' ? (e.tentative ? 'Interested? Tap to answer' : 'Tap to respond')
     : isHost && stage === 'idea' ? 'Pick dates'
@@ -96,7 +97,7 @@ function planFor(eventId, viewerId) {
       ? 'Lock in the plan — tell your agent the final details' : null;
 
   return {
-    id: e.id, title: e.title, what: e.activity_type, place: e.venue_name || null, notes: e.notes || null,
+    id: e.id, title: e.title, what: e.activity_type, can_edit: canEditIt, place: e.venue_name || null, notes: e.notes || null,
     host: { name: first(host?.name), is_you: isHost }, role: isHost ? 'host' : 'guest',
     invitation: mine ? { id: mine.id, status: mine.status, going: mine.status === 'accepted' && (!!mine.going || !e.tentative), must_ask: !!mine.needs_owner_decision && mine.status !== 'declined',
       deferred_to: parseJson(mine.defers_to, []) } : null,
@@ -143,6 +144,22 @@ function inCircle(eventId, userA, userB) {
   return inIt(userA) && inIt(userB);
 }
 
+/**
+ * Who can change a plan (owner, 2026-10-19: "Hosting doesn't mean that I'm the only one who
+ * can do anything. Other people should be able to contribute to it and help create it."):
+ * the host and everyone who has said yes (deferring counts). Cancelling, removing people and
+ * who can see it stay with the host (planops.HOST_ONLY).
+ */
+function canEdit(eventId, userId) {
+  if (!eventId || !userId) return false;
+  const e = db._raw().prepare('SELECT host_user_id, status FROM social_events WHERE id = ?').get(eventId);
+  if (!e || e.status === 'cancelled') return false;
+  if (e.host_user_id === userId) return true;
+  const u = db.getUser(userId);
+  return !!(u?.phone && db._raw().prepare(`SELECT 1 FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+    WHERE ei.event_id = ? AND c.phone = ? AND ei.status = 'accepted' AND ei.dismissed_at IS NULL`).get(eventId, u.phone));
+}
+
 /** Normalized plan name for "is this the same plan?" (case, punctuation, spacing). */
 function sameName(a, b) {
   const n = (s) => String(s || '').toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -156,4 +173,4 @@ function existingByName(hostUserId, title) {
   return rows.find((r) => sameName(r.title, title)) || null;
 }
 
-module.exports = { planFor, plansFor, existingByName, sameName, inCircle };
+module.exports = { planFor, plansFor, existingByName, sameName, inCircle, canEdit };

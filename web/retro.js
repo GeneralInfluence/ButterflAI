@@ -387,6 +387,42 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-19-fold-massages-into-melanies-weekend',
+    added: Date.UTC(2026, 9, 19) / 1000,
+    kind: 'internal',
+    about: '🐛 #20 (Sean, 2026-10-19: "you now have two separate events when they should be one event") — Melanie\'s "Massages" (she hosts, Sean said yes) couldn\'t be combined into Sean\'s Melanie\'s Birthday Weekend because only a host could combine their own plans. Combine them now (Melanie is told). Only where report #20 exists and both plans are still open.',
+    run(user) {
+      if (!db._raw().prepare("SELECT 1 FROM feedback WHERE id = 20 AND user_note LIKE 'Melanie had tried to add massages to her birthday weekend%'").get()) return 'no report';
+      const weekend = db._raw().prepare("SELECT id FROM social_events WHERE host_user_id = ? AND title = 'Melanie''s Birthday Weekend' AND COALESCE(status, 'open') != 'cancelled'").get(user.id);
+      if (!weekend) return 'no weekend';
+      const massages = db._raw().prepare(`SELECT se.id FROM social_events se JOIN event_invitations ei ON ei.event_id = se.id JOIN contacts c ON c.id = ei.contact_id
+        WHERE se.title = 'Massages' AND se.host_user_id != ? AND COALESCE(se.status, 'open') != 'cancelled' AND c.phone = ? AND ei.status = 'accepted'`).get(user.id, user.phone || '');
+      if (!massages) return 'no massages plan';
+      const r = require('./planops').merge(user.id, weekend.id, massages.id, { via: 'retro' });
+      return r.merged ? 'combined' : `not combined: ${r.error}`;
+    },
+  },
+  {
+    id: '2026-10-19-creating-repeats',
+    added: Date.UTC(2026, 9, 19) / 1000,
+    kind: 'internal',
+    about: 'Creating doesn\'t repeat itself (🐛 #20 — Melanie\'s weekend had five massage items). On plans this user hosts, an open item whose words are all in another open item ("Massages" next to "Massages Friday (while kids at school)") is removed; the fuller one stays. Items assigned to someone are kept.',
+    run(user) {
+      const todos = require('./todos');
+      let removed = 0;
+      for (const e of db._raw().prepare("SELECT id FROM social_events WHERE host_user_id = ? AND COALESCE(status, 'open') != 'cancelled'").all(user.id)) {
+        const items = db._raw().prepare('SELECT id, text, assignee_phone FROM event_todos WHERE event_id = ? AND done_at IS NULL ORDER BY length(text) DESC').all(e.id);
+        const kept = [];
+        for (const t of items) {
+          const mine = todos.keyWords(t.text);
+          const dupOf = mine.length && !t.assignee_phone && kept.find((k) => { const theirs = new Set(todos.keyWords(k.text)); return mine.every((w) => theirs.has(w)); });
+          if (dupOf) { db._raw().prepare('DELETE FROM event_todos WHERE id = ?').run(t.id); removed++; } else kept.push(t);
+        }
+      }
+      return `removed ${removed}`;
+    },
+  },
+  {
     id: '2026-10-19-options-asked-for-not-given',
     added: Date.UTC(2026, 9, 19) / 1000,
     kind: 'propose',

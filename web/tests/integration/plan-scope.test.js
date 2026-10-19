@@ -183,9 +183,10 @@ describe('the host fixes their own plan in the app', () => {
     const other = mkUser('Not Host Scope');
     assert.equal((await request.post(`/api/events/${w.liam}/undo`).set('Cookie', await cookieFor(other))).status, 403);
   });
-  test('the plan summary shows the host controls', () => {
+  // Shown to everyone who can change the plan, not just the host (2026-10-19, 🐛 #20 — was p.host.is_you).
+  test('the plan summary shows the plan controls to everyone who can change it', () => {
     const ev = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/events.html'), 'utf8');
-    assert.ok(ev.includes("${p.host.is_you ? hostControls(p) : ''}") && ev.includes('🔒 Lock it in') && ev.includes('↩︎ Undo last change') && ev.includes('Recent changes'));
+    assert.ok(ev.includes("${p.can_edit ? hostControls(p) : ''}") && ev.includes('🔒 Lock it in') && ev.includes('↩︎ Undo last change') && ev.includes('Recent changes'));
   });
 });
 

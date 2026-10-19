@@ -452,7 +452,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'merge_plans',
-    description: 'Combine two of your user\'s plans that are really the same thing (e.g. "Grover camping" and "Melanie\'s birthday weekend"). The first call only proposes — ASK your user ("combine X and Y into one?"); call again with the same ids after they say yes. Everything (people, discussion, notes) moves into keep_event_id.',
+    description: 'Combine two plans your user is in (hosting or said yes — the hosts don\'t have to be the same) that are really the same thing (e.g. "Grover camping" and "Melanie\'s birthday weekend"). The first call only proposes — ASK your user ("combine X and Y into one?"); call again with the same ids after they say yes. Everything (people, discussion, notes) moves into keep_event_id.',
     input_schema: {
       type: 'object',
       properties: {
@@ -647,7 +647,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'update_event',
-    description: 'Update a social event YOU are hosting — use this after agent-to-agent negotiation to lock in an agreed time, add a time window note, or update venue/notes. Call this once invitee\'s agent confirms a time works. You can only update events you host.',
+    description: 'Update a plan your user hosts OR has said yes to (plans are made together — the host is told when someone else changes theirs). Use it to set or lock in dates, add a time window, or update venue/notes/title. Only the host can cancel.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1422,7 +1422,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const { keep_event_id: keep, merge_event_id: drop } = toolInput;
       const ev = (id) => db._raw().prepare('SELECT id, title, host_user_id FROM social_events WHERE id = ?').get(id);
       const a = ev(keep), b = ev(drop);
-      if (!a || !b || a.host_user_id !== userId || b.host_user_id !== userId) return { error: 'NOT_YOUR_PLANS', message: 'Use two eventIds from your Open events.' };
+      if (!a || !b || !planObj.canEdit(keep, userId) || !planObj.canEdit(drop, userId)) return { error: 'NOT_YOUR_PLANS', message: 'Use two eventIds of plans your user hosts or has said yes to (Open events / You have been invited to).' };
       const key = `${userId}:${keep}:${drop}`;
       const prior = pendingMerges.get(key);
       const turnId = currentTurn?.msgId;
@@ -1880,7 +1880,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const { event_id, ...changes } = toolInput;
       const r = planops.update(userId, event_id, changes, { via: 'agent' });
       if (r.error === 'EVENT_NOT_FOUND') return { error: 'Event not found' };
-      if (r.error === 'NOT_HOST') return { error: 'You can only update events you host' };
+      if (r.error === 'NOT_IN_PLAN') return { error: 'NOT_IN_PLAN', message: 'Your user has to say yes to this plan before they can change it.' };
       return r;
     }
 
@@ -2128,9 +2128,9 @@ async function processMessage(msg) {
         const inv = p.invitation;
         const ask = inv.must_ask ? ' | ⚠ ASK YOUR USER before responding (never say why)' : '';
         const def = inv.deferred_to.length ? ` | your user deferred — goes with whatever ${defer.joinNames(inv.deferred_to)} decide` : '';
-        return `  - inv_id="${inv.id}" | eventId="${p.id}" | "${p.title}" hosted by ${p.host.name} | ${p.dates.label}${p.place ? ` at ${p.place}` : ''} | your status: ${inv.status}${def}${ask}`;
+        return `  - inv_id="${inv.id}" | eventId="${p.id}" | "${p.title}" hosted by ${p.host.name} | ${p.dates.label}${p.place ? ` at ${p.place}` : ''}${p.notes ? ` | notes: ${String(p.notes).slice(0, 160)}` : ''} | your status: ${inv.status}${p.can_edit ? ' | YOUR USER CAN CHANGE THIS PLAN (they said yes)' : ''}${def}${ask}`;
       }).join('\n');
-      return `\n## You have been invited to (by other ButterflAI users)\n${lines}\n- Use confirm_coordination_invite to RSVP and optionally add to your calendar`;
+      return `\n## You have been invited to (by other ButterflAI users)\n${lines}\n- Use confirm_coordination_invite to RSVP and optionally add to your calendar\n- Plans marked YOUR USER CAN CHANGE THIS PLAN: change them directly with update_event / manage_todos / merge_plans (eventId above) — the host is told. Only cancelling stays with the host.`;
     } catch (_) { return ''; }
   })();
 
@@ -2428,6 +2428,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   CALENDAR: every plan your user is in shows on their connected Google Calendar automatically and follows every change (dates, place, cancel, their answer). Never use create_calendar_event for a plan — that makes a second, stale copy; it is only for things that aren't plans.
   EVERY QUESTION IS ABOUT A PLAN: message_agent always takes the plan's event_id — if there is no plan yet, create it first (tentative, no date needed). Answers land on the plan ("friends' ButterflAIs said" in Open events): read them there and never ask the same person the same thing again — the less people are bothered, the better.
   ONE PLAN AT A TIME: in a plan's discussion, change only that plan. Something your user says there ("noon till 6", "kids won't last") is about that plan — never copy it onto their other plans. To change another plan they must name it.
+  PLANS ARE MADE TOGETHER: the host AND everyone who said yes can change a plan — dates, place, notes, Creating, lock it in, combine it with another plan they're in. Never tell your user "I can't, X is hosting it": do it (update_event / manage_todos / merge_plans); the host is told. Only cancelling stays with the host. If your user hasn't said yes yet, offer to mark them in first.
   PLAN CIRCLE: agents of people who are in the same plan (host, or said yes) are insiders for THAT plan — they settle its logistics between themselves and only bring their users what needs a decision. Your state says whether a question comes from INSIDE a plan or from OUTSIDE your user's plans; never treat an outsider as an insider.
   WHEN ANSWERING ANOTHER AGENT YOUR FINAL TEXT IS SHOWN TO NO ONE. Only reply_agent (to the other agent) and tell_my_user (to your user) reach anybody. Never put your reasoning in either.
   3. "WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS": NEVER answer this yourself — not from memory, not from old messages. Where your user will be is theirs to share. Do NOT ping your user to answer it either — ButterflAI never pushes people to respond to individuals. Reply via reply_agent with only what your user has explicitly shared for that time; if nothing, reply "Nothing shared for tonight."
