@@ -164,6 +164,13 @@ function tickPurge() {
   } catch (err) {
     console.error('[coord] plans purge error:', err.message);
   }
+  // What messages were understood as (understand.js) holds people's words: kept 90 days.
+  try {
+    const n = require('./understand').purgeOld();
+    if (n) console.log(`[coord] purged ${n} understood action(s) past 90 days`);
+  } catch (err) {
+    console.error('[coord] understood purge error:', err.message);
+  }
   // Test-user agent traces are kept trace.RETENTION_DAYS, then hard-deleted.
   try {
     const traces = require('./trace').purgeOld();

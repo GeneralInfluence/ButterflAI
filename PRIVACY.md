@@ -353,6 +353,15 @@ A cancelled plan (or one folded into another) is hard-deleted 90 days after it w
 with its guest list, to-dos, change history, check-ins and calendar records
 (`planops.purgeCancelled`). Each person's own chat messages about it stay in their chat.
 
+## What messages were understood as `[2026-10-19]`
+
+Each message a person sends their own agent is first read into the actions it asks for
+(`understand.js`) — the same text their agent already sees, sent to Anthropic like any agent
+turn; private-mode messages are never read. Each action and the words it was based on are kept
+in `understood` so the person can undo it and so corrections can improve the reading; rows are
+visible only to that person (chips in their chat) and the admin, and are **deleted after 90
+days**.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

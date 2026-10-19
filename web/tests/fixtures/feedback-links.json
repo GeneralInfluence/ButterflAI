@@ -15,5 +15,9 @@
   "15": {
     "note_starts": "It says Saturday plans, but the massages were meant for Friday",
     "test": "tests/integration/feedback-backlog.test.js › 🐛 #15: the day you tapped goes with what you say"
+  },
+  "19": {
+    "note_starts": "expecting list of massage places",
+    "test": "tests/integration/understand.test.js › asking for options → the reply must search and list them, not ask who and when"
   }
 }

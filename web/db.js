@@ -513,11 +513,13 @@ module.exports = {
   // `kind`: 'incoming' / 'outgoing' for message cards between users (deliver.js).
   appendConversation(userId, role, text, privateEnc = null, kind = null) {
     const { v4: uuidv4 } = require('uuid');
+    const id = uuidv4();
     db.prepare(`
       INSERT INTO conversation_history (id, user_id, role, text, private_ct, private_iv, private_tag, kind)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(uuidv4(), userId, role, text.slice(0, 4000),
+    `).run(id, userId, role, text.slice(0, 4000),
       privateEnc?.ct || null, privateEnc?.iv || null, privateEnc?.tag || null, kind);
+    return id;
   },
 
   scrubInboundMessageText(id, placeholder) {

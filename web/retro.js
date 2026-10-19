@@ -387,6 +387,32 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-19-options-asked-for-not-given',
+    added: Date.UTC(2026, 9, 19) / 1000,
+    kind: 'propose',
+    about: '🐛 #19 (Melanie, 2026-10-18: "expecting list of massage places") — she asked for options and got questions instead. Now a request for options is read before the reply and the reply must search (understand.js). Anyone who asked for places or options in the last week and got no links back is offered them now, in that plan\'s discussion.',
+    async run(user) {
+      const since = now() - 7 * 86400;
+      const rows = db._raw().prepare(`SELECT role, text, event_id, created_at FROM conversation_history WHERE user_id = ? AND created_at >= ? AND private_ct IS NULL
+        ORDER BY created_at, rowid`).all(user.id, since);
+      const ASKS = /\b(find|look up|recommend|suggest(ions)?|options|any good|where (can|should|could) (we|i))\b[^?.!]*\b(places?|spots?|spas?|restaurants?|bars?|massages?|cabins?|hotels?|options?)\b/i;
+      let missed = null;
+      rows.forEach((m, i) => {
+        if (m.role !== 'user' || !ASKS.test(m.text)) return;
+        const reply = rows.slice(i + 1).find((r) => r.role === 'assistant');
+        if (!reply || !/https?:\/\//.test(reply.text)) missed = m;
+      });
+      if (!missed) return 'nothing missed';
+      const what = String(missed.text).replace(/\s+/g, ' ').slice(0, 120);
+      const text = `Earlier you asked: "${what}" — I asked you questions instead of giving you options. Want me to look them up now? Just say yes.`;
+      const id = db.appendConversation(user.id, 'assistant', text);
+      if (missed.event_id) db._raw().prepare('UPDATE conversation_history SET event_id = ? WHERE id = ?').run(missed.event_id, id);
+      sse.push(user.id, { role: 'assistant', text, ts: now() });
+      try { await push.notifyUser(db, user.id, { title: 'ButterflAI', body: 'Want me to look up those options now?', url: missed.event_id ? `/app/chat?event=${missed.event_id}` : '/app/chat' }); } catch (_) {}
+      return 'offered';
+    },
+  },
+  {
     id: '2026-10-14-melanies-massage-on-friday',
     added: Date.UTC(2026, 9, 14) / 1000,
     kind: 'internal',

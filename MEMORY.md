@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_994_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1009_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -875,6 +875,37 @@ wrong date — because nothing tied a change to the plan being discussed.
   set), Recent changes ("ButterflAI changed the notes · 2m ago", `/api/events/:id/changes`),
   ↩︎ Undo last change (`/api/events/:id/undo` → `planops.undoLast`). PATCH also takes
   `tentative`, `duration_mins`.
+
+## 23. Understood first: a message is read into actions before the reply `[LOCKED 2026-10-19]`
+
+Owner, after Melanie's 🐛 #19 ("expecting list of massage places" — she got "who are the other 2
+people? what time?"): "we need to somehow map people's conversation into actions in a more
+consistent way." Until now the reply model read, chose tools and replied in one go, and code
+caught known misreadings afterwards — every new misreading got through until it had a guard.
+- **`web/understand.js`, before every user turn** (not private mode, not agent queries): a short
+  Haiku read turns the message into typed actions, each quoting the user's own words —
+  `add_todo`, `rsvp` (going / interested / declined), `set_details` (host), `lock_in` (host),
+  `find_options`, `message`, `cancel`.
+- **Code decides each one:** no quote from their words → dropped; a plan they're not in, or a
+  different plan than the discussion without naming it (`planNamedIn`) → dropped; host-only
+  changes from a guest → the reply offers to pass it on; confidence ≥ 0.75 → done in code
+  through `todos` / `planops` (via `understood`, so it ripples and logs); 0.5–0.75 with a
+  question → exactly one question with the choices; lower → dropped.
+- **The reply model is told** what was done ("don't do these again; confirm them") and what's
+  left for it. `find_options` → it must search and list 3–5 options with links before any
+  question (in code: no `web_search` in the turn → sent back once). The reply model adding the
+  same to-do again in other words is refused.
+- **Chips:** what was done shows under the user's message ("✓ Massage · Fri → Creating · Undo";
+  answers get "Change": Going / Interested / Not going). `POST /api/understood/:id/undo`.
+  Every read is kept in `understood` (migration 060) with its decision; an undo or change is a
+  labelled correction (`/api/admin/understood`) → new case in `tests/eval-understand.js`
+  (real model, nightly). Rows hold people's words: deleted after 90 days.
+- The older after-the-fact checks (ACTION_CLAIMS, the idea guard, actioncheck, plansync) stay
+  for now; they see what understand did as tool calls. Retire them as the eval shows the read
+  is reliable.
+- Retro (propose): anyone who asked for places/options in the last week and got no links is
+  offered them in that plan's discussion.
+- Tests: `tests/integration/understand.test.js` (scripted), `tests/eval-understand.js` (real).
 
 ## 12. Research & planning tools `[2026-10-09]`
 

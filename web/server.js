@@ -1419,6 +1419,11 @@ app.get('/api/admin/trace', requireAdmin, (req, res) => {
   res.json({ trace: rows.reverse(), retention_days: trace.RETENTION_DAYS });
 });
 // Reflections (reflect.js): what the agent noticed looking back — test users only.
+// Corrections to what messages were understood as — the eval set's labels (understand.js).
+app.get('/api/admin/understood', requireAdmin, (req, res) => {
+  res.json({ corrections: require('./understand').corrections(200) });
+});
+
 app.get('/api/admin/reflections', requireAdmin, (req, res) => {
   const rows = db._raw().prepare(`SELECT r.*, u.name AS user_name FROM reflections r JOIN users u ON u.id = r.user_id
     WHERE u.test_user = 1 ORDER BY r.created_at DESC LIMIT 200`).all();
@@ -1537,7 +1542,7 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const since = parseInt(req.query.since) || 0;
   let msgs;
-  const cols = 'role, text, created_at, private_ct, private_iv, private_tag, kind';
+  const cols = 'id, role, text, created_at, private_ct, private_iv, private_tag, kind';
   // ?event=<id>: only that plan's discussion (2026-10-09). Host or invitee only.
   let eventInfo = null;
   const eventId = req.query.event ? String(req.query.event) : null;
@@ -1568,16 +1573,27 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
        WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`
     ).all(req.user.id, limit).reverse();
   }
+  // What each of their messages was understood as and done (understand.js): chips.
+  const chips = require('./understand').chipsForMessages(req.user.id, msgs.filter((m) => m.role === 'user').map((m) => m.id));
   // Private-mode messages are decrypted only here, for their owner (the query is scoped
   // to req.user.id). Not access-logged per poll: this is the owner reading their own chat.
   res.json({
     event: eventInfo || undefined,
     messages: msgs.map(({ private_ct, private_iv, private_tag, ...m }) => {
+      if (chips.has(m.id)) m.understood = chips.get(m.id);
       if (!private_ct) return m;
       try { return { ...m, text: sensitive.decrypt(private_ct, private_iv, private_tag), private: true }; }
       catch (_) { return { ...m, private: true }; }
     }),
   });
+});
+
+// Undo (or change) what ButterflAI did from one of your messages — a chip under it
+// ("✓ Massage · Fri → Creating · Undo"). rsvp chips take { answer }. understand.js checks it's yours.
+app.post('/api/understood/:id/undo', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./understand').undo(req.user.id, String(req.params.id), { answer: req.body?.answer });
+  if (r.error) return res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r);
+  res.json(r);
 });
 
 // GET /api/plans — every plan you're in, as one object each (plan.js). The calendar and

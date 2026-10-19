@@ -46,6 +46,7 @@ const planops    = require('./planops');
 const todos      = require('./todos');
 const plansync   = require('./plansync');
 const actioncheck = require('./actioncheck');
+const understand = require('./understand');
 const names      = require('./names');
 const mentions   = require('./mentions');
 const { toE164 } = require('./phoneUtils');
@@ -1392,8 +1393,12 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const { event_id, action, items = [], todo_id, assignee } = toolInput;
       if (action === 'list') return todos.list(userId, event_id);
       if (action === 'suggest' || action === 'add') {
-        const added = [], problems = [];
+        const added = [], problems = [], already = [];
+        // Already added in code for this message (understand.js) — not again in other words.
+        const done = (currentTurn?.understood?.applied || []).filter((a) => a.kind === 'add_todo' && a.event_id === event_id);
+        const words = (x) => new Set(String(x).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3));
         for (const text of items.slice(0, 8)) {
+          if (action === 'add' && done.some((d) => [...words(text)].some((w) => words(d.label.split(' → ')[0]).has(w) || words(d.label.split(' → ')[0]).has(w.replace(/s$/, ''))))) { already.push(text); continue; }
           // The day: the one the model named, else the calendar day the user was looking at
           // (🐛 #15 — Melanie's Friday massage was recorded as Saturday). Enforced here.
           const r = todos.add(userId, event_id, { text, assignee, suggested: action === 'suggest', day: todoDay(toolInput.day) });
@@ -1401,6 +1406,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         }
         const dayUsed = todoDay(toolInput.day);
         return { [action === 'suggest' ? 'suggested' : 'added']: added, problems: problems.length ? problems : undefined,
+          already_added: already.length ? `${already.join(', ')} — already on Creating (added for this message); don't add again` : undefined,
           day: dayUsed && added.length ? `${dayUsed} — recorded for that day${dayUsed === currentTurn?.contextDay ? ' (the day your user opened the plan from); don\'t ask which day' : ''}` : undefined,
           note: action === 'suggest' ? 'Suggestions show at the top of the plan\'s chat with Keep / ✕. Mention them briefly; keep the ones your user wants with action keep.' : undefined };
       }
@@ -2824,7 +2830,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
     // An agent_query is NOT kept in the user's chat: it showed up there as if they'd typed
     // "[Agent query from Sean Gonzalez's agent | thread=…]" (2026-10-09). What the user
     // needs to see arrives via tell_my_user.
-    appendHistory(userId, 'user', msg.text, isPrivate);
+    currentTurn.historyId = appendHistory(userId, 'user', msg.text, isPrivate);
   }
   if (isPrivate) db.scrubInboundMessageText(msg.id, PRIVATE_PLACEHOLDER);
 
@@ -2847,6 +2853,26 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   let planRouted = false;    // routed this turn to a plan (topics.route)
   let planSynced = false;    // "say it, store it" checked this turn (plansync.js)
   let routed;                // its result, reused when filing the turn
+  let optionsChallenged = false;
+
+  // What did they ask for? Read in code before the reply (understand.js, 2026-10-14 — owner:
+  // "map people's conversation into actions in a more consistent way"). Plan changes it's
+  // sure of are done here through planops/todos and shown as chips under their message;
+  // the reply model is told what was done and what's left for it (search, messages, one question).
+  let understood = null;
+  if (USER_CHANNELS.includes(msg.channel) && !isPrivate && String(msg.text || '').trim()) {
+    understood = await understand.run({ userId, msg: { ...msg, history_id: currentTurn.historyId }, isNamed: planNamedIn })
+      .catch((err) => { console.warn('[agent] understand failed:', err.message); return null; });
+    if (understood) {
+      currentTurn.understood = understood;
+      toolLog.push(...understood.toolLog);
+      if (understood.applied.length || understood.agent.length || understood.asks.length) {
+        turnTrace.event('understood', JSON.stringify({ applied: understood.applied.map((a) => a.label), agent: understood.agent.map((a) => a.kind), asks: understood.asks.map((a) => a.ask) }).slice(0, 600));
+      }
+      if (understood.applied.length) sse.push(userId, { role: 'understood', history_id: currentTurn.historyId, items: understood.applied.map((a) => ({ id: a.id, kind: a.kind, label: a.label, status: 'applied', event_id: a.event_id })) });
+      if (understood.note) messages[messages.length - 1] = { role: 'user', content: `${msg.text}\n\n${understood.note}` };
+    }
+  }
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
@@ -2906,6 +2932,19 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         }
         turnTrace.event('guard', `repeated unbacked claim (${unbacked.what}): ${replyText.slice(0, 200)}`);
         if (unbacked.fallback !== null) replyText = unbacked.fallback || NOT_DONE_FALLBACK;
+      }
+
+      // They asked for options (find_options): the reply searches and lists them — 🐛 #19,
+      // Melanie asked for massage places and got "who are the other 2 people?" Once.
+      const wantsOptions = understood?.agent.find((a) => a.kind === 'find_options');
+      if (wantsOptions && !optionsChallenged && !messages.some((m) => Array.isArray(m.content)
+          && m.content.some((b) => b.type === 'server_tool_use' && b.name === 'web_search'))) {
+        optionsChallenged = true;
+        turnTrace.event('guard', `options asked for, none searched: ${replyText.slice(0, 160)}`);
+        messages.push({ role: 'user', content:
+          `[System check — not from the user] Your user asked for options (${wantsOptions.what}${wantsOptions.near ? ` near ${wantsOptions.near}` : ''}). `
+          + 'Search the web now and list 3–5 real options with links before anything else. Questions can come after the options, not instead of them. Don\'t mention this check.' });
+        continue;
       }
 
       // An idea raised in a plan's discussion gets written down, not asked about (owner,

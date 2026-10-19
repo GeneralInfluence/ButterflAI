@@ -128,6 +128,11 @@
     .copy-btn { background: none; border: none; color: #c7c7cc; font-size: 12px; cursor: pointer; padding: 2px 4px; }
     .copy-btn.done { color: #34c759; }
     .msg.me .msg-foot { justify-content: flex-end; }
+    /* What ButterflAI did from your message (understand.js): chips under it, each undoable. */
+    .understood { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+    .u-chip { display: inline-flex; align-items: center; gap: 6px; background: #ede9fe; color: #1c1c1e; border-radius: 12px; padding: 4px 10px; font-size: 13px; font-weight: 500; }
+    .u-chip.undone { background: #f2f2f7; color: #8e8e93; text-decoration: line-through; }
+    .u-chip button { border: 0; background: none; color: #6c47ff; font-size: 13px; font-weight: 600; padding: 0; cursor: pointer; }
     .msg.bot.notice .bubble { background: #f2f2f7; color: #3a3a3c; box-shadow: none; font-size: 14px; }
     .msg.bot.incoming .bubble { background: #ede9fe; border: 1.5px solid #6c47ff; color: #1c1c1e; }
     .msg.bot.outgoing .bubble { background: #fff; border: 1.5px dashed #a78bfa; color: #3a3a3c; }
@@ -557,7 +562,7 @@
         }
         if (messages.length) {
           emptyEl.remove();
-          messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind));
+          messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind, m.understood));
           scrollToBottom();
         }
       } catch {}
@@ -589,7 +594,7 @@
           agentStatusEl.textContent = '';
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
-          toRender.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind));
+          toRender.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind, m.understood));
           scrollToBottom();
         } else if (pendingSince > 0) {
           // We sent a message but no reply yet — keep the typing indicator visible
@@ -616,6 +621,11 @@
           agentStatusEl.textContent = data.text;
           typingEl.classList.add('visible'); // make sure dots are up
           scrollToBottom();
+        } else if (data.role === 'understood') {
+          // Done from the message just sent — chips under it, before the reply arrives.
+          const mine = [...messagesEl.querySelectorAll('.msg.me')].pop();
+          renderChips(mine, data.items);
+          loadTodos();
         } else if (data.role === 'assistant' && data.kind) {
           // A message card ("💬 From …" / "📤 To …") — not the reply we may be waiting
           // for, so leave the typing indicator alone.
@@ -758,7 +768,48 @@
       return false;
     }
 
-    function appendMessage(role, text, ts, updateTs = true, kind = null) {
+    // Chips: what ButterflAI did from this message — Undo, or for an answer, Change.
+    function renderChips(msgDiv, items) {
+      if (!msgDiv || !items || !items.length) return;
+      let box = msgDiv.querySelector('.understood');
+      if (!box) { box = document.createElement('div'); box.className = 'understood'; msgDiv.insertBefore(box, msgDiv.querySelector('.msg-foot')); }
+      box.innerHTML = '';
+      msgDiv._items = items;
+      for (const it of items) {
+        const chip = document.createElement('span');
+        chip.className = 'u-chip' + (it.status === 'undone' ? ' undone' : '');
+        chip.dataset.id = it.id;
+        chip.textContent = (it.status === 'undone' ? '' : '✓ ') + it.label + ' ';
+        if (it.status !== 'undone') {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = it.kind === 'rsvp' ? 'Change' : 'Undo';
+          b.addEventListener('click', () => it.kind === 'rsvp' ? changeAnswer(chip, it, msgDiv) : undoChip(it, msgDiv));
+          chip.appendChild(b);
+        }
+        box.appendChild(chip);
+      }
+    }
+    async function undoChip(it, msgDiv, answer) {
+      try {
+        const r = await fetch(`/api/understood/${encodeURIComponent(it.id)}/undo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(answer ? { answer } : {}) });
+        if (!r.ok) return;
+        const { chip } = await r.json();
+        renderChips(msgDiv, (msgDiv._items || []).map((x) => (x.id === it.id ? chip : x)));
+        loadTodos();
+      } catch {}
+    }
+    function changeAnswer(chipEl, it, msgDiv) {
+      chipEl.innerHTML = '';
+      for (const [answer, word] of [['going', 'Going'], ['interested', 'Interested'], ['declined', 'Not going']]) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = word;
+        b.addEventListener('click', () => undoChip(it, msgDiv, answer));
+        chipEl.appendChild(b);
+      }
+    }
+
+    function appendMessage(role, text, ts, updateTs = true, kind = null, understood = null) {
       if (role === 'bot' && updateTs && alreadyShown(text, ts)) return;
       // Strip and handle {"action":"REQUEST_LOCATION"} anywhere in bot messages
       if (role === 'bot') {
@@ -781,6 +832,7 @@
       }
       const copyBtn = div.querySelector('.copy-btn');
       if (copyBtn) copyBtn.addEventListener('click', () => copyText(text, copyBtn));
+      if (role === 'me' && understood) renderChips(div, understood);
       // Insert before typing indicator so anchor stays last
       messagesEl.insertBefore(div, typingEl);
       // Track latest message timestamp for catch-up polling — only from server-sourced messages,
