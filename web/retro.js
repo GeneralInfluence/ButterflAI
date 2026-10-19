@@ -470,6 +470,39 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-19-rocky-horror-on-the-30th',
+    added: Date.UTC(2026, 9, 19) / 1000,
+    kind: 'internal',
+    about: 'Sean, 2026-10-19: "the weekend of the 30th we got tickets to The Rocky Horror Picture Show" was saved as Saturday Oct 24, 7pm — the date reader took "Saturday" and ignored "October 30" (fixed: a named date wins). Put the plan on the weekend of the 30th (Oct 30 – Nov 1, proposed) — only if it is still on that wrong date.',
+    run(user) {
+      const e = db._raw().prepare("SELECT id FROM social_events WHERE host_user_id = ? AND title LIKE 'Rocky Horror%' AND scheduled_at = ? AND proposed_dates IS NULL AND COALESCE(status, 'open') != 'cancelled'")
+        .get(user.id, Date.UTC(2026, 9, 25, 2) / 1000);
+      if (!e) return 'not found as saved';
+      const r = require('./planops').update(user.id, e.id, { proposed_dates: [{ from: '2026-10-30', to: '2026-11-01' }] }, { via: 'retro' });
+      return r.ok ? 'moved to the weekend of the 30th' : `not moved: ${r.error}`;
+    },
+  },
+  {
+    id: '2026-10-19-rocky-horror-alex',
+    added: Date.UTC(2026, 9, 19) / 1000,
+    kind: 'propose',
+    about: 'Sean, 2026-10-19: "Allie and Alex from my favorite Mama\'s group" — the agent found Allie but asked "which Alex?" (Alexandria Spargo is in that group; lookups now check the group / plan named). Offer to add the two of them to Rocky Horror if they aren\'t on it.',
+    async run(user) {
+      const e = db._raw().prepare("SELECT id, title FROM social_events WHERE host_user_id = ? AND title LIKE 'Rocky Horror%' AND COALESCE(status, 'open') != 'cancelled' ORDER BY created_at DESC").get(user.id);
+      if (!e) return 'no plan';
+      const g = db._raw().prepare("SELECT id FROM contact_groups WHERE user_id = ? AND name = 'Favorite Mama''s'").get(user.id);
+      if (!g) return 'no group';
+      const want = db._raw().prepare(`SELECT c.id, c.name FROM contact_group_members m JOIN contacts c ON c.id = m.contact_id WHERE m.group_id = ?
+        AND (c.name LIKE 'Allie%' OR c.name LIKE 'Alex%') AND c.id NOT IN (SELECT contact_id FROM event_invitations WHERE event_id = ?)`).all(g.id, e.id);
+      if (!want.length) return 'already on it';
+      const text = `About ${e.title}: "Alex from Favorite Mama's" is ${want.find((c) => /^alex/i.test(c.name))?.name || 'in that group'} — I should have found her from the group instead of asking. Want me to add ${want.map((c) => c.name.split(' ')[0]).join(' and ')} to it?`;
+      const id = db.appendConversation(user.id, 'assistant', text);
+      db._raw().prepare('UPDATE conversation_history SET event_id = ? WHERE id = ?').run(e.id, id);
+      sse.push(user.id, { role: 'assistant', text, ts: now() });
+      return `offered (${want.length})`;
+    },
+  },
+  {
     id: '2026-10-19-options-asked-for-not-given',
     added: Date.UTC(2026, 9, 19) / 1000,
     kind: 'propose',

@@ -56,6 +56,36 @@ function parseTime(text) {
 }
 
 // Parse a target date out of free text → { y, m, d } (in `tz`) or null.
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+/**
+ * "October 30", "Oct 30th", "30 October", "10/30", "the 30th" → {y, m, d}, or null. No year
+ * → this year, or next year if that day has already passed; "the 30th" → this month, or next
+ * month if it's passed.
+ */
+function monthDay(s, today) {
+  const inYear = (mm, dd, yy) => {
+    if (!(mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31)) return null;
+    let year = yy ? (yy < 100 ? 2000 + yy : yy) : today.y;
+    if (!yy && (mm < today.m || (mm === today.m && dd < today.d))) year++;
+    const dt = new Date(Date.UTC(year, mm - 1, dd, 12));
+    return dt.getUTCMonth() === mm - 1 ? { y: year, m: mm, d: dd } : null;
+  };
+  const mon = (w) => MONTHS.indexOf(w.slice(0, 3)) + 1;
+  let r = s.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4}))?/);
+  if (r) return inYear(mon(r[1]), +r[2], r[3] && +r[3]);
+  r = s.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b(?:,?\s+(\d{4}))?/);
+  if (r) return inYear(mon(r[2]), +r[1], r[3] && +r[3]);
+  r = s.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (r) return inYear(+r[1], +r[2], r[3] && +r[3]);
+  r = s.match(/\bthe\s+(\d{1,2})(?:st|nd|rd|th)\b/);
+  if (r) {
+    const dd = +r[1];
+    const mm = dd >= today.d ? today.m : today.m % 12 + 1;
+    return inYear(mm, dd, mm < today.m ? today.y + 1 : today.y);
+  }
+  return null;
+}
+
 function parseDate(text, tz, now) {
   const s = String(text || '').toLowerCase();
   const iso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
@@ -67,6 +97,11 @@ function parseDate(text, tz, now) {
 
   if (/\btoday\b|\btonight\b/.test(s)) return shift(0);
   if (/\btomorrow\b/.test(s)) return shift(1);
+
+  // A date they named wins over a weekday (2026-10-19: "Saturday, October 30 evening" was
+  // saved as Saturday Oct 24 — October 30 is a Friday; nothing here read month + day).
+  const named = monthDay(s, { y, m, d });
+  if (named) return named;
 
   const todayIdx = new Date(todayNoon).getUTCDay();
   const wd = WEEKDAYS.findIndex(w => new RegExp('\\b' + w + '\\b').test(s));

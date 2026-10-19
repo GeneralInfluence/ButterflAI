@@ -1156,11 +1156,38 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         synced = await contactsImport.syncGoogle(userId);
         if (synced.synced) scored = rank(db.getContactsByUser(userId));
       }
+      // The people the user means are usually in the group they named or the plan they're
+      // talking in (2026-10-19: "Allie and Alex from my Favorite Mama's group" — Alex is
+      // Alexandria Spargo, in that group, but 15 other Alexes outranked her and the agent
+      // asked "which Alex?"). Members who fit the name come first; exactly one → that's them.
+      const circle = new Map();   // contact id → why
+      const said = `${toolInput.context || ''} ${currentTurn?.userText || ''}`;
+      for (const g of db.getContactGroups(userId)) {
+        if (!planNamedIn(said, g.name)) continue;
+        for (const m of db._raw().prepare('SELECT contact_id AS id FROM contact_group_members WHERE group_id = ?').all(g.id)) if (!circle.has(m.id)) circle.set(m.id, `in your ${g.name} group`);
+      }
+      const here = currentTurn?.eventId && currentTurn.eventId !== topics.GENERAL ? currentTurn.eventId : null;
+      if (here && topics.canSee(userId, here)) {
+        const title = db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(here)?.title;
+        const phones = new Set(require('./todos').members(here).map((m) => m.phone).filter(Boolean));
+        for (const c of allContacts) if (c.phone && phones.has(c.phone) && !circle.has(c.id)) circle.set(c.id, `in ${title}`);
+      }
+      const inCircle = circle.size ? allContacts.map((c) => ({ ...c, _score: score(c) })).filter((c) => circle.has(c.id) && c._score >= 50)
+        .sort((x, y) => y._score - x._score) : [];
+      for (const c of inCircle) c._fit = { why: circle.get(c.id), contextHits: 1, nameUses: 0 };
       // Several people fit the name (e.g. Allie, whom the user calls "Al", and a friend
       // actually named Al): the conversation's context decides; if it doesn't clearly,
       // the agent asks — and says why each might be the one (mentions.js).
       let ambiguous = null;
-      if (scored.length) {
+      if (inCircle.length) {
+        // Inside the group / plan, anyone whose name or alias starts with what they said fits
+        // equally ("Alex" → Alex Godwin and Alexandria); weaker matches only when nothing fits.
+        const fits = inCircle.filter((c) => c._score >= 75);
+        const best = fits.length ? fits : inCircle;
+        if (best.length > 1) ambiguous = best;
+        scored = [...inCircle, ...scored.filter((c) => !inCircle.some((x) => x.id === c.id))].slice(0, 10);
+        if (!ambiguous) scored[0]._score = Math.max(scored[0]._score, 90);   // the one they meant
+      } else if (scored.length) {
         const top = scored[0]._score;
         // Exact names/aliases (100) only compete with people actually called that (95+):
         // "Al" → Allie (alias) vs Al Rivera, not vs everyone whose name starts with "Al".

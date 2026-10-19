@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1023_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1035_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -558,6 +558,14 @@ agent asked what he was up to — and my fix then had it ping him, which the own
   half-life; same person+name+context within a day = one row; deleted after 180 days by
   the coord-loop purge — passively accumulated data, §3.6). `lookup_contact` takes `context`; when an alias and a real name both fit, the
   one whose past context matches wins; otherwise the agent asks and says why each fits.
+  **The group or plan named decides first (2026-10-19 — "Allie and Alex from my Favorite
+  Mama's group": Alex is Alexandria Spargo, in that group, but 15 other Alexes outranked her):**
+  members of a group named in the context or the user's words, and people in the plan being
+  discussed, who fit the name come first; exactly one → that's them ("why": "in your Favorite
+  Mama's group"); two or more → ask. Test: `tests/integration/lookup-circle.test.js`.
+- **Dates: a named date beats a weekday (2026-10-19):** "Saturday, October 30 evening" was
+  saved as Sat Oct 24 — `datetime.parseDate` now reads "October 30", "Oct 30th", "30 October",
+  "10/30", "the 30th" (next occurrence) before weekday names.
 - **One Google connection (2026-10-09, owner: "everything Google should all be one"):**
   `/auth/google` asks for Calendar + Contacts in one consent (old calendar/contacts entry
   points lead there too); the callback stores whatever was granted and syncs contacts.
