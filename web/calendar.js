@@ -122,6 +122,7 @@ async function storeTokens(userId, tokens) {
   `).run(userId, encrypted.ciphertext, encrypted.iv, encrypted.tag, encrypted.wrapped_key);
 
   console.log(`[calendar] OAuth tokens stored for user=${userId}`);
+  require('./connections').ok(userId, 'google');   // a new grant: the connection works again
 }
 
 /**
@@ -452,7 +453,22 @@ function hasAnyCalendarConnected(userId) {
   return hasCalendarConnected(userId) || apple.hasAppleCalendarConnected(userId);
 }
 
+/**
+ * Does the user's Google grant still work? Forces a token refresh (an expired or revoked
+ * grant fails here with invalid_grant). Throws on failure. (connections.js, daily.)
+ */
+async function checkGoogleAccess(userId) {
+  let tokens = await loadTokens(userId);
+  if (!tokens) tokens = await require('./contacts-import').loadGoogleTokens(userId).catch(() => null);
+  if (!tokens?.refresh_token) throw new Error('invalid_grant: no refresh token');
+  const client = makeGoogleClient();
+  client.setCredentials({ refresh_token: tokens.refresh_token });
+  await client.getAccessToken();
+  return true;
+}
+
 module.exports = {
+  checkGoogleAccess,
   // Google-specific
   googleUpsert,
   googleDelete,

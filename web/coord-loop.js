@@ -131,6 +131,9 @@ async function tick(transport = stubTransport) {
     // Apply behavior changes to what already exists, once per existing user (retro.js).
     const retroRuns = await require('./retro').tick();
     if (retroRuns) console.log(`[coord] ran ${retroRuns} retro task(s)`);
+    // Connections that stopped working (Google / Apple) — checked daily, owners told (connections.js).
+    const checked = await require('./connections').checkAll();
+    if (checked) console.log(`[coord] checked ${checked} connection(s)`);
     // Look back at quiet conversations where the agent acted for its user (reflect.js).
     const reflected = await require('./reflect').tick();
     if (reflected) console.log(`[coord] reflected on ${reflected} conversation(s)`);

@@ -128,7 +128,8 @@ describe('one Google connection; Settings shows what is connected', () => {
     const r = await request.get('/api/user/connections').set('Cookie', cookie);
     // calendar_mirror added 2026-10-13 (Google Calendar shows ButterflAI plans; on by default).
     // Top-level calendar_mirror since 2026-10-13: the mirror covers Google or Apple.
-    assert.deepEqual(r.body, { calendar_mirror: true, google: { calendar: false, calendar_mirror: true, contacts: false, contacts_synced_at: null }, apple: { calendar: false } });
+    // broken added 2026-10-19 (connections that stopped working — connections.js).
+    assert.deepEqual(r.body, { broken: {}, calendar_mirror: true, google: { calendar: false, calendar_mirror: true, contacts: false, contacts_synced_at: null }, apple: { calendar: false } });
   });
 
   test('the callback stores Calendar AND Contacts, syncs contacts, and says so', async () => {
@@ -164,7 +165,8 @@ describe('one Google connection; Settings shows what is connected', () => {
     assert.ok(html.includes('id="google-status"') && html.includes('href="/auth/google"') && html.includes("fetch('/api/user/connections')"));
     assert.ok(!html.includes('Connect Google Calendar</a>'), 'no more static button');
     // Fully connected shows a quiet "reconnect" link, not a button that looks required.
-    assert.ok(html.includes("gb.textContent = all ? 'reconnect'") && html.includes("gb.classList.toggle('conn-quiet', all)"));
+    // …unless it stopped working: then "Reconnect Google", not quiet (2026-10-19).
+    assert.ok(html.includes("gb.textContent = g.broken ? 'Reconnect Google' : all ? 'reconnect'") && html.includes("gb.classList.toggle('conn-quiet', all && !g.broken)"));
     assert.ok(html.includes('New contacts sync automatically'));
   });
 });

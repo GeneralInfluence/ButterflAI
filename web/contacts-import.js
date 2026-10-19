@@ -185,6 +185,7 @@ async function saveGoogleTokens(userId, tokens) {
   const old = await loadGoogleTokens(userId).catch(() => null);
   const merged = { ...(old || {}), ...tokens };
   if (!tokens.refresh_token && old?.refresh_token) merged.refresh_token = old.refresh_token;
+  if (tokens.refresh_token) require('./connections').ok(userId, 'google');   // a new grant
   const e = await crypto.encryptRecord(merged);
   db._raw().prepare(`
     INSERT INTO contact_sync_tokens (user_id, provider, ciphertext, iv, tag, wrapped_key)
@@ -215,9 +216,11 @@ async function syncGoogle(userId, { force = false } = {}) {
     const tokens = await loadGoogleTokens(userId);
     const result = await importFromGoogle(userId, tokens, { onTokens: (t) => saveGoogleTokens(userId, t).catch(() => {}) });
     db._raw().prepare("UPDATE contact_sync_tokens SET last_sync_at = strftime('%s','now') WHERE user_id = ?").run(userId);
+    require('./connections').ok(userId, 'google');
     return { synced: true, imported: result.imported };
   } catch (err) {
     console.error(`[contacts-import] sync failed user=${userId}:`, err.message);
+    require('./connections').report(userId, 'google', err);
     return { synced: false, reason: 'error', error: err.message };
   }
 }
@@ -341,7 +344,7 @@ function normalisePhone(raw) {
 
 ensureImportColumns();
 
-module.exports = {
+module.exports = { loadGoogleTokens,
   addManualContact,
   getGoogleContactsAuthUrl,
   importFromGoogle,

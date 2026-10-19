@@ -144,6 +144,9 @@ function flush({ limit = 50 } = {}) {
       try { await syncRow(r); n++; }
       catch (err) {
         console.error(`[calmirror] user=${r.user_id} event=${r.event_id}:`, err.message);
+        // An expired / revoked connection: tell the person (connections.js), once.
+        const provider = db._raw().prepare('SELECT provider FROM calendar_tokens WHERE user_id = ?').get(r.user_id)?.provider || 'google';
+        require('./connections').report(r.user_id, provider === 'apple' ? 'apple' : 'google', err);
         db._raw().prepare('UPDATE calendar_mirror SET attempts = attempts + 1, last_error = ? WHERE user_id = ? AND event_id = ?')
           .run(String(err.message).slice(0, 300), r.user_id, r.event_id);
       }

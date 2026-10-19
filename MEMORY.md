@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1044_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1050_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -952,6 +952,26 @@ accidentally edit stuff that they're not focusing on."
 - Retro: co-hosts for the people plans are for; leads for items; Massages folded into Melanie's
   weekend (#20); its five massage items → one "Massages" (Fri before 3pm, Melanie leads, Sean
   on it); repeated items removed. Tests: `tests/integration/co-create.test.js`.
+
+## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
+
+Owner: "I want to be told when the grants or any other types of connections expire so that way
+they can be fixed or reconnected." Sean's Google grant (Calendar + Contacts, one consent)
+expired Oct 16 — **Google ends grants after 7 days while the OAuth app is in "Testing"** — and
+for three days plans quietly stopped reaching his calendar. The real fix is publishing the
+Google OAuth app (Cloud Console → OAuth consent screen → Publish; verification for the
+Calendar/Contacts scopes) — owner's action.
+- `web/connections.js` (`connection_health`, migration 063): keys `google`, `apple`. Every use
+  reports: an auth failure (invalid_grant, 401, refused credentials — not network blips) →
+  `broken`; success / a new grant / a new Apple password → `ok` (which also retries the
+  calendar entries that failed and re-syncs every plan). Hooked into calmirror, contacts sync,
+  `calendar.storeTokens`, `calendar-apple.saveAppleCredentials`.
+- **Daily check** (coord loop, every ~20h per connection): forces a Google token refresh /
+  iCloud login even when nothing is using it.
+- **Told once** when it breaks — in the app (notice + push), by text if they have no
+  notifications — what stopped and the Settings link; one reminder after 3 days; no more.
+- Settings → Connections shows "⚠️ Stopped working since … — Reconnect Google / Reconnect".
+- Tests: `tests/integration/connections.test.js`.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

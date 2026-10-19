@@ -32,6 +32,16 @@ async function saveAppleCredentials(userId, { appleId, appPassword }) {
       iv=excluded.iv, tag=excluded.tag, wrapped_key=excluded.wrapped_key,
       updated_at=strftime('%s','now')
   `).run(userId, encrypted.ciphertext, encrypted.iv, encrypted.tag, encrypted.wrapped_key);
+  _sessions.delete(userId);
+  require('./connections').ok(userId, 'apple');   // new password: works again
+}
+
+/** Does the iCloud login still work? Throws on failure (connections.js, daily). */
+async function checkAccess(userId) {
+  const client = await getDAVClient(userId);
+  if (!client) throw new Error('no_calendar_connected');
+  await client.fetchCalendars();
+  return true;
 }
 
 async function loadAppleCredentials(userId) {
@@ -244,6 +254,7 @@ async function getCalendarTimezone(userId) {
 }
 
 module.exports = {
+  checkAccess,
   mirrorUpsert,
   mirrorDelete,
   toIcs,

@@ -2485,11 +2485,13 @@ app.get('/auth/google/contacts', (req, res) => {
 // when connected — 2026-10-09).
 app.get('/api/user/connections', webAuth.requireAuth, (req, res) => {
   const sync = contactsImport.syncStatus(req.user.id);
+  const health = require('./connections').statusFor(req.user.id);   // { google: {broken, error, since}, apple: … }
   res.json({
+    broken: health,
     calendar_mirror: db.getUser(req.user.id)?.gcal_mirror !== 0,
     google: { calendar: calendar.hasCalendarConnected(req.user.id), calendar_mirror: db.getUser(req.user.id)?.gcal_mirror !== 0,
-      contacts: sync.connected, contacts_synced_at: sync.last_sync_at },
-    apple: { calendar: !!calendar.hasAppleCalendarConnected(req.user.id) },
+      contacts: sync.connected, contacts_synced_at: sync.last_sync_at, broken: health.google || undefined },
+    apple: { calendar: !!calendar.hasAppleCalendarConnected(req.user.id), broken: health.apple || undefined },
   });
 });
 

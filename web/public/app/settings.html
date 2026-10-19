@@ -928,13 +928,17 @@
         const c = await fetch('/api/user/connections').then((r) => r.json());
         const g = c.google || {};
         const parts = [g.calendar ? 'Calendar ✓' : 'Calendar —', g.contacts ? 'Contacts ✓' : 'Contacts —'];
-        document.getElementById('google-status').textContent = parts.join(' · ');
+        // A connection that stopped working says so, with Reconnect (2026-10-19 — Sean's
+        // Google grant expired and this kept saying "Calendar ✓ · Contacts ✓").
+        const since = (b) => b && b.since ? ` since ${day(b.since)}` : '';
+        document.getElementById('google-status').textContent = g.broken ? `⚠️ Stopped working${since(g.broken)} — ${g.broken.error || 'access ended'}. Reconnect to fix.` : parts.join(' · ');
+        document.getElementById('google-status').style.color = g.broken ? '#ef4444' : '';
         // Fully connected → no call to action: contacts sync on their own (daily, and when
         // a name isn't found). "Reconnect" read like something to tap for new contacts.
         const gb = document.getElementById('google-btn');
         const all = g.calendar && g.contacts;
-        gb.textContent = all ? 'reconnect' : g.calendar || g.contacts ? 'Connect the rest' : 'Connect Google';
-        gb.classList.toggle('conn-quiet', all);
+        gb.textContent = g.broken ? 'Reconnect Google' : all ? 'reconnect' : g.calendar || g.contacts ? 'Connect the rest' : 'Connect Google';
+        gb.classList.toggle('conn-quiet', all && !g.broken);
         gb.title = all ? 'Only needed if Google stops working (e.g. you removed access in your Google account)' : '';
         document.getElementById('contacts-sync-row').hidden = !g.contacts;
         // Google or Apple — whichever calendar is connected (2026-10-13).
@@ -942,10 +946,11 @@
         document.getElementById('gcal-mirror').checked = c.calendar_mirror !== false;
         if (g.contacts) document.getElementById('contacts-sync-status').textContent = 'New contacts sync automatically' + (g.contacts_synced_at ? ` · last synced ${day(g.contacts_synced_at)}` : '');
         const a = c.apple || {};
-        document.getElementById('apple-status').textContent = a.calendar ? 'Connected ✓' : 'Not connected';
+        document.getElementById('apple-status').textContent = a.broken ? `⚠️ Stopped working${since(a.broken)} — ${a.broken.error || 'login refused'}. Reconnect with a new app-specific password.` : a.calendar ? 'Connected ✓' : 'Not connected';
+        document.getElementById('apple-status').style.color = a.broken ? '#ef4444' : '';
         const ab = document.getElementById('apple-btn');
-        ab.textContent = a.calendar ? 'reconnect' : 'Connect';
-        ab.classList.toggle('conn-quiet', !!a.calendar);
+        ab.textContent = a.broken ? 'Reconnect' : a.calendar ? 'reconnect' : 'Connect';
+        ab.classList.toggle('conn-quiet', !!a.calendar && !a.broken);
       } catch (_) {
         document.getElementById('google-status').textContent = 'Couldn’t check — try again later';
       }
