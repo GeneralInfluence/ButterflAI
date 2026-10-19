@@ -55,6 +55,11 @@ function desired(userId, eventId) {
     description: `${p.role === 'host' ? 'You’re hosting' : `With ${p.host.name}`} · from ButterflAI\n${LINKS.events}?event=${encodeURIComponent(p.id)}`,
     extendedProperties: { private: { butterflai_event: p.id } },
   };
+  if (p.dates.kind === 'set' && p.dates.time_tbd) {   // day known, time not: an all-day entry
+    return [{ key: `day:${p.dates.days[0]}`, body: { ...common, summary: p.title + label,
+      start: { date: p.dates.days[0] }, end: { date: addDays(p.dates.days[0], 1) },
+      status: firm ? 'confirmed' : 'tentative', transparency: 'transparent' } }];
+  }
   if (p.dates.kind === 'set') {
     return [{ key: 'set', body: { ...common, summary: p.title + label,
       start: { dateTime: new Date(p.dates.start * 1000).toISOString() },

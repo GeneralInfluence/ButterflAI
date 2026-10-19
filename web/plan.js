@@ -40,6 +40,10 @@ function datesOf(e, tz) {
   }
   if (e.date_tbd) return { kind: 'tbd', proposals: [], label: 'Date TBD', days: [] };
   if (e.flexible_time) return { kind: 'open', proposals: [], label: 'Open invite', days: [] };
+  if (e.time_tbd) {   // the day is set, the time isn't (migration 062)
+    const day = ymd(e.scheduled_at, tz);
+    return { kind: 'set', time_tbd: true, proposals: [], start: e.scheduled_at, end: e.scheduled_at, days: [day], label: `${fmtDay(day)} · time TBD` };
+  }
   const start = e.scheduled_at, end = e.scheduled_at + Math.max(60, (e.duration_mins || 120) * 60) - 60;
   return { kind: 'set', proposals: [], start, end, days: span(ymd(start, tz), ymd(end, tz)),
     label: new Date(start * 1000).toLocaleString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) };

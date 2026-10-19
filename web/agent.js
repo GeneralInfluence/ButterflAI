@@ -679,6 +679,8 @@ const TOOL_DEFINITIONS = [
         cancel:        { type: 'boolean', description: 'true to cancel the plan (it\'s not happening). Only when your user says so.' },
         title:         { type: 'string' },
         duration_mins: { type: 'number' },
+        when:          { type: 'string', description: 'The date (and time, only if your user said one) in your user\'s words — "October 30", "friday at 8pm". A day with no time is saved as that day, time TBD; never add a time they didn\'t give.' },
+        invite_contact_ids: { type: 'array', items: { type: 'string' }, description: 'Add people to this plan (contact ids from lookup_contact) — they get the plan\'s invite. This is how to add someone to an existing plan; never send_logistics_sms as an invite.' },
       },
       required: ['event_id'],
     },
@@ -847,6 +849,26 @@ function todoDay(modelDay) {
   if (!modelDay) return ctx;
   if (ctx && modelDay !== ctx && !NAMES_A_DAY.test(currentTurn?.userText || '')) return ctx;
   return modelDay;
+}
+
+/**
+ * The agent may only pass a time its user actually said (Sean, 2026-10-19: "I also didn't give
+ * a time so we don't know if it's 7:00" — "the weekend of the 30th" became "Saturday,
+ * October 30 evening" → 7pm). If the user's recent words name no time, a time in `when` is
+ * dropped and a clock time in scheduled_at becomes just that day — saved as "time TBD".
+ */
+function noInventedTime(userId, input) {
+  if (!input || !currentTurn?.userText) return;
+  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND created_at > strftime('%s','now') - 3 * 3600
+    ORDER BY created_at DESC LIMIT 6`).all(userId).map((r) => r.text).join(' ');
+  if (datetime.saysTime(`${currentTurn.userText} ${recent}`)) return;
+  if (input.when && datetime.saysTime(input.when)) input.when = input.when.replace(new RegExp(datetime.TIME_WORDS.source, 'gi'), '').replace(/\s+(at|in the)\s*$/i, '').replace(/[,\s]+$/, '').trim();
+  if (input.scheduled_at && !input.when) {
+    const tz = db.getUser(userId)?.timezone || 'America/Los_Angeles';
+    input.when = new Date(input.scheduled_at).toLocaleDateString('en-CA', { timeZone: tz });
+    delete input.scheduled_at;
+    input.time_tbd = true;
+  }
 }
 
 // Tools that change a plan, and which plan(s) each one changes.
@@ -1880,6 +1902,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'create_social_event': {
       // Every plan change goes through planops.js (one plan per name, dates, group, invites).
+      noInventedTime(userId, toolInput);
       const made = await planops.create(userId, toolInput, { via: 'agent' });
       if (made.error) return made;
       const { eventId } = made;
@@ -1944,8 +1967,22 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'update_event': {
       // Every plan change goes through planops.js (validation, FYIs, change log).
-      const { event_id, ...changes } = toolInput;
+      const { event_id, invite_contact_ids, ...changes } = toolInput;
+      noInventedTime(userId, changes);
+      // Adding people to an existing plan (2026-10-19: there was no way, so the agent texted
+      // Allie, Alexandria and Melanie instead and the plan had no guests).
+      let invited;
+      if (Array.isArray(invite_contact_ids) && invite_contact_ids.length) {
+        const ev = db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(event_id);
+        if (!ev) return { error: 'Event not found' };
+        if (ev.host_user_id !== userId) return { error: 'HOST_INVITES', message: 'Only the host adds people for now — offer to ask the host (message_agent) to invite them.' };
+        const bad = invite_contact_ids.filter((id) => ownContact(userId, id).error);
+        if (bad.length) return { error: 'CONTACT_NOT_FOUND', invalid_contact_ids: bad, message: 'Use contact ids from lookup_contact.' };
+        invited = await planops.invite(userId, event_id, invite_contact_ids, { via: 'agent' });
+        if (!Object.keys(changes).length) return { ok: true, event_id, invited, note: 'They now have the plan\'s invite (in the app, or a first text with STOP for non-users). Don\'t also message them about it.' };
+      }
       const r = planops.update(userId, event_id, changes, { via: 'agent' });
+      if (invited) r.invited = invited;
       if (r.error === 'EVENT_NOT_FOUND') return { error: 'Event not found' };
       if (r.error === 'NOT_IN_PLAN') return { error: 'NOT_IN_PLAN', message: 'Your user has to say yes to this plan before they can change it.' };
       return r;
@@ -2496,6 +2533,8 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   DESIRES ARE PLANS: when parse_desires stores a social desire ("go out with a friend or two this week"), it is already a plan (idea stage, its window as proposed dates) — the result lists them. Work on those plans (update_event, invite, Creating); never create a second plan for the same desire.
   CALENDAR: every plan your user is in shows on their connected Google Calendar automatically and follows every change (dates, place, cancel, their answer). Never use create_calendar_event for a plan — that makes a second, stale copy; it is only for things that aren't plans.
   EVERY QUESTION IS ABOUT A PLAN: message_agent always takes the plan's event_id — if there is no plan yet, create it first (tentative, no date needed). Answers land on the plan ("friends' ButterflAIs said" in Open events): read them there and never ask the same person the same thing again — the less people are bothered, the better.
+  ADDING PEOPLE TO A PLAN: when your user wants someone added to a plan that exists, use update_event invite_contact_ids — they get the plan's invite and show on it. Never send_logistics_sms as an invite (it leaves the plan with no guests). Don't tell invitees things your user didn't say (who has tickets, which days).
+  DATES AS SAID: pass the date in your user's words (when). A day with no time is that day, "time TBD" — never add a time ("evening", "7pm") they didn't give; "the 30th" is one day, not a weekend range.
   ONE PLAN AT A TIME: in a plan's discussion, change only that plan. Something your user says there ("noon till 6", "kids won't last") is about that plan — never copy it onto their other plans. To change another plan they must name it.
   PLANS ARE MADE TOGETHER — GUESTS SUGGEST, HOSTS AND CO-HOSTS DECIDE: the host and co-hosts (the person a plan is for is one automatically; the host can add more with set_cohost) change a plan for everyone. A guest's change still goes through update_event / merge_plans — it becomes a suggestion the host and co-hosts accept or decline; tell your user "suggested to X", never "changed", and never "I can't". Only the host cancels. When your user decides on a suggestion ("yes, do Melanie's idea"), use decide_suggestion.
   CREATING ITEMS HAVE A LEAD AND A TEAM: whoever brings an item up leads it. Before adding, check the list — if it's already there in other words, add details to that item (manage_todos update), never a second one. Only the item's team edits it; your user's ideas about someone else's item go to them as a suggestion, unless your user is taking it on themselves ("I'll book it" → join: true).

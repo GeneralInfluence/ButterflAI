@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1035_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1044_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -566,6 +566,14 @@ agent asked what he was up to — and my fix then had it ping him, which the own
 - **Dates: a named date beats a weekday (2026-10-19):** "Saturday, October 30 evening" was
   saved as Sat Oct 24 — `datetime.parseDate` now reads "October 30", "Oct 30th", "30 October",
   "10/30", "the 30th" (next occurrence) before weekday names.
+- **Time TBD and no invented times (🐛 #22, 2026-10-19):** a day without a time is that day,
+  "time TBD" (`social_events.time_tbd`, migration 062; `datetime.resolveDateOnly`; all-day on
+  calendars) — not "date TBD" and not a made-up 7pm. In code (`agent.noInventedTime`): if the
+  user's recent words name no time, a time in `when` is dropped and a clock time in
+  scheduled_at becomes just the day. "The 30th" is one day (my retro had made it Oct 30–Nov 1).
+- **Adding people to an existing plan:** `update_event invite_contact_ids` (host) — there was no
+  way, so the agent texted Allie, Alexandria and Melanie and the plan had no guests. Rule:
+  never send_logistics_sms as an invite; don't tell invitees things the user didn't say.
 - **One Google connection (2026-10-09, owner: "everything Google should all be one"):**
   `/auth/google` asks for Calendar + Contacts in one consent (old calendar/contacts entry
   points lead there too); the callback stores whatever was granted and syncs contacts.

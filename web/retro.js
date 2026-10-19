@@ -503,6 +503,42 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-19-rocky-horror-just-the-30th',
+    added: Date.UTC(2026, 9, 19) / 1000,
+    kind: 'internal',
+    about: '🐛 #22 (Sean: "Why is there a Rocky Horror Picture Show on the 30th and the 31st? I only said the 30th. I also didn\'t give a time") — my earlier retro put it on Oct 30 – Nov 1. Make it Fri Oct 30, time TBD, and add Allie, Alexandria and Melanie as guests (he asked: "add them both as well as Melanie"; the agent had only texted them). Only if the plan is still as that retro left it.',
+    async run(user) {
+      const e = db._raw().prepare(`SELECT id FROM social_events WHERE host_user_id = ? AND title LIKE 'Rocky Horror%' AND COALESCE(status, 'open') != 'cancelled'
+        AND proposed_dates = '[{"from":"2026-10-30","to":"2026-11-01"}]'`).get(user.id);
+      if (!e) return 'not as left';
+      const planops = require('./planops');
+      const r = planops.update(user.id, e.id, { when: '2026-10-30', time_tbd: true, proposed_dates: [] }, { via: 'retro' });
+      if (r.error) return `not changed: ${r.error}`;
+      const ids = db._raw().prepare(`SELECT c.id FROM contacts c JOIN users u ON u.phone = c.phone WHERE c.invited_by_user_id = ?
+        AND (u.name LIKE 'Allie%' OR u.name LIKE 'Alexandria%' OR u.name LIKE 'Melanie%') AND c.id NOT IN (SELECT contact_id FROM event_invitations WHERE event_id = ?)
+        GROUP BY c.phone`).all(user.id, e.id).map((x) => x.id);
+      const inv = ids.length ? await planops.invite(user.id, e.id, ids, { via: 'retro', quiet: true }) : null;
+      return `Oct 30, time TBD; invited ${inv?.sent ?? inv?.invited?.length ?? ids.length}`;
+    },
+  },
+  {
+    id: '2026-10-19-rocky-horror-correction',
+    added: Date.UTC(2026, 9, 19) / 1000,
+    kind: 'propose',
+    about: '🐛 #22: the messages ButterflAI sent Allie, Alexandria and Melanie about Rocky Horror said "Fri Oct 30 through Sun Nov 1" and that they all have tickets — neither was said. Offer Sean a correction to send.',
+    async run(user) {
+      const e = db._raw().prepare("SELECT id, title FROM social_events WHERE host_user_id = ? AND title LIKE 'Rocky Horror%' AND COALESCE(status, 'open') != 'cancelled'").get(user.id);
+      if (!e) return 'no plan';
+      const sent = db._raw().prepare("SELECT count(*) n FROM conversation_history WHERE user_id = ? AND text LIKE '📤 To %Rocky Horror%through Sun Nov 1%'").get(user.id).n;
+      if (!sent) return 'nothing sent';
+      const text = `About ${e.title}: the messages I sent Allie, Alexandria and Melanie said it's Fri Oct 30 through Sun Nov 1 and that they all have tickets — you didn't say either. It's on Fri, Oct 30 (time TBD) now, and they're invited on the plan. Want me to send them a quick correction, e.g. "Correction: Rocky Horror is Friday, Oct 30 — time TBD. Sean will confirm who has tickets"?`;
+      const id = db.appendConversation(user.id, 'assistant', text);
+      db._raw().prepare('UPDATE conversation_history SET event_id = ? WHERE id = ?').run(e.id, id);
+      sse.push(user.id, { role: 'assistant', text, ts: now() });
+      return 'offered';
+    },
+  },
+  {
     id: '2026-10-19-options-asked-for-not-given',
     added: Date.UTC(2026, 9, 19) / 1000,
     kind: 'propose',

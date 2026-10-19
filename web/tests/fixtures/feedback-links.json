@@ -23,5 +23,13 @@
   "20": {
     "note_starts": "Melanie had tried to add massages to her birthday weekend",
     "test": "tests/integration/co-create.test.js › combining: Melanie (co-host of the weekend, host of Massages) folds hers in; Creating and her come along"
+  },
+  "21": {
+    "note_starts": "The AI should look up the mamas group and know who Alex is",
+    "test": "tests/integration/lookup-circle.test.js › the group decides: Alexandria Spargo, no question"
+  },
+  "22": {
+    "note_starts": "Why is there a Rocky horror picture show on the 30th and the 31st",
+    "test": "tests/integration/time-tbd.test.js › \"the weekend of the 30th …\" with the model adding \"Saturday … evening\" → Fri the 30th, time TBD"
   }
 }

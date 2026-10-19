@@ -153,6 +153,23 @@ function resolveEventDateTime(whenText, timezone, now = new Date()) {
   };
 }
 
+/**
+ * A day without a time ("October 30", "friday", "the 30th") → noon of that day in `timezone`
+ * (a placeholder; the plan says "time TBD"). null if no day can be read.
+ */
+function resolveDateOnly(whenText, timezone, now = new Date()) {
+  const tz = timezone || 'America/Los_Angeles';
+  const date = parseDate(whenText, tz, now);
+  if (!date) return null;
+  const utc = zonedWallTimeToUTC(date.y, date.m, date.d, 12, 0, tz);
+  return { ts: Math.floor(utc.getTime() / 1000), iso: utc.toISOString(), date: `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`,
+    label: `${utc.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'short', day: 'numeric' })}, time TBD` };
+}
+
+// Words that give a time of day — the agent may only pass a time its user actually said.
+const TIME_WORDS = /\b\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)|\b\d{1,2}:\d{2}\b|\b(noon|midnight|morning|afternoon|evening|tonight|night|lunch|dinner|brunch|breakfast|o'?clock)\b|\bat \d{1,2}\b/i;
+function saysTime(text) { return TIME_WORDS.test(String(text || '')); }
+
 // The night "ends" at 4am, so "tonight" covers a late night out.
 const NIGHT_END_HOUR = 4;
 const MAX_PLAN_DAYS = 30;
@@ -207,4 +224,4 @@ function resolveUntil(phrase, timezone, now = new Date()) {
   };
 }
 
-module.exports = { resolveEventDateTime, resolveUntil, parseTime, parseDate, zonedWallTimeToUTC };
+module.exports = { resolveDateOnly, saysTime, TIME_WORDS, resolveEventDateTime, resolveUntil, parseTime, parseDate, zonedWallTimeToUTC };

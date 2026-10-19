@@ -96,6 +96,7 @@ function ensureEventTables() {
       date_tbd       INTEGER NOT NULL DEFAULT 0, -- 1 = no date yet; scheduled_at is a placeholder, migration 043
       proposed_dates TEXT,                -- JSON [{from,to}] date options for a tentative plan, migration 045
       cancelled_at INTEGER,               -- when cancelled / folded into another, migration 052
+      time_tbd INTEGER NOT NULL DEFAULT 0, -- day known, time not (migration 062)
       created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 

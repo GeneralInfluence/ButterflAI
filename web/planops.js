@@ -31,7 +31,7 @@ const ripples = require('./ripples');
 const MAX_TITLE = 80;
 // What only the host decides; everyone in the plan can change the rest (plan.canEdit).
 const HOST_ONLY = ['cancel', 'status', 'event_type', 'host_attending', 'group_id'];
-const SET_FIELDS = ['title', 'activity_type', 'notes', 'venue_name', 'venue_address', 'scheduled_at', 'date_tbd', 'proposed_dates',
+const SET_FIELDS = ['time_tbd', 'title', 'activity_type', 'notes', 'venue_name', 'venue_address', 'scheduled_at', 'date_tbd', 'proposed_dates',
   'tentative', 'flexible_time', 'duration_mins', 'event_type', 'host_attending', 'status', 'group_id', 'cancelled_at'];
 
 function log(eventId, actorId, via, field, oldV, newV) {
@@ -78,9 +78,11 @@ async function create(hostId, input, { via = 'agent' } = {}) {
   }
 
   // Dates: a spoken day+time is resolved here, in the host's timezone (never by the model).
-  let resolved = null;
+  let resolved = null, timeTbd = false;
   if (input.when && !input.flexible_time) {
     resolved = datetime.resolveEventDateTime(input.when, host.timezone || 'America/Los_Angeles');
+    // A day but no time ("October 30") is that day, time TBD — not "date TBD", and not a made-up 7pm.
+    if (!resolved) { resolved = datetime.resolveDateOnly(input.when, host.timezone || 'America/Los_Angeles'); timeTbd = !!resolved; }
     if (resolved) data.scheduled_at = resolved.iso;
   }
   if (!data.scheduled_at && !data.flexible_time) data.date_tbd = true;   // plans exist from first mention
@@ -89,6 +91,7 @@ async function create(hostId, input, { via = 'agent' } = {}) {
   try {
     db._raw().transaction(() => {
       eventId = multiparty.createEvent(hostId, data);
+      if (timeTbd) db._raw().prepare('UPDATE social_events SET time_tbd = 1 WHERE id = ?').run(eventId);
       log(eventId, hostId, via, 'created', null, title);
       ripples.ripple([{ type: 'created', event_id: eventId, actor_id: hostId, via, data: { title } }]);
     })();
@@ -129,15 +132,18 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
 
   // Dates
   let when = changes.scheduled_at;
+  let timeTbd = changes.time_tbd === true;
   if (changes.when) {
-    const r = datetime.resolveEventDateTime(changes.when, db.getUser(actorId)?.timezone || 'America/Los_Angeles');
-    if (!r) return { error: 'BAD_DATE', message: `Couldn't read a date and time from "${changes.when}".` };
+    const tz = db.getUser(actorId)?.timezone || 'America/Los_Angeles';
+    let r = timeTbd ? null : datetime.resolveEventDateTime(changes.when, tz);
+    if (!r) { r = datetime.resolveDateOnly(changes.when, tz); timeTbd = !!r; }
+    if (!r) return { error: 'BAD_DATE', message: `Couldn't read a date from "${changes.when}".` };
     when = r.iso;
   }
   if (when !== undefined && when !== null) {
     const ts = toTs(when);
     if (!Number.isFinite(ts)) return { error: 'BAD_DATE', message: 'scheduled_at must be an ISO date-time.' };
-    Object.assign(u, { scheduled_at: ts, date_tbd: 0, flexible_time: 0 });
+    Object.assign(u, { scheduled_at: ts, date_tbd: 0, flexible_time: 0, time_tbd: timeTbd ? 1 : 0 });
     if (changes.proposed_dates === undefined) u.proposed_dates = null;   // a chosen date replaces the options
   }
   if (changes.proposed_dates !== undefined) {
@@ -169,7 +175,7 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
 }
 
 // Which kinds of change (ripples.TYPES) a set of changed fields amounts to.
-const DATE_FIELDS = ['scheduled_at', 'date_tbd', 'proposed_dates', 'flexible_time', 'duration_mins'];
+const DATE_FIELDS = ['time_tbd', 'scheduled_at', 'date_tbd', 'proposed_dates', 'flexible_time', 'duration_mins'];
 function changesFor(eventId, actorId, via, fields, before, after) {
   const has = (...ks) => ks.some((k) => fields.includes(k));
   const c = (type, data = {}) => ({ type, event_id: eventId, actor_id: actorId, via, data });
@@ -433,7 +439,7 @@ function purgeCancelled({ days = CANCELLED_KEEP_DAYS } = {}) {
  * lost. Logged and rippled like any change (calendars, FYIs follow). Host only.
  * (2026-10-13: the agent rewrote Melanie's weekend from Liam's party's discussion.)
  */
-const NUMERIC = new Set(['scheduled_at', 'date_tbd', 'tentative', 'flexible_time', 'duration_mins', 'host_attending', 'cancelled_at']);
+const NUMERIC = new Set(['time_tbd', 'scheduled_at', 'date_tbd', 'tentative', 'flexible_time', 'duration_mins', 'host_attending', 'cancelled_at']);
 function revert(actorId, eventId, { at, via = 'undo' } = {}) {
   const e = db._raw().prepare('SELECT * FROM social_events WHERE id = ?').get(eventId);
   if (!e) return { error: 'EVENT_NOT_FOUND' };
@@ -455,7 +461,7 @@ function revert(actorId, eventId, { at, via = 'undo' } = {}) {
 }
 
 // How a logged change reads to a person ("ButterflAI changed the notes", "You locked it in").
-const FIELD_WORDS = { title: 'the name', notes: 'the notes', venue_name: 'the place', venue_address: 'the address', scheduled_at: 'the date/time',
+const FIELD_WORDS = { time_tbd: 'the time', title: 'the name', notes: 'the notes', venue_name: 'the place', venue_address: 'the address', scheduled_at: 'the date/time',
   date_tbd: 'the date', proposed_dates: 'the proposed dates', tentative: 'locked in / tentative', flexible_time: 'the time', duration_mins: 'how long',
   status: 'cancelled / reopened', group_id: 'the group', event_type: 'who can see it', host_attending: 'whether you\'re going', activity_type: 'what it is' };
 const VIA_WORDS = { agent: 'ButterflAI', app: 'You', undo: 'Undo', retro: 'ButterflAI (cleanup)', negotiation: 'Agents', desire: 'ButterflAI', share: 'You', ripple: 'ButterflAI', understood: 'ButterflAI (from your message)', suggestion: 'Accepted suggestion' };
