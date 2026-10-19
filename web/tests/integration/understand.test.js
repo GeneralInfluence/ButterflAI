@@ -179,11 +179,13 @@ describe('🐛 #19: "expecting list of massage places"', () => {
   test('asking for options → the reply must search and list them, not ask who and when', async () => {
     const w = await weekend();
     const massages = await planops.create(w.mel.id, { title: 'Massages', proposed_dates: [{ from: day(10), to: day(10) }], contact_ids: [knows(w.mel, w.sean)] });
-    const s = script([{ kind: 'find_options', event_id: massages.eventId, what: 'massage places for 4', near: 'Carson City', quote: 'find massage places', confidence: 0.9 }],
+    const s = script([{ kind: 'find_options', event_id: massages.eventId, what: 'massage places for 4', near: 'Carson City', quote: 'where should we get massages', confidence: 0.9 }],
       [{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Who are the other 2 people? What time Friday works?' }] },
         { stop_reason: 'end_turn', content: [{ type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'massage Carson City' } },
           { type: 'web_search_tool_result', tool_use_id: 's1', content: [] }, { type: 'text', text: '1. Carson Hot Springs spa — …' }] }]);
-    await say(w.mel, 'can you find massage places near Carson City for Friday?', { event_id: massages.eventId });
+    // 🐛 #19 as it happened: "massages on Friday while the kids are at school", Sean's agent
+    // said Friday during school hours works, then her exact words below.
+    await say(w.mel, 'where should we get massages?', { event_id: massages.eventId });
     assert.match(lastUserText(s.seen[0]), /They want options: massage places for 4 near Carson City\. Search the web now/);
     assert.equal(s.seen.length, 2, 'the questions-first reply was sent back');
     assert.match(s.seen[1].at(-1).content, /asked for options[\s\S]*Questions can come after the options, not instead of them/);
@@ -197,11 +199,11 @@ describe('retro: options asked for and not given', () => {
   test('Melanie\'s question with no links back → offered in that plan\'s discussion; answered ones aren\'t', async () => {
     const w = await weekend();
     const add = (u, role, text, ev) => db._raw().prepare('INSERT INTO conversation_history (id, user_id, role, text, event_id) VALUES (?, ?, ?, ?, ?)').run(uuidv4(), u.id, role, text, ev);
-    add(w.mel, 'user', 'can you find massage places near Carson City?', w.m);
+    add(w.mel, 'user', 'where should we get massages?', w.m);
     add(w.mel, 'assistant', 'Who are the other 2 people? What time Friday works?', w.m);
     assert.equal(await task.run(w.mel), 'offered');
     const offer = db._raw().prepare("SELECT text, event_id FROM conversation_history WHERE user_id = ? AND role = 'assistant' ORDER BY rowid DESC").get(w.mel.id);
-    assert.match(offer.text, /^Earlier you asked: "can you find massage places near Carson City\?" — I asked you questions instead/);
+    assert.match(offer.text, /^Earlier you asked: "where should we get massages\?" — I asked you questions instead/);
     assert.equal(offer.event_id, w.m);
     add(w.bam, 'user', 'any good bars near Sully\'s?', null);
     add(w.bam, 'assistant', 'Try Rosie\'s — https://example.com/rosies', null);

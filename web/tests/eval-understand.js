@@ -48,6 +48,8 @@ const CASES = [
   { who: 'mel', where: 'weekend', day: 'fri', text: 'thinking about getting a massage', expect: [{ kind: 'add_todo', decision: 'apply' }] },
   { who: 'mel', where: 'massages', text: 'can you find massage places near Carson City for Friday?', expect: [{ kind: 'find_options', decision: 'agent' }], never: ['add_todo', 'set_details'] },
   { who: 'mel', where: 'massages', text: 'what are some good spas around there', expect: [{ kind: 'find_options', decision: 'agent' }] },
+  // 🐛 #19, her exact words (after "massages on Friday while the kids are at school" and Sean's agent saying Friday works)
+  { who: 'mel', where: 'massages', text: 'where should we get massages?', expect: [{ kind: 'find_options', decision: 'agent' }], never: ['add_todo', 'set_details'] },
   { who: 'bam', where: 'weekend', text: "count me in, I'll be there", expect: [{ kind: 'rsvp', decision: 'apply', answer: 'going' }] },
   { who: 'bam', where: 'liam', text: "sounds fun, I'm interested but not sure yet", expect: [{ kind: 'rsvp', answer: 'interested' }] },
   { who: 'mel', where: 'weekend', text: 'how much is a cabin? probably need to reschedule', expect: [], never: ['set_details', 'rsvp', 'cancel'] },
