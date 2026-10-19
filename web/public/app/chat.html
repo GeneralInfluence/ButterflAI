@@ -639,6 +639,7 @@
     }
 
     // ── SSE ────────────────────────────────────────────────────────────────────
+    let sseDelay = 2000;   // reconnect wait; doubles while failing, reset once connected
     function connectSSE() {
       if (eventSource) { eventSource.close(); }
       eventSource = new EventSource('/api/chat/stream');
@@ -669,14 +670,20 @@
         }
         if (data.redirect) { location.href = data.redirect; }
       };
+      eventSource.onopen = () => { sseDelay = 2000; };
       eventSource.onerror = () => {
         // Only clear typing indicator if we're NOT waiting for a bot reply
         if (!pendingSince) typingEl.classList.remove('visible');
+        // Back off when it keeps failing (2s, 4s, 8s … 60s): retrying every 2s while the server
+        // was refusing kept it refusing (2026-10-19, the app went unresponsive).
+        eventSource.close();
+        const wait = sseDelay;
+        sseDelay = Math.min(sseDelay * 2, 60000);
         setTimeout(() => {
           connectSSE();
           // Catch up on any messages that arrived while SSE was down
           catchUpMessages();
-        }, 2000);
+        }, wait);
       };
     }
 

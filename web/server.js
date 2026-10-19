@@ -90,7 +90,7 @@ app.use((req, res, next) => {
 // Temporary request logger for debugging
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
-    console.log(`[req] ${req.method} ${req.path} cookie=${req.headers.cookie ? 'yes' : 'NO'} ip=${req.ip}`);
+    console.log(`[req] ${req.method} ${req.path} cookie=${req.headers.cookie ? 'yes' : 'NO'} ip=${req.get('fly-client-ip') || req.ip}`);
   }
   next();
 });
@@ -129,7 +129,18 @@ app.use('/app', (req, res, next) => {
 app.get('/vendor/html2canvas.min.js', (req, res) => res.sendFile(require.resolve('html2canvas/dist/html2canvas.min.js')));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
+// Rate limits are per PERSON (their real address), not per Fly proxy (2026-10-19: every
+// request reached us from Fly's proxy address, so the whole app shared ONE allowance of 100
+// requests / 15 min; once used up, everyone got 429, the chat retried every few seconds and
+// kept it used up — the app was "completely unresponsive"). Fly sets Fly-Client-IP at its
+// edge (a client can't set it), else the forwarded address.
+function clientKey(req) {
+  return String(req.get('fly-client-ip') || req.ip || 'unknown');
+}
+// Generous: an open chat polls and streams; this is a backstop against floods, not a quota.
+const RATE = { windowMs: 15 * 60 * 1000, max: 3000 };
+const limiter = rateLimit({ ...RATE, keyGenerator: clientKey, standardHeaders: true, legacyHeaders: false,
+  skip: (req) => req.path === '/health' || req.path === '/api/version' });
 app.use(limiter);
 
 // Stricter rate limits for write endpoints bots like to hammer.
@@ -139,6 +150,7 @@ const joinLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 8,
   skip: skipInTest,
+  keyGenerator: clientKey,
   message: { error: 'Too many signup attempts. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -147,6 +159,7 @@ const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
   max: 10,
   skip: skipInTest,
+  keyGenerator: clientKey,
   message: { error: 'Too many OTP requests. Please wait before trying again.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -2860,4 +2873,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, handlePendingAction, routeInboundSms };
+module.exports = { clientKey, RATE, app, handlePendingAction, routeInboundSms };

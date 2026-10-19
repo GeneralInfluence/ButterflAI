@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1050_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1055_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -972,6 +972,15 @@ Calendar/Contacts scopes) — owner's action.
   notifications — what stopped and the Settings link; one reminder after 3 days; no more.
 - Settings → Connections shows "⚠️ Stopped working since … — Reconnect Google / Reconnect".
 - Tests: `tests/integration/connections.test.js`.
+
+## 26. Rate limits are per person `[2026-10-19]`
+
+The app went "completely unresponsive": every request reached us from Fly's proxy address, so
+the whole app shared ONE allowance (100 requests / 15 min; OTP 10, signup 8). Once used up,
+everyone got 429 and the chat's 2-second retries kept it used up. Now limits key on
+`Fly-Client-IP` (`server.clientKey`), the general limit is 3000 / 15 min (an open chat polls and
+streams), /health and /api/version are never limited, and the chat's stream reconnect backs
+off 2s → 60s. Test: `tests/integration/rate-limit.test.js`.
 
 ## 12. Research & planning tools `[2026-10-09]`
 
