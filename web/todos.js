@@ -47,10 +47,16 @@ function resolveAssignee(eventId, assignee, userId) {
 }
 
 const dayName = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
-function view(t) {
+function view(t, viewerId = null) {
+  const crew = t.id ? team(t.id) : [];
+  const me = viewerId ? db.getUser(viewerId)?.phone : null;
   return { id: t.id, text: t.text, day: t.day || null, day_label: t.day ? dayName(t.day) : null,
     shown: t.day ? `${dayName(t.day)}: ${t.text}` : t.text,
     assignee: t.assignee_name ? first(t.assignee_name) : null, assignee_phone: t.assignee_phone,
+    lead: t.assignee_name ? first(t.assignee_name) : null, team: crew.map((m) => first(m.name)),
+    when_text: t.when_text || null, place: t.place || null, status: t.status || 'idea', notes: t.notes || null,
+    // Can this viewer edit it? (on its team) — otherwise their changes are suggestions.
+    yours: !!me && crew.some((m) => m.phone === me),
     suggested: !!t.suggested, done: !!t.done_at };
 }
 
@@ -65,7 +71,7 @@ function list(userId, eventId) {
   if (!topics.canSee(userId, eventId)) return { error: 'NOT_IN_PLAN' };
   const rows = db._raw().prepare('SELECT * FROM event_todos WHERE event_id = ? ORDER BY suggested, done_at IS NOT NULL, created_at, rowid').all(eventId);
   const kept = rows.filter((t) => !t.suggested);
-  return { todos: rows.map(view), progress: { done: kept.filter((t) => t.done_at).length, total: kept.length },
+  return { todos: rows.map((t) => view(t, userId)), suggestions: require('./suggestions').forPlan(eventId, userId), progress: { done: kept.filter((t) => t.done_at).length, total: kept.length },
     members: members(eventId).map((m) => ({ name: first(m.name) })) };
 }
 
@@ -87,30 +93,106 @@ function repeats(eventId, text) {
   return null;
 }
 
-function add(userId, eventId, { text, assignee, suggested = false, day = null }) {
+/**
+ * Items have a lead and a team (owner, 2026-10-19): "people can suggest a thing and they
+ * would automatically become that lead, but anybody can decide to try to do something about
+ * it. And once they start taking action, they can make that edit. But unless they're actively
+ * trying to solve a thing, people shouldn't be able to accidentally edit stuff that they're
+ * not focusing on."
+ *   lead  = assignee (whoever added it, unless they gave it to someone)
+ *   team  = the lead + everyone who said "I'm on it" (todo_team)
+ * Only the team edits the item (text, when, place, status, notes, done). Anyone else's
+ * change becomes a suggestion to the team (suggestions.js) — unless they're taking it on
+ * (join: true), which puts them on the team first. ButterflAI's own suggestions (suggested=1)
+ * have no lead until someone keeps one; keeping makes them its lead.
+ */
+function team(todoId) {
+  const t = db._raw().prepare('SELECT assignee_phone, assignee_name FROM event_todos WHERE id = ?').get(todoId);
+  if (!t) return [];
+  const out = t.assignee_phone ? [{ phone: t.assignee_phone, name: t.assignee_name, lead: true }] : [];
+  for (const m of db._raw().prepare('SELECT phone, name FROM todo_team WHERE todo_id = ? ORDER BY joined_at').all(todoId)) {
+    if (!out.some((x) => x.phone === m.phone)) out.push({ phone: m.phone, name: m.name });
+  }
+  return out;
+}
+function onTeam(userId, todoId) {
+  const u = db.getUser(userId);
+  return !!u?.phone && team(todoId).some((m) => m.phone === u.phone);
+}
+const canRemove = (userId, t) => t.suggested || onTeam(userId, t.id) || require('./plan').canEdit(t.event_id, userId);
+
+/** "I'm on it": leads it if nobody does, else joins its team. */
+function join(userId, todoId) {
+  const t = own(userId, todoId);
+  if (!t) return { error: 'NOT_FOUND' };
+  const me = members(t.event_id).find((m) => m.phone === db.getUser(userId)?.phone);
+  if (!me) return { error: 'NOT_IN_PLAN' };
+  if (!t.assignee_phone) db._raw().prepare('UPDATE event_todos SET assignee_phone = ?, assignee_name = ?, suggested = 0 WHERE id = ?').run(me.phone, me.name, t.id);
+  else if (t.assignee_phone !== me.phone) db._raw().prepare('INSERT OR IGNORE INTO todo_team (todo_id, phone, name) VALUES (?, ?, ?)').run(t.id, me.phone, me.name);
+  return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(t.id), userId) };
+}
+/** Step off it (the lead hands it to the next on the team, or to nobody). */
+function leave(userId, todoId) {
+  const t = own(userId, todoId);
+  if (!t) return { error: 'NOT_FOUND' };
+  const phone = db.getUser(userId)?.phone;
+  db._raw().prepare('DELETE FROM todo_team WHERE todo_id = ? AND phone = ?').run(t.id, phone);
+  if (t.assignee_phone === phone) {
+    const next = db._raw().prepare('SELECT phone, name FROM todo_team WHERE todo_id = ? ORDER BY joined_at LIMIT 1').get(t.id);
+    db._raw().prepare('UPDATE event_todos SET assignee_phone = ?, assignee_name = ? WHERE id = ?').run(next?.phone || null, next?.name || null, t.id);
+    if (next) db._raw().prepare('DELETE FROM todo_team WHERE todo_id = ? AND phone = ?').run(t.id, next.phone);
+  }
+  return { ok: true };
+}
+
+function add(userId, eventId, { text, assignee, suggested = false, day = null, when_text, place, notes }) {
   if (!topics.canSee(userId, eventId)) return { error: 'NOT_IN_PLAN' };
   const t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT);
   if (!t) return { error: 'EMPTY' };
   const dup = repeats(eventId, t);
-  if (dup) return { error: 'ALREADY_ON_LIST', todo_id: dup, message: `Already on the list: "${db._raw().prepare('SELECT text FROM event_todos WHERE id = ?').get(dup).text}"` };
-  const a = resolveAssignee(eventId, assignee, userId);
-  if (a.error) return a;
+  if (dup) return { error: 'ALREADY_ON_LIST', todo_id: dup, message: `Already on the list: "${db._raw().prepare('SELECT text FROM event_todos WHERE id = ?').get(dup).text}" — add to that item (manage_todos update with its todo_id) instead.` };
+  // Whoever suggests a thing leads it, unless they gave it to someone (ButterflAI's own suggestions: nobody yet).
+  const a = resolveAssignee(eventId, assignee ?? (suggested ? null : 'me'), userId);
+  if (a.error && assignee != null) return a;
+  const lead = a.error ? { phone: null, name: null } : a;
   const id = uuidv4();
-  db._raw().prepare(`INSERT INTO event_todos (id, event_id, text, assignee_phone, assignee_name, suggested, created_by, day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, eventId, t, a.phone, a.name, suggested ? 1 : 0, userId, planDay(userId, eventId, day));
-  return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(id)) };
+  db._raw().prepare(`INSERT INTO event_todos (id, event_id, text, assignee_phone, assignee_name, suggested, created_by, day, when_text, place, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, eventId, t, lead.phone, lead.name, suggested ? 1 : 0, userId, planDay(userId, eventId, day), clip(when_text), clip(place), clip(notes, 500));
+  return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(id), userId) };
 }
+const clip = (v, n = 120) => (v == null || String(v).trim() === '' ? null : String(v).replace(/\s+/g, ' ').trim().slice(0, n));
+const STATUSES = ['idea', 'options', 'chosen', 'booked'];
 
 function own(userId, todoId) {
   const t = db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(todoId);
   return t && topics.canSee(userId, t.event_id) ? t : null;
 }
 
-/** { done, keep, text, assignee } — any of them. */
-function update(userId, todoId, changes) {
+/**
+ * { done, keep, text, when_text, place, status, notes, day, assignee } — any of them.
+ * Only the item's team makes them; anyone else's becomes a suggestion to the team, unless
+ * join: true (they're taking it on). decided: applied from an accepted suggestion.
+ */
+function update(userId, todoId, changes, { join: taking = false, decided = false } = {}) {
   const t = own(userId, todoId);
   if (!t) return { error: 'NOT_FOUND' };
-  if (changes.keep) db._raw().prepare('UPDATE event_todos SET suggested = 0 WHERE id = ?').run(t.id);
+  changes = Object.fromEntries(Object.entries(changes || {}).filter(([, v]) => v !== undefined));
+  if (changes.keep && t.suggested) {   // keeping one of ButterflAI's suggestions = suggesting it: you lead it
+    join(userId, t.id);
+    const { keep, ...rest } = changes;
+    if (!Object.keys(rest).length) return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(t.id), userId) };
+    changes = rest;
+  }
+  const edits = Object.keys(changes).filter((k) => ['done', 'text', 'when_text', 'place', 'status', 'notes', 'day', 'assignee'].includes(k));
+  if (edits.length && !decided && !onTeam(userId, t.id)) {
+    const isPlanDecider = require('./plan').canEdit(t.event_id, userId);
+    // Nobody leads it yet, or they're taking it on: they join, then edit.
+    if (taking || !t.assignee_phone) { const j = join(userId, t.id); if (j.error) return j; }
+    // Hosts / co-hosts may (re)assign it.
+    else if (!(isPlanDecider && edits.every((k) => k === 'assignee'))) {
+      return require('./suggestions').create(userId, t.event_id, Object.fromEntries(edits.map((k) => [k, changes[k]])), { todoId: t.id });
+    }
+  }
   if (changes.done === true) db._raw().prepare('UPDATE event_todos SET done_at = ?, done_by = ?, suggested = 0 WHERE id = ?').run(now(), userId, t.id);
   if (changes.done === false) db._raw().prepare('UPDATE event_todos SET done_at = NULL, done_by = NULL WHERE id = ?').run(t.id);
   if (changes.text !== undefined) {
@@ -118,17 +200,26 @@ function update(userId, todoId, changes) {
     if (!txt) return { error: 'EMPTY' };
     db._raw().prepare('UPDATE event_todos SET text = ? WHERE id = ?').run(txt, t.id);
   }
+  for (const k of ['when_text', 'place']) if (changes[k] !== undefined) db._raw().prepare(`UPDATE event_todos SET ${k} = ? WHERE id = ?`).run(clip(changes[k]), t.id);
+  if (changes.notes !== undefined) db._raw().prepare('UPDATE event_todos SET notes = ? WHERE id = ?').run(clip(changes.notes, 500), t.id);
+  if (changes.status !== undefined) {
+    if (!STATUSES.includes(changes.status)) return { error: 'BAD_STATUS', message: `status is one of ${STATUSES.join(', ')}` };
+    db._raw().prepare('UPDATE event_todos SET status = ? WHERE id = ?').run(changes.status, t.id);
+  }
+  if (changes.day !== undefined) db._raw().prepare('UPDATE event_todos SET day = ? WHERE id = ?').run(changes.day ? planDay(userId, t.event_id, changes.day) : null, t.id);
   if (changes.assignee !== undefined) {
     const a = resolveAssignee(t.event_id, changes.assignee, userId);
     if (a.error) return a;
     db._raw().prepare('UPDATE event_todos SET assignee_phone = ?, assignee_name = ? WHERE id = ?').run(a.phone, a.name, t.id);
   }
-  return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(t.id)) };
+  return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(t.id), userId) };
 }
 
 function remove(userId, todoId) {
   const t = own(userId, todoId);
   if (!t) return { error: 'NOT_FOUND' };
+  if (!canRemove(userId, t)) return { error: 'NOT_YOURS', message: 'Only whoever is working on it (or the host / co-hosts) can remove it — suggest it instead.' };
+  db._raw().prepare('DELETE FROM todo_team WHERE todo_id = ?').run(t.id);
   db._raw().prepare('DELETE FROM event_todos WHERE id = ?').run(t.id);
   return { ok: true };
 }
@@ -159,7 +250,8 @@ function forHome(userId) {
   const rows = db._raw().prepare(q).all(...plans);
   const item = (t, who) => ({ todo_id: t.id, event_id: t.event_id, text: view(t).shown, day: t.day || null, title: t.event_title, at: t.date_tbd ? null : t.scheduled_at, who });
   const items = [
-    ...rows.filter((t) => !t.suggested && t.assignee_phone === u.phone).map((t) => item(t, 'you')),
+    // Yours: you lead it or you're on its team.
+    ...rows.filter((t) => !t.suggested && (t.assignee_phone === u.phone || db._raw().prepare('SELECT 1 FROM todo_team WHERE todo_id = ? AND phone = ?').get(t.id, u.phone))).map((t) => item(t, 'you')),
     ...rows.filter((t) => !t.suggested && !t.assignee_phone).map((t) => item(t, 'anyone')),
   ];
   const by = new Map();
@@ -180,4 +272,4 @@ function progressFor(eventIds) {
   return out;
 }
 
-module.exports = { list, add, update, remove, mine, forHome, members, progressFor, repeats, keyWords };
+module.exports = { list, add, update, remove, join, leave, team, onTeam, mine, forHome, members, progressFor, repeats, keyWords, STATUSES };

@@ -733,8 +733,9 @@
     const { todos, progress } = await r.json();
     const kept = todos.filter(t => !t.suggested);
     box.querySelector('.todo-toggle').textContent = `✨ Creating${progress.total ? ` ${progress.done}/${progress.total}` : ''} ▾`;
-    ul.innerHTML = kept.map(t => `<li class="${t.done ? 'done' : ''}"><label><input type="checkbox" ${t.done ? 'checked' : ''}
-        onchange="checkTodo('${escHtml(t.id)}', this.checked, this)"> ${escHtml(t.shown || t.text)}</label>${t.assignee ? ` <span class="who">${escHtml(t.assignee)}</span>` : ''}</li>`).join('')
+    // Only an item's team checks it off; others see who's on it (and can join in the discussion).
+    ul.innerHTML = kept.map(t => `<li class="${t.done ? 'done' : ''}"><label>${t.yours ? `<input type="checkbox" ${t.done ? 'checked' : ''}
+        onchange="checkTodo('${escHtml(t.id)}', this.checked, this)"> ` : ''}${escHtml(t.shown || t.text)}${t.when_text ? ` · ${escHtml(t.when_text)}` : ''}</label>${(t.team || []).length ? ` <span class="who">${escHtml(t.team.join(', '))}</span>` : ''}</li>`).join('')
       + `<li><a href="/app/chat?event=${encodeURIComponent(id)}">${kept.length ? 'Add or change in the discussion' : 'Nothing yet — add in the discussion'} ›</a></li>`;
   }
   async function checkTodo(id, done, el) {
@@ -763,12 +764,19 @@
     const rows = [
       `📅 ${escHtml(p.dates.label)}`,
       p.place ? `📍 ${escHtml(p.place)}` : '',
-      `👤 ${p.host.is_you ? 'You’re hosting' : 'Hosted by ' + escHtml(p.host.name)}`,
+      `👤 ${p.host.is_you ? 'You’re hosting' : 'Hosted by ' + escHtml(p.host.name)}${(p.cohosts || []).length ? ` · co-host${p.cohosts.length > 1 ? 's' : ''}: ${escHtml(p.cohosts.join(', '))}` : ''}`,
+      p.my_role === 'cohost' ? '🤝 You’re a co-host — your changes are made for everyone' : p.my_role === 'guest' ? '💡 You’re a guest — what you’d change goes to the hosts as a suggestion' : '',
       p.group ? `👥 ${escHtml(p.group.name)}` : '',
       p.what && p.what !== 'hangout' ? `✨ ${escHtml(p.what)}` : '',
     ].filter(Boolean).map(r => `<div>${r}</div>`).join('');
     const people = (p.people || []).length ? `<div class="ps-label">Who’s in</div><ul class="ps-people">${p.people.map(x =>
-      `<li><strong>${escHtml(x.name)}</strong> · ${PEOPLE_STATUS(x, p.tentative)}</li>`).join('')}</ul>` : '';
+      `<li><strong>${escHtml(x.name)}</strong>${x.cohost ? ' <span style="font-size:11px;color:#6c47ff;background:#ede9fe;border-radius:999px;padding:1px 7px;font-weight:600">co-host</span>' : ''} · ${PEOPLE_STATUS(x, p.tentative)}${p.host.is_you && x.invitation_id && x.status !== 'declined'
+        ? ` <button class="ps-secondary" style="padding:2px 8px;border-radius:8px;border:none;font-size:12px;cursor:pointer" onclick="setCohost('${escHtml(p.id)}','${escHtml(x.invitation_id)}',${!x.cohost})">${x.cohost ? 'Make guest' : 'Make co-host'}</button>` : ''}</li>`).join('')}</ul>` : '';
+    // Suggestions (owner, 2026-10-19: "guests suggest, hosts and co-hosts decide").
+    const ideas = (p.suggestions || []).length ? `<div class="ps-label">💡 Suggestions</div><ul class="ps-people">${p.suggestions.map(s =>
+      `<li>${escHtml(s.from === 'you' ? 'You' : s.from)}${s.item ? ` on “${escHtml(s.item)}”` : ''}: ${escHtml(s.summary)} ${s.can_decide
+        ? `<button class="ps-primary" style="padding:4px 10px" onclick="decideSuggestion('${escHtml(s.id)}',true)">Accept</button> <button class="ps-secondary" style="padding:4px 10px" onclick="decideSuggestion('${escHtml(s.id)}',false)">No</button>`
+        : '<span style="color:#8e8e93">· waiting</span>'}</li>`).join('')}</ul>` : '';
     const asked = (p.asked || []).length ? `<div class="ps-rows">❓ Asked ${escHtml(p.asked.join(', '))} — no answer yet</div>` : '';
     const said = (p.answers || []).length ? `<div class="ps-label">Friends' ButterflAIs said</div><ul class="ps-people">${p.answers.map(a =>
       `<li><strong>${escHtml(a.who)}</strong> · ${escHtml(a.answer)}</li>`).join('')}</ul>` : '';
@@ -793,7 +801,7 @@
     el.innerHTML = `<div class="ps-head"><div class="ps-title">${escHtml(p.title)}</div>
         <span class="cal-chip stage-${p.stage}" style="width:auto;font-size:11px;line-height:20px;padding:0 8px;flex-shrink:0">${STAGE_LABEL[p.stage] || p.stage}</span>
         <button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>
-      <div class="ps-rows">${rows}</div>${asked}${people}${said}${notes}${creating}
+      <div class="ps-rows">${rows}</div>${ideas}${asked}${people}${said}${notes}${creating}
       ${p.next ? `<div class="ps-next">👉 ${escHtml(p.next)}</div>` : ''}
       ${p.can_edit ? hostControls(p) : ''}
       <div class="ps-actions">${answer}<a class="${answer ? 'ps-secondary' : 'ps-primary'}" href="/app/chat?event=${encodeURIComponent(p.id)}${summaryDay && (p.days || []).includes(summaryDay) ? '&day=' + summaryDay : ''}">💬 Discussion${summaryDay && (p.days || []).includes(summaryDay) ? ` · ${new Date(summaryDay + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short' })}` : ''}</a></div>`;
@@ -817,6 +825,14 @@
       ? list.map((c) => `<div>${escHtml(c.who || c.by)} ${escHtml((c.what || c.fields).join(', '))} · ${ago(c.at)}</div>`).join('')
         + (list.some((c) => c.via !== 'undo') ? `<button class="ps-secondary" style="margin-top:8px;padding:8px 14px;border-radius:10px;border:none;font-weight:600;cursor:pointer" onclick="undoLast('${escHtml(id)}', this)">↩︎ Undo last change</button>` : '')
       : '<div>No changes yet.</div>';
+  }
+  async function decideSuggestion(id, accept) {
+    await fetch('/api/suggestions/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accept }) }).catch(() => {});
+    await refreshPlans();
+  }
+  async function setCohost(eventId, invitationId, on) {
+    await fetch('/api/events/' + encodeURIComponent(eventId) + '/cohost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invitation_id: invitationId, cohost: on }) }).catch(() => {});
+    await refreshPlans();
   }
   async function lockIn(id, btn) {
     btn.disabled = true;

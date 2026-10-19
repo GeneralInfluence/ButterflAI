@@ -190,7 +190,8 @@ describe('🐛 #15: the massage is on Friday', () => {
     assert.equal(t.day, '2027-01-08', 'Friday');
     assert.notEqual(t.day, '2027-01-09', 'not Saturday');
     assert.equal(todosOf(w.sean, w.eventId)[0].shown, 'Fri, Jan 8: Massages for everyone', 'the host sees it on Friday');
-    const home = require('../../home').feedFor(w.sean.id).creating.find((c) => c.todo_id === t.id);
+    // On Home of whoever leads it — Melanie brought it up, so she does (2026-10-19; was the host's Home).
+    const home = require('../../home').feedFor(w.mel.id).creating.find((c) => c.todo_id === t.id);
     assert.match(home.text, /^Fri, Jan 8: /, 'and on Home');
   });
 

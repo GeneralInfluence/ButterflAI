@@ -37,8 +37,8 @@ function client() {
   return _client;
 }
 
-const KINDS = ['add_todo', 'rsvp', 'set_details', 'lock_in', 'find_options', 'message', 'cancel'];
-const APPLIED_KINDS = new Set(['add_todo', 'rsvp', 'set_details', 'lock_in']);
+const KINDS = ['add_todo', 'update_item', 'rsvp', 'set_details', 'lock_in', 'find_options', 'message', 'cancel'];
+const APPLIED_KINDS = new Set(['add_todo', 'update_item', 'rsvp', 'set_details', 'lock_in']);
 const APPLY_AT = 0.75;   // at or above: done in code
 const ASK_AT = 0.5;      // between: one question with the choices
 const KEEP_DAYS = 90;
@@ -58,14 +58,15 @@ function contextFor(userId, { eventId, contextDay }) {
   const plan = require('./plan');
   const plans = plan.plansFor(userId).slice(0, 12);
   const here = eventId ? plans.find((p) => p.id === eventId) || plan.planFor(eventId, userId) : null;
-  const line = (p) => `- eventId="${p.id}" "${p.title}" — you're ${p.role === 'host' ? 'the host' : `a guest (${p.invitation?.going ? 'going' : p.invitation?.status === 'accepted' ? 'interested' : p.invitation?.status || 'invited'})`}; ${p.dates?.label || 'date TBD'}${p.days?.length ? ` (days: ${p.days.join(', ')})` : ''}${p.place ? `; at ${p.place}` : ''}${p.tentative ? '; tentative' : ''}`;
+  const line = (p) => `- eventId="${p.id}" "${p.title}" — you're ${p.role === 'host' ? 'the host' : p.my_role === 'cohost' ? 'a co-host' : `a guest (${p.invitation?.going ? 'going' : p.invitation?.status === 'accepted' ? 'interested' : p.invitation?.status || 'invited'})`}; ${p.dates?.label || 'date TBD'}${p.days?.length ? ` (days: ${p.days.join(', ')})` : ''}${p.place ? `; at ${p.place}` : ''}${p.tentative ? '; tentative' : ''}`;
   const recent = db._raw().prepare(`SELECT role, text FROM conversation_history WHERE user_id = ? AND private_ct IS NULL ${eventId ? 'AND event_id = ?' : ''}
     ORDER BY created_at DESC, rowid DESC LIMIT 6`).all(...(eventId ? [userId, eventId] : [userId])).reverse()
     .map((m) => `${m.role === 'user' ? 'Them' : 'ButterflAI'}: ${String(m.text).slice(0, 300)}`);
   let creating = [];
-  if (here) creating = db._raw().prepare('SELECT text, day FROM event_todos WHERE event_id = ? AND done_at IS NULL').all(here.id).map((t) => `${t.day ? fmtDay(t.day) + ': ' : ''}${t.text}`);
+  if (here) creating = db._raw().prepare('SELECT id, text, day, when_text, place, status, assignee_name FROM event_todos WHERE event_id = ? AND done_at IS NULL').all(here.id)
+    .map((t) => `\n  - item_id="${t.id}" ${t.day ? fmtDay(t.day) + ': ' : ''}${t.text}${t.when_text ? ` | when: ${t.when_text}` : ''}${t.place ? ` | place: ${t.place}` : ''} | ${t.status || 'idea'}${t.assignee_name ? ` | led by ${String(t.assignee_name).split(' ')[0]}` : ''}`);
   return { plans, here, text: [
-    here ? `They are in the discussion of: ${line(here)}${contextDay ? `\nThey opened it from the calendar day ${contextDay} (${fmtDay(contextDay)}).` : ''}\nIts Creating list: ${creating.join('; ') || 'empty'}` : 'They are in their general chat (not a plan\'s discussion).',
+    here ? `They are in the discussion of: ${line(here)}${contextDay ? `\nThey opened it from the calendar day ${contextDay} (${fmtDay(contextDay)}).` : ''}\nIts Creating list:${creating.join('') || ' empty'}` : 'They are in their general chat (not a plan\'s discussion).',
     `Their plans:\n${plans.map(line).join('\n') || '(none)'}`,
     recent.length ? `Recent messages:\n${recent.join('\n')}` : '',
   ].filter(Boolean).join('\n\n') };
@@ -74,7 +75,8 @@ function contextFor(userId, { eventId, contextDay }) {
 const PROMPT = `You turn one message a person sent their planning assistant (ButterflAI) into the actions it asks for. Read it like a friend would; don't add anything they didn't say.
 
 Kinds:
-- add_todo {event_id, text, day?}: an idea or thing to do/bring for a plan ("thinking about getting a massage", "someone should bring chairs"). text = a short item ("Massage"). day only if they named one or opened the plan from a day.
+- add_todo {event_id, text, day?}: a NEW idea or thing to do/bring for a plan ("thinking about getting a massage", "someone should bring chairs"). text = a short item ("Massage"). day only if they named one or opened the plan from a day. If it's already on the Creating list, use update_item instead.
+- update_item {item_id, when_text?, place?, status?: "idea"|"options"|"chosen"|"booked", notes?, taking_on?}: more about an item already on the Creating list ("massages before 3pm" → when_text "before 3pm"; "let's do the spa at the hot springs" → place). taking_on: true only if they say they're doing it themselves ("I'll book the massages", "I'm calling the spa").
 - rsvp {event_id, answer: "going"|"interested"|"declined"}: their own answer to a plan they're invited to. "I'm going"/"count me in" = going; "sounds fun, maybe"/"I'm interested" = interested.
 - set_details {event_id, when?, proposed_dates?: [{from,to}], venue_name?, duration_mins?}: the HOST deciding details. when = their words for a single date/time ("Friday Oct 23 at noon"). Not options still being discussed.
 - lock_in {event_id}: the host making it final.
@@ -112,6 +114,11 @@ function decide(actions, { userId, userText, eventId, plans, isNamed }) {
   return actions.map((a) => {
     const out = { ...a, confidence: Math.max(0, Math.min(1, Number(a.confidence) || 0)) };
     if (!quoted(userText, a.quote)) return { ...out, decision: 'drop', why: 'not in their words' };
+    if (a.kind === 'update_item') {
+      const it = db._raw().prepare('SELECT event_id FROM event_todos WHERE id = ?').get(a.item_id);
+      if (!it) return { ...out, decision: 'drop', why: 'no such item' };
+      out.event_id = a.event_id = it.event_id;
+    }
     if (a.event_id && !byId.has(a.event_id)) return { ...out, decision: 'drop', why: 'not one of their plans' };
     // In a plan's discussion: another plan only if they named it (MEMORY.md §22).
     if (a.event_id && eventId && a.event_id !== eventId && !isNamed(userText, byId.get(a.event_id).title)) {
@@ -119,10 +126,9 @@ function decide(actions, { userId, userText, eventId, plans, isNamed }) {
     }
     if (!a.event_id && eventId && ['add_todo', 'rsvp', 'set_details', 'lock_in', 'cancel'].includes(a.kind) && byId.has(eventId)) out.event_id = eventId;
     const p = out.event_id ? byId.get(out.event_id) : null;
-    if (['add_todo', 'rsvp', 'set_details', 'lock_in', 'cancel'].includes(a.kind) && !p) return { ...out, decision: 'drop', why: 'no plan' };
-    // Plans are made together (2026-10-19): the host and anyone who said yes can change them;
-    // only cancelling stays with the host.
-    if (['set_details', 'lock_in'].includes(a.kind) && !p.can_edit) return { ...out, decision: 'agent', why: 'say yes first' };
+    if (['add_todo', 'update_item', 'rsvp', 'set_details', 'lock_in', 'cancel'].includes(a.kind) && !p) return { ...out, decision: 'drop', why: 'no plan' };
+    // Guests suggest, hosts and co-hosts decide (2026-10-19): a guest's set_details / lock_in
+    // still "applies" — planops turns it into a suggestion. Only the host cancels.
     if (a.kind === 'cancel' && p.role !== 'host') return { ...out, decision: 'agent', why: 'only the host can cancel' };
     if (a.kind === 'rsvp' && (p.role !== 'guest' || !['going', 'interested', 'declined'].includes(a.answer))) return { ...out, decision: 'drop', why: 'not an answer they can give' };
     if (a.kind === 'add_todo' && !String(a.text || '').trim()) return { ...out, decision: 'drop', why: 'no item' };
@@ -155,6 +161,20 @@ function applyOne(userId, a, { contextDay }) {
     return { ok: true, ref: r.todo.id, label: `${r.todo.text}${r.todo.day ? ' · ' + fmtDay(r.todo.day) : ''} → Creating`,
       toolLog: { name: 'manage_todos', input: { event_id: a.event_id, action: 'add', items: [r.todo.text], day: r.todo.day }, result: { added: [r.todo.text] } } };
   }
+  if (a.kind === 'update_item') {
+    const changes = {};
+    for (const k of ['when_text', 'place', 'notes']) if (a[k]) changes[k] = String(a[k]);
+    if (['idea', 'options', 'chosen', 'booked'].includes(a.status)) changes.status = a.status;
+    if (!Object.keys(changes).length && !a.taking_on) return { error: 'NOTHING' };
+    const before = db._raw().prepare('SELECT when_text, place, notes, status FROM event_todos WHERE id = ?').get(a.item_id) || {};
+    const r = Object.keys(changes).length ? todos.update(userId, a.item_id, changes, { join: !!a.taking_on }) : todos.join(userId, a.item_id);
+    if (r.error) return r;
+    const item = db._raw().prepare('SELECT text FROM event_todos WHERE id = ?').get(a.item_id)?.text || 'item';
+    if (r.suggested) return suggestedResult(r, item, a);
+    const what = Object.entries(changes).map(([k, v]) => (k === 'status' ? v : k === 'when_text' ? v : k === 'place' ? `at ${v}` : 'notes')).join(', ');
+    return { ok: true, ref: JSON.stringify({ item: a.item_id, before: Object.fromEntries(Object.keys(changes).map((k) => [k, before[k] ?? (k === 'status' ? 'idea' : '')])) }), label: `${item}${what ? ': ' + what : ''}${a.taking_on ? ' · you\'re on it' : ''}`,
+      toolLog: { name: 'manage_todos', input: { event_id: a.event_id, action: 'update', todo_id: a.item_id, ...changes }, result: r } };
+  }
   if (a.kind === 'rsvp') {
     const u = db.getUser(userId);
     const inv = db._raw().prepare(`SELECT ei.id, ei.status, ei.going FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ? AND c.phone = ?`).get(a.event_id, u.phone);
@@ -177,6 +197,7 @@ function applyOne(userId, a, { contextDay }) {
     }
     const r = planops.update(userId, a.event_id, changes, { via: 'understood' });
     if (r.error) return r;
+    if (r.suggested) return suggestedResult(r, title, a);
     if (!r.updated?.length) return { error: 'NOTHING_CHANGED' };
     const at = db._raw().prepare('SELECT max(created_at) at FROM plan_changes WHERE event_id = ? AND via = ?').get(a.event_id, 'understood').at;
     const what = a.kind === 'lock_in' ? 'Locked in' : [changes.when && 'date', changes.proposed_dates && 'proposed dates', changes.venue_name && `place: ${changes.venue_name}`, changes.duration_mins && 'length'].filter(Boolean).join(', ');
@@ -184,6 +205,12 @@ function applyOne(userId, a, { contextDay }) {
       toolLog: { name: 'update_event', input: { event_id: a.event_id, ...changes }, result: r } };
   }
   return { error: 'UNKNOWN' };
+}
+
+/** A guest's change went to the deciders as a suggestion (suggestions.js) — the chip says so; Undo withdraws it. */
+function suggestedResult(r, what, a) {
+  return { ok: true, ref: `suggestion:${r.suggestion_id}`, label: `Suggested to ${r.to.join(' & ') || 'the host'}: ${r.summary} (${what})`,
+    toolLog: { name: a.kind === 'update_item' ? 'manage_todos' : 'update_event', input: { event_id: a.event_id }, result: { suggested: true, message: r.message } } };
 }
 
 /**
@@ -262,7 +289,9 @@ function undo(userId, id, { answer } = {}) {
   if (r.status !== 'applied' && !(r.kind === 'rsvp' && r.status === 'corrected')) return { error: 'ALREADY_UNDONE' };
   const planops = require('./planops');
   let res;
-  if (r.kind === 'add_todo') res = require('./todos').remove(userId, r.ref);
+  if (String(r.ref || '').startsWith('suggestion:')) res = require('./suggestions').withdraw(userId, r.ref.slice(11));
+  else if (r.kind === 'add_todo') res = require('./todos').remove(userId, r.ref);
+  else if (r.kind === 'update_item') { const x = JSON.parse(r.ref); res = require('./todos').update(userId, x.item, x.before, { decided: true }); }
   else if (r.kind === 'rsvp') {
     if (!['going', 'interested', 'declined'].includes(answer)) return { error: 'ANSWER_REQUIRED' };
     const u = db.getUser(userId);

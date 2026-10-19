@@ -58,49 +58,71 @@ async function setup() {
   return { sean, mel, bam, weekend, massages };
 }
 
-describe('🐛 #20: plans are made together', () => {
-  test('Melanie (said yes) changes Sean\'s weekend; Sean is told who changed what', async () => {
+describe('🐛 #20: guests suggest, hosts and co-hosts decide', () => {
+  test('the person a plan is for is a co-host automatically, and changes it for everyone; the host is told', async () => {
     const w = await setup();
+    assert.equal(plan.planFor(w.weekend, w.mel.id).my_role, 'cohost', "Melanie's Birthday Weekend → Melanie");
+    assert.equal(plan.planFor(w.weekend, w.bam.id).my_role, 'guest');
+    assert.deepEqual(plan.planFor(w.weekend, w.sean.id).cohosts, ['Melanie']);
     const r = planops.update(w.mel.id, w.weekend, { notes: 'Friday: massages before 3pm' }, { via: 'agent' });
     assert.equal(r.ok, true);
+    assert.equal(r.suggested, undefined);
     assert.equal(db._raw().prepare('SELECT notes FROM social_events WHERE id = ?').get(w.weekend).notes, 'Friday: massages before 3pm');
     assert.match(notices(w.sean, w.weekend).join('\n'), /Melanie changed the details on Melanie's Birthday Weekend/);
-    assert.deepEqual(notices(w.mel, w.weekend).filter((t) => /changed the details/.test(t)), [], 'not told about her own change');
   });
 
-  test('only the host cancels; someone who hasn\'t said yes changes nothing', async () => {
+  test('a guest\'s change is a suggestion: host and co-hosts are asked, one accepts, it\'s applied, the guest is told', async () => {
     const w = await setup();
+    planops.respond(inv(w.weekend, w.bam).id, 'accepted', { by: 'guest', phone: w.bam.phone });
+    const r = planops.update(w.bam.id, w.weekend, { venue_name: 'Steamboat Springs' }, { via: 'agent' });
+    assert.equal(r.suggested, true);
+    assert.deepEqual(r.to.sort(), ['Melanie', 'Sean']);
+    assert.equal(db._raw().prepare('SELECT venue_name FROM social_events WHERE id = ?').get(w.weekend).venue_name, null, 'not changed yet');
+    assert.match(notices(w.mel, w.weekend).join('\n'), /💡 Bam suggests for Melanie's Birthday Weekend: place → Steamboat Springs/);
+    const [s] = require('../../suggestions').forPlan(w.weekend, w.mel.id);
+    assert.equal(require('../../suggestions').decide(w.bam.id, s.id, true).error, 'NOT_YOURS_TO_DECIDE');
+    assert.equal(require('../../suggestions').decide(w.mel.id, s.id, true).status, 'accepted');
+    assert.equal(db._raw().prepare('SELECT venue_name FROM social_events WHERE id = ?').get(w.weekend).venue_name, 'Steamboat Springs');
+    assert.match(notices(w.bam, w.weekend).join('\n'), /Melanie accepted your suggestion/);
+  });
+
+  test('only the host cancels or picks co-hosts; people outside the plan can\'t even suggest', async () => {
+    const w = await setup();
+    const out = mkUser('Outside C');
     assert.equal(planops.update(w.mel.id, w.weekend, { cancel: true }).error, 'HOST_ONLY');
-    assert.equal(planops.update(w.bam.id, w.weekend, { notes: 'x' }).error, 'NOT_IN_PLAN');
-    assert.equal(plan.planFor(w.weekend, w.mel.id).can_edit, true);
-    assert.equal(plan.planFor(w.weekend, w.bam.id).can_edit, false);
+    assert.equal(planops.update(out.id, w.weekend, { notes: 'x' }).error, 'NOT_IN_PLAN');
+    assert.equal(planops.setCohost(w.mel.id, w.weekend, inv(w.weekend, w.bam).id, true).error, 'NOT_HOST');
+    assert.equal(planops.setCohost(w.sean.id, w.weekend, inv(w.weekend, w.bam).id, true).ok, true);
+    assert.equal(plan.canEdit(w.weekend, w.bam.id), true, 'Sean made Bam a co-host');
   });
 
-  test('Sean folds Melanie\'s "Massages" into the weekend: one plan, her Creating items and her with it, both told', async () => {
+  test('combining: Melanie (co-host of the weekend, host of Massages) folds hers in; Creating and her come along', async () => {
     const w = await setup();
-    const r = planops.merge(w.sean.id, w.weekend, w.massages);
+    const r = planops.merge(w.mel.id, w.weekend, w.massages);
     assert.equal(r.merged, true);
     assert.equal(db._raw().prepare('SELECT status FROM social_events WHERE id = ?').get(w.massages).status, 'cancelled');
     const items = db._raw().prepare('SELECT text FROM event_todos WHERE event_id = ?').all(w.weekend).map((t) => t.text).sort();
     assert.deepEqual(items, ['Book spas in Carson City for massages', 'Massages Friday (while kids at school)']);
-    assert.equal(inv(w.weekend, w.mel).status, 'accepted');
-    assert.match(notices(w.mel, w.weekend).join('\n'), /Sean combined "Massages" into Melanie's Birthday Weekend/);
+    assert.match(notices(w.sean, w.weekend).join('\n'), /Melanie combined "Massages" into Melanie's Birthday Weekend/);
   });
 
-  test('Melanie can fold it in too (her plan into the plan she said yes to)', async () => {
+  test('Sean is only a guest on Massages, so his "combine" is a suggestion to Melanie', async () => {
     const w = await setup();
-    assert.equal(planops.merge(w.mel.id, w.weekend, w.massages).merged, true);
-    assert.match(notices(w.sean, w.weekend).join('\n'), /Melanie combined "Massages" into/);
+    const r = planops.merge(w.sean.id, w.weekend, w.massages);
+    assert.equal(r.suggested, true);
+    assert.deepEqual(r.to, ['Melanie']);
+    const [s] = require('../../suggestions').forPlan(w.weekend, w.mel.id);
+    assert.match(s.summary, /combine "Massages" into it/);
+    assert.equal(require('../../suggestions').decide(w.mel.id, s.id, true).status, 'accepted');
+    assert.equal(db._raw().prepare('SELECT status FROM social_events WHERE id = ?').get(w.massages).status, 'cancelled');
   });
 
-  test('the agent\'s merge_plans works across hosts (after asking)', async () => {
+  test('in the app: a guest\'s PATCH is a suggestion; co-hosts see and undo changes; outsiders get 403', async () => {
     const w = await setup();
-    const first = await agent.executeTool('merge_plans', { keep_event_id: w.weekend, merge_event_id: w.massages }, w.sean.id, w.sean.phone);
-    assert.equal(first.needs_confirmation, true, first.message || first.error);   // was NOT_YOUR_PLANS: Melanie hosts Massages
-  });
-
-  test('a guest who said yes can change the plan in the app and see / undo its changes', async () => {
-    const w = await setup();
+    const bam = await cookieFor(w.bam);
+    const r = await request.patch(`/api/events/${w.weekend}`).set('Cookie', bam).send({ venue_name: 'Somewhere' });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.suggested, true);
     const cookie = await cookieFor(w.mel);
     assert.equal((await request.patch(`/api/events/${w.weekend}`).set('Cookie', cookie).send({ venue_name: 'Carson Hot Springs' })).status, 200);
     const ch = (await request.get(`/api/events/${w.weekend}/changes`).set('Cookie', cookie)).body.changes;
@@ -109,7 +131,47 @@ describe('🐛 #20: plans are made together', () => {
     assert.equal(seenBySean[0].who, 'Melanie', 'the host sees who changed it');
     assert.equal((await request.post(`/api/events/${w.weekend}/undo`).set('Cookie', cookie)).status, 200);
     assert.equal(db._raw().prepare('SELECT venue_name FROM social_events WHERE id = ?').get(w.weekend).venue_name, null);
-    assert.equal((await request.patch(`/api/events/${w.weekend}`).set('Cookie', await cookieFor(w.bam)).send({ venue_name: 'x' })).status, 403);
+    assert.equal((await request.get(`/api/events/${w.weekend}/changes`).set('Cookie', bam)).status, 403, 'guests suggest; the log is for deciders');
+    const out = mkUser('Outside API');
+    assert.equal((await request.patch(`/api/events/${w.weekend}`).set('Cookie', await cookieFor(out)).send({ venue_name: 'x' })).status, 403);
+    const cohost = await request.post(`/api/events/${w.weekend}/cohost`).set('Cookie', await cookieFor(w.sean)).send({ invitation_id: inv(w.weekend, w.bam).id });
+    assert.equal(cohost.body.cohost, true);
+  });
+});
+
+describe('Creating items: a lead, a team, and nobody edits by accident', () => {
+  test('whoever adds it leads it; someone else\'s edit is a suggestion to the lead; "I\'m on it" lets them edit', async () => {
+    const w = await setup();
+    const massages = db._raw().prepare("SELECT id FROM event_todos WHERE event_id = ? AND text LIKE 'Massages%'").get(w.weekend).id;
+    let it = todos.list(w.mel.id, w.weekend).todos.find((t) => t.id === massages);
+    assert.equal(it.lead, 'Sean');
+    assert.equal(it.yours, false);
+    const sug = todos.update(w.mel.id, massages, { when_text: 'before 3pm' });
+    assert.equal(sug.suggested, true, 'Melanie isn\'t on it: a suggestion to Sean');
+    assert.deepEqual(sug.to, ['Sean']);
+    assert.equal(db._raw().prepare('SELECT when_text FROM event_todos WHERE id = ?').get(massages).when_text, null);
+    const took = todos.update(w.mel.id, massages, { when_text: 'before 3pm', status: 'options' }, { join: true });
+    assert.equal(took.ok, true);
+    it = todos.list(w.mel.id, w.weekend).todos.find((t) => t.id === massages);
+    assert.deepEqual([it.when_text, it.status, it.yours, it.team], ['before 3pm', 'options', true, ['Sean', 'Melanie']]);
+    assert.equal(todos.remove(w.bam.id, massages).error, 'NOT_YOURS');
+  });
+
+  test('an item nobody leads: whoever takes it on leads it', async () => {
+    const w = await setup();
+    const s = todos.add(w.sean.id, w.weekend, { text: 'Find a babysitter', suggested: true });
+    assert.equal(s.todo.lead, null);
+    todos.join(w.bam.id, s.todo.id);
+    assert.equal(todos.list(w.bam.id, w.weekend).todos.find((t) => t.id === s.todo.id).lead, 'Bam');
+  });
+
+  test('the agent adding a repeat is pointed at the existing item; update adds details there', async () => {
+    const w = await setup();
+    const r = await agent.executeTool('manage_todos', { event_id: w.weekend, action: 'add', items: ['Massages'] }, w.sean.id, w.sean.phone);
+    assert.match(r.problems[0], /Already on the list: "Massages Friday \(while kids at school\)" — add to that item/);
+    const id = db._raw().prepare("SELECT id FROM event_todos WHERE event_id = ? AND text LIKE 'Massages%'").get(w.weekend).id;
+    const u = await agent.executeTool('manage_todos', { event_id: w.weekend, action: 'update', todo_id: id, when_text: 'before 3pm' }, w.sean.id, w.sean.phone);
+    assert.equal(u.todo.when_text, 'before 3pm');
   });
 });
 
@@ -124,16 +186,44 @@ describe('Creating doesn\'t repeat itself (the weekend had five massage items)',
 
 describe('retro for 🐛 #20', () => {
   const task = (id) => require('../../retro').TASKS.find((t) => t.id === id);
-  test('the weekend and "Massages" become one plan, then repeated Creating items go', async () => {
-    const w = await setup();
-    todos.add(w.mel.id, w.massages, { text: 'Massages' });   // added before repeats were refused
-    db._raw().prepare("INSERT INTO event_todos (id, event_id, text, created_by) VALUES ('dup1', ?, 'Massages', ?)").run(w.weekend, w.sean.id);
+  function report(w) {
     db.createFeedback({ user_id: w.sean.id, rating: 'down', user_note: "Melanie had tried to add massages to her birthday weekend but she couldn't do it.", context_json: '[]', state_json: '{}' });
     db._raw().prepare("UPDATE feedback SET id = 20 WHERE user_note LIKE 'Melanie had tried%'").run();
+  }
+  test('the weekend and "Massages" become one plan, then repeated Creating items go', async () => {
+    db._raw().prepare('DELETE FROM feedback').run();
+    const w = await setup();
+    todos.add(w.mel.id, w.massages, { text: 'Massages' });
+    db._raw().prepare("INSERT INTO event_todos (id, event_id, text, created_by) VALUES ('dup1', ?, 'Massages', ?)").run(w.weekend, w.sean.id);
+    report(w);
     assert.equal(task('2026-10-19-fold-massages-into-melanies-weekend').run(w.sean), 'combined');
     assert.equal(task('2026-10-19-fold-massages-into-melanies-weekend').run(w.sean), 'no massages plan', 'once');
     assert.equal(task('2026-10-19-creating-repeats').run(w.sean), 'removed 1');
-    const items = db._raw().prepare('SELECT text FROM event_todos WHERE event_id = ? AND done_at IS NULL').all(w.weekend).map((t) => t.text).sort();
-    assert.deepEqual(items, ['Book spas in Carson City for massages', 'Massages Friday (while kids at school)']);
+  });
+  test('co-hosts for the people plans are for; leads for items nobody led', async () => {
+    const w = await setup();
+    db._raw().prepare("UPDATE event_invitations SET role = 'guest'").run();
+    db._raw().prepare("DELETE FROM plan_changes WHERE field = 'cohost'").run();
+    db._raw().prepare('UPDATE event_todos SET assignee_phone = NULL, assignee_name = NULL').run();
+    assert.equal(task('2026-10-19-cohosts-and-leads').run(w.sean), 'co-hosts 1, leads 1');
+    assert.equal(plan.roleOf(w.weekend, w.mel.id), 'cohost');
+    assert.equal(todos.list(w.sean.id, w.weekend).todos[0].lead, 'Sean');
+  });
+  test('Melanie\'s massage items become one Massages item she leads', async () => {
+    db._raw().prepare('DELETE FROM feedback').run();
+    const w = await setup();
+    planops.merge(w.mel.id, w.weekend, w.massages);
+    for (const t of ['Book massages at Carson City Hot Springs', 'Massages - before 3:00 PM Friday', 'Book spa in Carson City for 4 people Friday morning/early afternoon (before 3pm)']) {
+      todos.add(w.sean.id, w.weekend, { text: t, day: day(10) });
+    }
+    todos.add(w.sean.id, w.weekend, { text: 'Set weekend dates', suggested: true });
+    report(w);
+    assert.equal(task('2026-10-19-one-massages-item').run(w.sean), 'collapsed 5');
+    const items = todos.list(w.mel.id, w.weekend).todos;
+    const m = items.filter((t) => /massage|spa/i.test(t.text));
+    assert.equal(m.length, 1);
+    assert.deepEqual([m[0].text, m[0].lead, m[0].when_text, m[0].day, m[0].yours], ['Massages', 'Melanie', 'before 3pm (kids at school)', day(10), true]);
+    assert.match(m[0].notes, /Carson City Hot Springs/);
+    assert.ok(items.some((t) => t.text === 'Set weekend dates'), 'other items untouched');
   });
 });

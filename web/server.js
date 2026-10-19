@@ -1613,9 +1613,36 @@ app.post('/api/events/:id/todos', webAuth.requireAuth, express.json(), (req, res
   return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
 });
 app.patch('/api/todos/:id', webAuth.requireAuth, express.json(), (req, res) => {
-  const { done, keep, text, assignee } = req.body || {};
-  const r = todos.update(req.user.id, req.params.id, { done, keep, text, assignee });
+  const { done, keep, text, assignee, when_text, place, status, notes, join } = req.body || {};
+  // Only the item's team edits it; anyone else's change comes back as { suggested: true } (todos.js).
+  const r = todos.update(req.user.id, req.params.id, { done, keep, text, assignee, when_text, place, status, notes }, { join: join === true });
   return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
+});
+// "I'm on it" / step off (owner, 2026-10-19: anyone can take a thing on; then they can edit it).
+app.post('/api/todos/:id/join', webAuth.requireAuth, (req, res) => {
+  const r = todos.join(req.user.id, req.params.id);
+  return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
+});
+app.post('/api/todos/:id/leave', webAuth.requireAuth, (req, res) => {
+  const r = todos.leave(req.user.id, req.params.id);
+  return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
+});
+// Suggestions: the host / co-hosts (or an item's team) accept or decline; the suggester can take it back.
+app.post('/api/suggestions/:id', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./suggestions').decide(req.user.id, String(req.params.id), req.body?.accept === true);
+  if (r.error === 'NOT_FOUND') return res.status(404).json(r);
+  if (r.error === 'NOT_YOURS_TO_DECIDE') return res.status(403).json(r);
+  return r.error ? res.status(400).json(r) : res.json(r);
+});
+app.delete('/api/suggestions/:id', webAuth.requireAuth, (req, res) => {
+  const r = require('./suggestions').withdraw(req.user.id, String(req.params.id));
+  return r.error ? res.status(404).json(r) : res.json(r);
+});
+// The host makes someone a co-host (or back to a guest).
+app.post('/api/events/:id/cohost', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = planops.setCohost(req.user.id, req.params.id, String(req.body?.invitation_id || ''), req.body?.cohost !== false, { via: 'app' });
+  if (r.error === 'NOT_HOST') return res.status(403).json(r);
+  return r.error ? res.status(404).json(r) : res.json(r);
 });
 app.delete('/api/todos/:id', webAuth.requireAuth, (req, res) => {
   const r = todos.remove(req.user.id, req.params.id);
@@ -2275,6 +2302,7 @@ app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => 
   const r = planops.update(req.user.id, req.params.id, changes, { via: 'app' });
   if (['EVENT_NOT_FOUND', 'NOT_HOST', 'NOT_IN_PLAN', 'HOST_ONLY'].includes(r.error)) return res.status(403).json({ error: 'Not your event', reason: r.error, message: r.message });
   if (r.error) return res.status(400).json(r);
+  if (r.suggested) return res.json({ ok: true, suggested: true, suggestion_id: r.suggestion_id, to: r.to, message: r.message });
   res.json({ ok: true, updated: r.updated });
 });
 

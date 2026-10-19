@@ -196,6 +196,11 @@
     #todo-list .who { font-size: 11px; color: #6c47ff; background: #ede9fe; border-radius: 999px; padding: 1px 7px; flex-shrink: 0; }
     #todo-list .t { flex: 1; min-width: 0; }
     .todo-x { background: none; border: none; color: #c7c7cc; font-size: 16px; cursor: pointer; padding: 0 4px; }
+    #todo-list .det { display: block; font-size: 12px; color: #6e6e76; }
+    #todo-list .onit { font-size: 12px; padding: 2px 9px; }
+    #todo-ideas { padding: 2px 14px; }
+    #todo-ideas .idea { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 13px; color: #1c1c1e; }
+    #todo-ideas .idea span { flex: 1; min-width: 0; }
     #todo-suggested { padding: 2px 14px; }
     #todo-suggested .sug { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 13px; color: #3a3a3c; }
     #todo-suggested .sug span { flex: 1; min-width: 0; }
@@ -331,6 +336,7 @@
     <button type="button" id="todo-toggle" aria-expanded="false"></button>
     <div id="todo-body" hidden>
       <ul id="todo-list"></ul>
+      <div id="todo-ideas"></div>
       <div id="todo-suggested"></div>
       <form id="todo-add"><input id="todo-new" maxlength="200" placeholder="Add something to make happen…" aria-label="Add to Creating"><button type="submit" class="tpill">Add</button></form>
     </div>
@@ -495,12 +501,25 @@
       toggle.textContent = `✨ Creating ${kept.length ? `${data.progress.done}/${data.progress.total}` : ''}${sug.length ? ` · ${sug.length} suggested` : ''} ${todoOpen ? '▴' : '▾'}`;
       toggle.setAttribute('aria-expanded', String(todoOpen));
       document.getElementById('todo-body').hidden = !todoOpen;
-      document.getElementById('todo-list').innerHTML = kept.map(t => `<li class="${t.done ? 'done' : ''}" data-id="${esc(t.id)}">
-          <input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done"><span class="t">${esc(t.shown || t.text)}</span>
-          ${t.assignee ? `<span class="who">${esc(t.assignee)}</span>` : ''}<button type="button" class="todo-x" aria-label="Remove">✕</button></li>`).join('')
+      // Each item: its details, who's on it; only its team can check it off or edit it — anyone
+      // else taps "I'm on it" first (owner, 2026-10-19: no editing by accident).
+      const STATUS = { idea: '', options: 'options found', chosen: 'chosen', booked: 'booked ✓' };
+      document.getElementById('todo-list').innerHTML = kept.map(t => {
+        const det = [t.when_text, t.place && 'at ' + t.place, STATUS[t.status]].filter(Boolean).join(' · ');
+        const crew = t.team && t.team.length ? t.team.join(', ') : '';
+        return `<li class="${t.done ? 'done' : ''}" data-id="${esc(t.id)}">
+          ${t.yours ? `<input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done">` : ''}<span class="t">${esc(t.shown || t.text)}${det ? `<span class="det">${esc(det)}</span>` : ''}${t.notes ? `<span class="det">${esc(t.notes)}</span>` : ''}</span>
+          ${crew ? `<span class="who">${esc(crew)}</span>` : ''}${t.yours ? '<button type="button" class="todo-x" aria-label="Remove">✕</button>' : '<button type="button" class="tpill onit">I\'m on it</button>'}</li>`;
+      }).join('')
         || '<li style="color:#8e8e93;font-size:13px">Nothing yet — add what needs doing, or ask your ButterflAI what this plan needs.</li>';
       document.getElementById('todo-suggested').innerHTML = sug.length ? '<div style="font-size:12px;color:#8e8e93;margin-top:4px">Suggested by ButterflAI</div>' + sug.map(t =>
         `<div class="sug" data-id="${esc(t.id)}"><span>${esc(t.shown || t.text)}</span><button type="button" class="tpill keep">Keep</button><button type="button" class="todo-x" aria-label="Dismiss">✕</button></div>`).join('') : '';
+      // Suggestions: ones you decide (Accept / No), and your own waiting (take it back).
+      const ideas = data.suggestions || [];
+      document.getElementById('todo-ideas').innerHTML = ideas.length ? '<div style="font-size:12px;color:#8e8e93;margin-top:4px">💡 Suggestions</div>' + ideas.map(s =>
+        `<div class="idea" data-sid="${esc(s.id)}"><span>${esc(s.from === 'you' ? 'You' : s.from)}${s.item ? ` on “${esc(s.item)}”` : ''}: ${esc(s.summary)}</span>${s.can_decide
+          ? '<button type="button" class="tpill accept">Accept</button><button type="button" class="tpill decline">No</button>'
+          : '<span style="flex:0 0 auto;font-size:12px;color:#8e8e93">waiting</span><button type="button" class="todo-x withdraw" aria-label="Take back">✕</button>'}</div>`).join('') : '';
       bar.hidden = false;
     }
     async function todoCall(method, url, body) {
@@ -513,11 +532,20 @@
       loadTodos();
     });
     document.getElementById('todo-body').addEventListener('click', (e) => {
+      const sug = e.target.closest('[data-sid]');
+      if (sug) {
+        const url = '/api/suggestions/' + encodeURIComponent(sug.dataset.sid);
+        if (e.target.matches('.accept')) todoCall('POST', url, { accept: true });
+        else if (e.target.matches('.decline')) todoCall('POST', url, { accept: false });
+        else if (e.target.matches('.withdraw')) todoCall('DELETE', url);
+        return;
+      }
       const row = e.target.closest('[data-id]');
       if (!row) return;
       const url = '/api/todos/' + encodeURIComponent(row.dataset.id);
       if (e.target.matches('input[type=checkbox]')) todoCall('PATCH', url, { done: e.target.checked });
       else if (e.target.matches('.keep')) todoCall('PATCH', url, { keep: true });
+      else if (e.target.matches('.onit')) todoCall('POST', url + '/join');
       else if (e.target.matches('.todo-x')) todoCall('DELETE', url);
     });
     document.getElementById('todo-add').addEventListener('submit', (e) => {

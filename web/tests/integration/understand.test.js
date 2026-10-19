@@ -141,12 +141,17 @@ describe('understood and done in code', () => {
     assert.ok(e.proposed_dates, 'proposed dates are back');
   });
 
-  test('a guest who hasn\'t said yes can\'t change the plan: nothing saved, the reply offers to mark them in or pass it on', async () => {
+  // Since roles (2026-10-19): a guest's change goes to the host and co-hosts as a suggestion,
+  // and the chip says so (Melanie is a co-host of her own weekend, so Bam Bam is the guest here).
+  test('a guest\'s change is sent as a suggestion: nothing saved yet, the chip and the reply say "suggested"', async () => {
     const w = await weekend();
     const s = script([{ kind: 'set_details', event_id: w.m, venue_name: 'Steamboat Springs', quote: 'Steamboat Springs', confidence: 0.9 }]);
-    await say(w.mel, "let's do Steamboat Springs instead", { event_id: w.m });
+    await say(w.bam, "let's do Steamboat Springs instead", { event_id: w.m });
     assert.equal(db._raw().prepare('SELECT venue_name FROM social_events WHERE id = ?').get(w.m).venue_name, null);
-    assert.match(lastUserText(s.seen[0]), /haven't said yes to[\s\S]*mark them as in/);
+    assert.match(lastUserText(s.seen[0]), /✓ Suggested to (Sean & Melanie|Melanie & Sean): place → Steamboat Springs/);
+    const row = db._raw().prepare("SELECT id FROM understood WHERE kind = 'set_details' AND user_id = ?").get(w.bam.id);
+    await request.post(`/api/understood/${row.id}/undo`).set('Cookie', await cookieFor(w.bam)).send({});
+    assert.deepEqual(require('../../suggestions').forPlan(w.m, w.sean.id), [], 'Undo takes the suggestion back');
   });
 
   test('unsure → nothing done, one question with the choices', async () => {

@@ -158,7 +158,8 @@ describe('every reply is checked for an action that should have happened (2026-1
     await agent.executeTool('manage_todos', { event_id: ev, action: 'add', items: ['Buy a cake'] }, u.id, u.phone);
     await agent.executeTool('manage_todos', { event_id: ev, action: 'add', items: ['Call the spa'], assignee: 'me' }, u.id, u.phone);
     const f = home.feedFor(u.id);
-    assert.deepEqual(f.creating.map((i) => [i.text, i.who]), [['Call the spa', 'you'], ['Buy a cake', 'anyone']]);
+    // Whoever adds an item leads it (2026-10-19), so both are Sean's; nobody-led items would follow as 'anyone'.
+    assert.deepEqual(f.creating.map((i) => [i.text, i.who]), [['Buy a cake', 'you'], ['Call the spa', 'you']]);
     assert.deepEqual(f.creating_suggestions.map((x) => [x.title, x.count]), [['Melanie weekend', 2]]);
   });
 });

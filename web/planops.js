@@ -108,7 +108,11 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
   const e = db._raw().prepare('SELECT * FROM social_events WHERE id = ?').get(eventId);
   if (!e) return { error: 'EVENT_NOT_FOUND' };
   const isHost = e.host_user_id === actorId;
-  if (!isHost && !plan.canEdit(eventId, actorId)) return { error: 'NOT_IN_PLAN', message: 'Only people in the plan (the host and anyone who said yes) can change it.' };
+  if (!isHost && !plan.canEdit(eventId, actorId)) {
+    // Guests suggest; hosts and co-hosts decide (owner, 2026-10-19).
+    if (plan.roleOf(eventId, actorId) === 'guest' && via !== 'suggestion') return require('./suggestions').create(actorId, eventId, changes);
+    return { error: 'NOT_IN_PLAN', message: 'Only people in the plan can change or suggest changes to it.' };
+  }
   if (!isHost && HOST_ONLY.some((k) => changes[k] !== undefined && !(k === 'status' && changes[k] === 'open'))) {
     return { error: 'HOST_ONLY', message: `Only the host can ${changes.cancel || changes.status === 'cancelled' ? 'cancel the plan' : 'change who can see it or whether they\'re going'} — offer to ask them.` };
   }
@@ -191,6 +195,7 @@ async function invite(actorId, eventId, contactIds, { via = 'agent', quiet = fal
   const added = guestRows(eventId).filter((g) => !before.has(g.invitation_id));
   if (added.length) {
     log(eventId, actorId, via, 'invited', null, `${added.length} invited`);
+    autoCohost(eventId, { via });
     ripples.ripple(added.flatMap((g) => [
       { type: 'guest_added', event_id: eventId, actor_id: actorId, via, data: g },
       // The new guest's avoid list declined at once (inside the invite, which already sent
@@ -200,6 +205,36 @@ async function invite(actorId, eventId, contactIds, { via = 'agent', quiet = fal
   }
   return r;
 }
+
+/**
+ * The person a plan is for is a co-host automatically (owner, 2026-10-19: "the person the
+ * plan is for should become a co-host automatically") — "Melanie's Birthday Weekend" →
+ * Melanie. Not if the host already set her role themselves.
+ */
+function autoCohost(eventId, { via = 'agent' } = {}) {
+  const invId = plan.forWhom(eventId);
+  if (!invId) return null;
+  const set = db._raw().prepare("SELECT 1 FROM plan_changes WHERE event_id = ? AND field = 'cohost' AND new_value LIKE ?").get(eventId, `${invId}:%`);
+  const row = db._raw().prepare('SELECT role FROM event_invitations WHERE id = ?').get(invId);
+  if (set || !row || row.role === 'cohost') return null;
+  db._raw().prepare("UPDATE event_invitations SET role = 'cohost' WHERE id = ?").run(invId);
+  log(eventId, null, via, 'cohost', null, `${invId}:on (the plan is for them)`);
+  return invId;
+}
+
+/** The host makes someone a co-host, or not (host only). Tells them in the app. */
+function setCohost(hostId, eventId, invitationId, on = true, { via = 'app' } = {}) {
+  const g = guestRow(invitationId);
+  if (!g || g.event_id !== eventId) return { error: 'INVITATION_NOT_FOUND' };
+  if (g.host_user_id !== hostId) return { error: 'NOT_HOST', message: 'Only the host chooses co-hosts.' };
+  db._raw().prepare('UPDATE event_invitations SET role = ? WHERE id = ?').run(on ? 'cohost' : 'guest', invitationId);
+  log(eventId, hostId, via, 'cohost', null, `${invitationId}:${on ? 'on' : 'off'}`);
+  const u = g.phone && db.getUserByPhone(g.phone);
+  if (u) require('./ripples/notice').inApp(u.id, eventId, on ? `${first(db.getUser(hostId)?.name)} made you a co-host of ${g.title} — you can change the plan for everyone now.`
+    : `You're a guest on ${g.title} now — your changes go to the host as suggestions.`);
+  return { ok: true, name: g.name, cohost: !!on };
+}
+const first = (s) => String(s || '').trim().split(/\s+/)[0] || 'Someone';
 
 // Who's on a plan, as ripple data (one row per invitation).
 function guestRows(eventId) {
@@ -345,6 +380,10 @@ function deferOn(userId, { invitation_id, defer_to, undo = false }) {
 function merge(actorId, keepId, dropId, { via = 'agent' } = {}) {
   // Anyone in both plans can combine them (owner, 2026-10-19 — Melanie's "Massages" and Sean's
   // weekend, two hosts, couldn't be combined).
+  // A guest of either plan can only suggest it (to the kept plan's host and co-hosts).
+  if ((!plan.canEdit(keepId, actorId) || !plan.canEdit(dropId, actorId)) && plan.roleOf(keepId, actorId) && plan.roleOf(dropId, actorId) && via !== 'suggestion') {
+    return require('./suggestions').create(actorId, keepId, { merge_from: dropId });
+  }
   const r = multiparty.mergeEvents(actorId, keepId, dropId, { canEdit: plan.canEdit });
   if (r.merged) {
     log(keepId, actorId, via, 'merged_in', dropId, r.combined.title); log(dropId, actorId, via, 'status', 'open', 'cancelled');
@@ -419,7 +458,7 @@ function revert(actorId, eventId, { at, via = 'undo' } = {}) {
 const FIELD_WORDS = { title: 'the name', notes: 'the notes', venue_name: 'the place', venue_address: 'the address', scheduled_at: 'the date/time',
   date_tbd: 'the date', proposed_dates: 'the proposed dates', tentative: 'locked in / tentative', flexible_time: 'the time', duration_mins: 'how long',
   status: 'cancelled / reopened', group_id: 'the group', event_type: 'who can see it', host_attending: 'whether you\'re going', activity_type: 'what it is' };
-const VIA_WORDS = { agent: 'ButterflAI', app: 'You', undo: 'Undo', retro: 'ButterflAI (cleanup)', negotiation: 'Agents', desire: 'ButterflAI', share: 'You', ripple: 'ButterflAI', understood: 'ButterflAI (from your message)' };
+const VIA_WORDS = { agent: 'ButterflAI', app: 'You', undo: 'Undo', retro: 'ButterflAI (cleanup)', negotiation: 'Agents', desire: 'ButterflAI', share: 'You', ripple: 'ButterflAI', understood: 'ButterflAI (from your message)', suggestion: 'Accepted suggestion' };
 
 /**
  * Recent changes to a plan's own details, grouped by moment, newest first — what the host
@@ -454,4 +493,4 @@ function history(eventId, limit = 50) {
   return db._raw().prepare('SELECT * FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT ?').all(eventId, limit);
 }
 
-module.exports = { create, update, invite, merge, revert, undoLast, recentChanges, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };
+module.exports = { autoCohost, setCohost, create, update, invite, merge, revert, undoLast, recentChanges, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };

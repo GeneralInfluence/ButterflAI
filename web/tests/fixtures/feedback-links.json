@@ -22,6 +22,6 @@
   },
   "20": {
     "note_starts": "Melanie had tried to add massages to her birthday weekend",
-    "test": "tests/integration/co-create.test.js › Sean folds Melanie's \"Massages\" into the weekend: one plan, her Creating items and her with it, both told"
+    "test": "tests/integration/co-create.test.js › combining: Melanie (co-host of the weekend, host of Massages) folds hers in; Creating and her come along"
   }
 }

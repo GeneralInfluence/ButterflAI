@@ -179,7 +179,9 @@ describe('renaming a plan', () => {
     const hc = await cookieFor(host); const gc = await cookieFor(guest);
     assert.equal((await request.get('/api/chat/discussions').set('Cookie', hc)).body.discussions[0].can_rename, true);
     assert.equal((await request.get('/api/chat/discussions').set('Cookie', gc)).body.discussions[0].can_rename, false);
-    assert.equal((await request.patch('/api/events/' + ev).set('Cookie', gc).send({ title: 'Mine now' })).status, 403);
+    // A guest's rename is a suggestion to the host since roles (2026-10-19) — was 403.
+    const g = await request.patch('/api/events/' + ev).set('Cookie', gc).send({ title: 'Mine now' });
+    assert.equal(g.body.suggested, true);
     assert.equal((await request.patch('/api/events/' + ev).set('Cookie', hc).send({ title: '   ' })).status, 400);
     assert.equal((await request.patch('/api/events/' + ev).set('Cookie', hc).send({ title: 'x'.repeat(81) })).status, 400);
     assert.equal((await request.patch('/api/events/' + ev).set('Cookie', hc).send({ title: "  Melanie's   birthday camping " })).status, 200);

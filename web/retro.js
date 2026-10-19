@@ -398,7 +398,11 @@ const TASKS = [
       const massages = db._raw().prepare(`SELECT se.id FROM social_events se JOIN event_invitations ei ON ei.event_id = se.id JOIN contacts c ON c.id = ei.contact_id
         WHERE se.title = 'Massages' AND se.host_user_id != ? AND COALESCE(se.status, 'open') != 'cancelled' AND c.phone = ? AND ei.status = 'accepted'`).get(user.id, user.phone || '');
       if (!massages) return 'no massages plan';
-      const r = require('./planops').merge(user.id, weekend.id, massages.id, { via: 'retro' });
+      // As Melanie (she hosts Massages and is the weekend's co-host) — since roles (2026-10-19) a
+      // guest's combine is only a suggestion.
+      const actor = db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(massages.id).host_user_id;
+      require('./planops').autoCohost(weekend.id, { via: 'retro' });
+      const r = require('./planops').merge(actor, weekend.id, massages.id, { via: 'retro' });
       return r.merged ? 'combined' : `not combined: ${r.error}`;
     },
   },
@@ -420,6 +424,49 @@ const TASKS = [
         }
       }
       return `removed ${removed}`;
+    },
+  },
+  {
+    id: '2026-10-19-cohosts-and-leads',
+    added: Date.UTC(2026, 9, 19) / 1000,
+    kind: 'internal',
+    about: 'Roles (owner, 2026-10-19): the person a plan is for becomes its co-host ("Melanie\'s Birthday Weekend" → Melanie), and every Creating item someone added gets them as its lead (items had no lead before).',
+    run(user) {
+      const planops = require('./planops');
+      let cohosts = 0, leads = 0;
+      for (const e of db._raw().prepare("SELECT id FROM social_events WHERE host_user_id = ? AND COALESCE(status, 'open') != 'cancelled'").all(user.id)) {
+        if (planops.autoCohost(e.id, { via: 'retro' })) cohosts++;
+        const ms = require('./todos').members(e.id);
+        for (const t of db._raw().prepare('SELECT id, created_by FROM event_todos WHERE event_id = ? AND assignee_phone IS NULL AND suggested = 0').all(e.id)) {
+          const m = ms.find((x) => x.phone && x.phone === db.getUser(t.created_by)?.phone);
+          if (m) { db._raw().prepare('UPDATE event_todos SET assignee_phone = ?, assignee_name = ? WHERE id = ?').run(m.phone, m.name, t.id); leads++; }
+        }
+      }
+      return `co-hosts ${cohosts}, leads ${leads}`;
+    },
+  },
+  {
+    id: '2026-10-19-one-massages-item',
+    added: Date.UTC(2026, 9, 19) / 1000,
+    kind: 'internal',
+    about: 'Owner, 2026-10-19 ("these are all roughly the same thing … multiple people collaborating on a single thing, like massages"): the massage items on Melanie\'s Birthday Weekend become one "Massages" item — Friday, before 3pm while the kids are at school — led by Melanie, with Sean on it, and the other wordings kept in its notes. Only where report #20 exists.',
+    run(user) {
+      if (!db._raw().prepare("SELECT 1 FROM feedback WHERE id = 20 AND user_note LIKE 'Melanie had tried to add massages to her birthday weekend%'").get()) return 'no report';
+      const e = db._raw().prepare("SELECT id FROM social_events WHERE host_user_id = ? AND title = 'Melanie''s Birthday Weekend' AND COALESCE(status, 'open') != 'cancelled'").get(user.id);
+      if (!e) return 'no weekend';
+      const items = db._raw().prepare("SELECT * FROM event_todos WHERE event_id = ? AND done_at IS NULL AND suggested = 0 AND (lower(text) LIKE '%massage%' OR lower(text) LIKE '%spa %' OR lower(text) LIKE '%spas %')").all(e.id);
+      if (items.length < 2) return 'nothing to collapse';
+      const mel = require('./todos').members(e.id).find((m) => /^melanie\b/i.test(m.name || ''));
+      const day = items.map((t) => t.day).find(Boolean) || null;
+      const notes = `Ideas so far: ${items.map((t) => t.text).filter((x) => !/^massages?$/i.test(x)).join(' · ')}`.slice(0, 500);
+      const id = require('uuid').v4();
+      db._raw().transaction(() => {
+        for (const t of items) { db._raw().prepare('DELETE FROM todo_team WHERE todo_id = ?').run(t.id); db._raw().prepare('DELETE FROM event_todos WHERE id = ?').run(t.id); }
+        db._raw().prepare(`INSERT INTO event_todos (id, event_id, text, assignee_phone, assignee_name, created_by, day, when_text, notes, status) VALUES (?, ?, 'Massages', ?, ?, ?, ?, ?, ?, 'idea')`)
+          .run(id, e.id, mel?.phone || null, mel?.name || null, user.id, day, day ? 'before 3pm (kids at school)' : 'Fri before 3pm (kids at school)', notes);
+        if (user.phone) db._raw().prepare('INSERT OR IGNORE INTO todo_team (todo_id, phone, name) VALUES (?, ?, ?)').run(id, user.phone, user.name);
+      })();
+      return `collapsed ${items.length}`;
     },
   },
   {

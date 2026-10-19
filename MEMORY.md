@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1018_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1023_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -907,27 +907,35 @@ caught known misreadings afterwards — every new misreading got through until i
   offered them in that plan's discussion.
 - Tests: `tests/integration/understand.test.js` (scripted), `tests/eval-understand.js` (real).
 
-## 24. Plans are made together `[LOCKED 2026-10-19]`
+## 24. Plans are made together: roles, suggestions, items with a team `[LOCKED 2026-10-19]`
 
-Owner (🐛 #20): "Hosting doesn't mean that I'm the only one who can do anything. Other people
-should be able to contribute to it and help create it." Melanie's massages became her own plan
-because she couldn't change Sean's weekend, and then the two couldn't be combined (two hosts);
-Sean's agent kept saying "I can't, Melanie's hosting it".
-- **Who can change a plan:** the host and everyone who said yes (`plan.canEdit`; `can_edit` on
-  the plan object) — details, dates, place, notes, lock in, undo, combine. Only the host:
-  cancel, who can see it, group, whether the host is going (`planops.HOST_ONLY`). Invited but
-  not answered: nothing (they're offered to say yes first). Nudges ("Pick dates", "Lock in the
-  plan") still go to the host only.
-- **Combining** works across hosts when the person is in both; the folded plan's host joins as a
-  yes; its open Creating items move (repeats stay behind).
-- **The host is told** in the app when someone else changes their plan, and both hosts when
-  plans are combined (`ripples/reactions/co-creator-fyi.js`). Recent changes say who
-  ("Melanie's ButterflAI changed the notes").
-- **Creating doesn't repeat itself:** an item whose words are all in an open item is refused
-  (`todos.repeats`) — the weekend had five massage items.
-- Inviting people stays with the host for now (invites go out from the host's contacts).
-- Retro: Melanie's "Massages" folded into Sean's weekend (report #20); repeated Creating items
-  removed on everyone's plans. Tests: `tests/integration/co-create.test.js`.
+🐛 #20 (Melanie's massages became their own plan; Sean's agent: "I can't, Melanie's hosting
+it"), then owner: "guests suggest, hosts and co-hosts decide"; "the person the plan is for
+should become a co-host automatically"; items: "people can suggest a thing and they would
+automatically become that lead, but anybody can decide to try to do something about it. And
+once they start taking action, they can make that edit … people shouldn't be able to
+accidentally edit stuff that they're not focusing on."
+- **Roles** (`plan.roleOf`, `event_invitations.role`, migration 061): **host** (everything;
+  only one who cancels, picks co-hosts, changes visibility/group); **co-host** (the host's
+  edits — `plan.canEdit`); **guest** (their own answer/going; any other change they make —
+  app, agent, understand — becomes a **suggestion**). The person a plan is for is a co-host
+  automatically (`plan.forWhom`: "Melanie's …" → Melanie; `planops.autoCohost` on invite);
+  the host adds/removes co-hosts (`set_cohost`, `POST /api/events/:id/cohost`, plan summary).
+- **Suggestions** (`web/suggestions.js`, `plan_suggestions`): sent to the host + co-hosts (an
+  item's lead + team for item changes), in-app "💡 Bam suggests …"; Accept / No in the plan's
+  chat and summary, or `decide_suggestion`; accepted = applied as the decider (logged, rippled);
+  the suggester is told; they can take it back. Combining plans a guest is in → a suggestion.
+- **Creating items** have a **lead** (whoever added it; ButterflAI's suggestions have none until
+  kept) and a **team** (`todo_team`: "I'm on it"). Details: when_text, place, status (idea /
+  options / chosen / booked), notes. Only the team edits; others' edits are suggestions to the
+  team unless they take it on (`join`). Removing: team, host/co-hosts. A repeat of an open
+  item is refused and pointed at the existing one; understand.js `update_item` adds details to
+  an existing item instead of a new one.
+- Co-hosts and hosts get an FYI when someone else changes their plan (`co-creator-fyi`);
+  Recent changes say who. Nudges ("Pick dates", "Lock in") stay with the host.
+- Retro: co-hosts for the people plans are for; leads for items; Massages folded into Melanie's
+  weekend (#20); its five massage items → one "Massages" (Fri before 3pm, Melanie leads, Sean
+  on it); repeated items removed. Tests: `tests/integration/co-create.test.js`.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

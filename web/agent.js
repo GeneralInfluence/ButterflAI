@@ -436,12 +436,18 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'manage_todos',
-    description: 'A plan\'s to-do list (everyone in the plan sees it). list: what\'s left. suggest: propose to-dos (the user keeps the ones they want — use after creating a plan or when details change; 2–5 concrete items like "book the campsite", "who brings the heater?"). add: add one the user asked for. keep: keep a suggestion. done / undo: check off / reopen. assign: give it to someone in the plan (name, or "me"). remove: delete.',
+    description: 'A plan\'s Creating list — things to make happen, each with a lead and a team (everyone in the plan sees it). list: what\'s there (with who leads each and whether your user is on it). suggest: propose items (the user keeps the ones they want; 2–5 concrete ones). add: a NEW item your user brought up — they lead it. Never add something already on the list in other words: use update. update: add details to an item (when_text, place, status idea|options|chosen|booked, notes, text) — only the item\'s team edits; if your user isn\'t on it, it goes to the team as a suggestion (set join: true only when your user is taking it on themselves — "I\'ll book it"). join: your user is on it ("I\'m on it"). leave. keep: keep a suggestion (your user leads it). done / undo. assign: give it to someone in the plan. remove.',
     input_schema: {
       type: 'object',
       properties: {
         event_id: { type: 'string', description: 'The plan (eventId)' },
-        action:   { type: 'string', enum: ['list', 'suggest', 'add', 'keep', 'done', 'undo', 'assign', 'remove'] },
+        action:   { type: 'string', enum: ['list', 'suggest', 'add', 'update', 'join', 'leave', 'keep', 'done', 'undo', 'assign', 'remove'] },
+        when_text: { type: 'string', description: 'For update/add: when, in words ("before 3pm", "Saturday evening")' },
+        place:    { type: 'string', description: 'For update/add: where' },
+        status:   { type: 'string', enum: ['idea', 'options', 'chosen', 'booked'], description: 'For update' },
+        notes:    { type: 'string', description: 'For update/add: details (options found, prices, who\'s in)' },
+        text:     { type: 'string', description: 'For update: a new name for the item' },
+        join:     { type: 'boolean', description: 'For update: your user is taking it on (joins its team, then edits)' },
         items:    { type: 'array', items: { type: 'string' }, description: 'For suggest/add: the to-do texts' },
         todo_id:  { type: 'string', description: 'For keep/done/undo/assign/remove (from list)' },
         assignee: { type: 'string', description: 'For add/assign: a person in the plan, or "me"' },
@@ -449,6 +455,18 @@ const TOOL_DEFINITIONS = [
       },
       required: ['event_id', 'action'],
     },
+  },
+  {
+    name: 'decide_suggestion',
+    description: 'Accept or decline a suggestion someone made for a plan (or a Creating item) your user decides on — listed under "suggestions waiting" in Open events. Only when your user said so.',
+    input_schema: { type: 'object', properties: {
+      suggestion_id: { type: 'string' }, accept: { type: 'boolean' } }, required: ['suggestion_id', 'accept'] },
+  },
+  {
+    name: 'set_cohost',
+    description: 'The host makes someone in the plan a co-host (can change the plan for everyone, not cancel it), or back to a guest. The person a plan is for is a co-host automatically.',
+    input_schema: { type: 'object', properties: {
+      event_id: { type: 'string' }, name: { type: 'string', description: 'Who, as your user said it' }, cohost: { type: 'boolean' } }, required: ['event_id', 'name', 'cohost'] },
   },
   {
     name: 'merge_plans',
@@ -1401,7 +1419,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           if (action === 'add' && done.some((d) => [...words(text)].some((w) => words(d.label.split(' → ')[0]).has(w) || words(d.label.split(' → ')[0]).has(w.replace(/s$/, ''))))) { already.push(text); continue; }
           // The day: the one the model named, else the calendar day the user was looking at
           // (🐛 #15 — Melanie's Friday massage was recorded as Saturday). Enforced here.
-          const r = todos.add(userId, event_id, { text, assignee, suggested: action === 'suggest', day: todoDay(toolInput.day) });
+          const r = todos.add(userId, event_id, { text, assignee, suggested: action === 'suggest', day: todoDay(toolInput.day),
+            ...(items.length === 1 ? { when_text: toolInput.when_text, place: toolInput.place, notes: toolInput.notes } : {}) });
           if (r.error) problems.push(`${text}: ${r.message || r.error}`); else added.push(r.todo.text);
         }
         const dayUsed = todoDay(toolInput.day);
@@ -1409,6 +1428,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           already_added: already.length ? `${already.join(', ')} — already on Creating (added for this message); don't add again` : undefined,
           day: dayUsed && added.length ? `${dayUsed} — recorded for that day${dayUsed === currentTurn?.contextDay ? ' (the day your user opened the plan from); don\'t ask which day' : ''}` : undefined,
           note: action === 'suggest' ? 'Suggestions show at the top of the plan\'s chat with Keep / ✕. Mention them briefly; keep the ones your user wants with action keep.' : undefined };
+      }
+      if (action === 'join') return todos.join(userId, todo_id);
+      if (action === 'leave') return todos.leave(userId, todo_id);
+      if (action === 'update') {
+        const changes = {};
+        for (const k of ['when_text', 'place', 'status', 'notes', 'text']) if (toolInput[k] !== undefined) changes[k] = toolInput[k];
+        if (toolInput.day !== undefined) changes.day = todoDay(toolInput.day);
+        return todos.update(userId, todo_id, changes, { join: toolInput.join === true });
       }
       const change = { keep: { keep: true }, done: { done: true }, undo: { done: false }, assign: { assignee } }[action];
       if (change) return todos.update(userId, todo_id, change);
@@ -1443,6 +1470,19 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       }
       pendingMerges.delete(key);
       return planops.merge(userId, keep, drop, { via: 'agent' });
+    }
+
+    case 'decide_suggestion': {
+      return require('./suggestions').decide(userId, toolInput.suggestion_id, toolInput.accept === true);
+    }
+
+    case 'set_cohost': {
+      const p = planObj.planFor(toolInput.event_id, userId);
+      if (!p || p.role !== 'host') return { error: 'NOT_HOST', message: 'Only the host chooses co-hosts.' };
+      const want = String(toolInput.name || '').toLowerCase();
+      const hit = p.people.filter((x) => x.name.toLowerCase().startsWith(want.split(/\s+/)[0]));
+      if (hit.length !== 1) return { error: 'WHO', message: `Say which one: ${p.people.map((x) => x.name).join(', ')}` };
+      return planops.setCohost(userId, p.id, hit[0].invitation_id, toolInput.cohost !== false, { via: 'agent' });
     }
 
     case 'defer_on_plan': {
@@ -2109,6 +2149,8 @@ async function processMessage(msg) {
           + (p.asked.length ? ` | asked, no answer yet: ${p.asked.join(', ')}` : '')
           + (p.answers.length ? ` | friends' ButterflAIs said: ${p.answers.map((a) => `${a.who} (${a.topic}): "${String(a.answer).slice(0, 120)}"`).join('; ')}` : '')
           + (p.creating.total || p.creating.suggested ? ` | Creating ${p.creating.done}/${p.creating.total}${p.creating.suggested ? ` (+${p.creating.suggested} suggested)` : ''}` : '')
+          + (p.cohosts?.length ? ` | co-hosts: ${p.cohosts.join(', ')}` : '')
+          + (() => { const w = require('./suggestions').forPlan(p.id, userId).filter((x) => x.can_decide); return w.length ? ` | suggestions waiting: ${w.map((x) => `${x.from}${x.item ? ` on "${x.item}"` : ''}: ${x.summary} (suggestion_id="${x.id}")`).join('; ')}` : ''; })()
           + (p.next ? ` | next: ${p.next}` : ''));
       return rows.length ? rows.join('\n') : '  (none)';
     } catch (_) { return '  (none)'; }
@@ -2128,9 +2170,9 @@ async function processMessage(msg) {
         const inv = p.invitation;
         const ask = inv.must_ask ? ' | ⚠ ASK YOUR USER before responding (never say why)' : '';
         const def = inv.deferred_to.length ? ` | your user deferred — goes with whatever ${defer.joinNames(inv.deferred_to)} decide` : '';
-        return `  - inv_id="${inv.id}" | eventId="${p.id}" | "${p.title}" hosted by ${p.host.name} | ${p.dates.label}${p.place ? ` at ${p.place}` : ''}${p.notes ? ` | notes: ${String(p.notes).slice(0, 160)}` : ''} | your status: ${inv.status}${p.can_edit ? ' | YOUR USER CAN CHANGE THIS PLAN (they said yes)' : ''}${def}${ask}`;
+        return `  - inv_id="${inv.id}" | eventId="${p.id}" | "${p.title}" hosted by ${p.host.name} | ${p.dates.label}${p.place ? ` at ${p.place}` : ''}${p.notes ? ` | notes: ${String(p.notes).slice(0, 160)}` : ''} | your status: ${inv.status} | your role: ${p.my_role === 'cohost' ? 'CO-HOST (changes the plan for everyone)' : 'guest (plan changes become suggestions to the host)'}${p.my_role === 'cohost' ? (() => { const w = require('./suggestions').forPlan(p.id, userId).filter((x) => x.can_decide); return w.length ? ` | suggestions waiting: ${w.map((x) => `${x.from}${x.item ? ` on "${x.item}"` : ''}: ${x.summary} (suggestion_id="${x.id}")`).join('; ')}` : ''; })() : ''}${def}${ask}`;
       }).join('\n');
-      return `\n## You have been invited to (by other ButterflAI users)\n${lines}\n- Use confirm_coordination_invite to RSVP and optionally add to your calendar\n- Plans marked YOUR USER CAN CHANGE THIS PLAN: change them directly with update_event / manage_todos / merge_plans (eventId above) — the host is told. Only cancelling stays with the host.`;
+      return `\n## You have been invited to (by other ButterflAI users)\n${lines}\n- Use confirm_coordination_invite to RSVP and optionally add to your calendar\n- CO-HOST plans: change them directly (update_event / merge_plans, eventId above); the host is told. Guest plans: still use update_event for what your user wants changed — it goes to the host and co-hosts as a suggestion; tell your user it was suggested, not changed.`;
     } catch (_) { return ''; }
   })();
 
@@ -2428,7 +2470,8 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   CALENDAR: every plan your user is in shows on their connected Google Calendar automatically and follows every change (dates, place, cancel, their answer). Never use create_calendar_event for a plan — that makes a second, stale copy; it is only for things that aren't plans.
   EVERY QUESTION IS ABOUT A PLAN: message_agent always takes the plan's event_id — if there is no plan yet, create it first (tentative, no date needed). Answers land on the plan ("friends' ButterflAIs said" in Open events): read them there and never ask the same person the same thing again — the less people are bothered, the better.
   ONE PLAN AT A TIME: in a plan's discussion, change only that plan. Something your user says there ("noon till 6", "kids won't last") is about that plan — never copy it onto their other plans. To change another plan they must name it.
-  PLANS ARE MADE TOGETHER: the host AND everyone who said yes can change a plan — dates, place, notes, Creating, lock it in, combine it with another plan they're in. Never tell your user "I can't, X is hosting it": do it (update_event / manage_todos / merge_plans); the host is told. Only cancelling stays with the host. If your user hasn't said yes yet, offer to mark them in first.
+  PLANS ARE MADE TOGETHER — GUESTS SUGGEST, HOSTS AND CO-HOSTS DECIDE: the host and co-hosts (the person a plan is for is one automatically; the host can add more with set_cohost) change a plan for everyone. A guest's change still goes through update_event / merge_plans — it becomes a suggestion the host and co-hosts accept or decline; tell your user "suggested to X", never "changed", and never "I can't". Only the host cancels. When your user decides on a suggestion ("yes, do Melanie's idea"), use decide_suggestion.
+  CREATING ITEMS HAVE A LEAD AND A TEAM: whoever brings an item up leads it. Before adding, check the list — if it's already there in other words, add details to that item (manage_todos update), never a second one. Only the item's team edits it; your user's ideas about someone else's item go to them as a suggestion, unless your user is taking it on themselves ("I'll book it" → join: true).
   PLAN CIRCLE: agents of people who are in the same plan (host, or said yes) are insiders for THAT plan — they settle its logistics between themselves and only bring their users what needs a decision. Your state says whether a question comes from INSIDE a plan or from OUTSIDE your user's plans; never treat an outsider as an insider.
   WHEN ANSWERING ANOTHER AGENT YOUR FINAL TEXT IS SHOWN TO NO ONE. Only reply_agent (to the other agent) and tell_my_user (to your user) reach anybody. Never put your reasoning in either.
   3. "WHAT IS YOUR USER UP TO / WHERE ARE THEY / WHAT ARE THEIR PLANS": NEVER answer this yourself — not from memory, not from old messages. Where your user will be is theirs to share. Do NOT ping your user to answer it either — ButterflAI never pushes people to respond to individuals. Reply via reply_agent with only what your user has explicitly shared for that time; if nothing, reply "Nothing shared for tonight."

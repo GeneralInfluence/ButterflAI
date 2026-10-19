@@ -53,14 +53,14 @@ function planFor(eventId, viewerId) {
   if (!viewer) return null;
   const tz = viewer.timezone || 'America/Los_Angeles';
   const host = db.getUser(e.host_user_id);
-  const invitations = db._raw().prepare(`SELECT ei.id, ei.status, ei.going, ei.defers_to, ei.dismissed_at, ei.needs_owner_decision, c.phone, COALESCE(c.nickname, c.name) AS name
+  const invitations = db._raw().prepare(`SELECT ei.id, ei.status, ei.going, ei.role, ei.defers_to, ei.dismissed_at, ei.needs_owner_decision, c.phone, COALESCE(c.nickname, c.name) AS name
     FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ?`).all(e.id);
   const isHost = e.host_user_id === viewerId;
   const mine = invitations.find((i) => i.phone && i.phone === viewer.phone);
   if (!isHost && (!mine || mine.dismissed_at)) return null;
 
   const people = invitations.map((i) => ({
-    name: first(i.name), status: i.status,
+    name: first(i.name), status: i.status, cohost: i.role === 'cohost', invitation_id: isHost ? i.id : undefined,
     // On a tentative plan a yes is "interested" unless they said they're going (2026-10-13).
     going: i.status === 'accepted' && (!!i.going || !e.tentative),
     deferring_to: parseJson(i.defers_to, []).map((n) => (isHost && n === first(viewer.name) ? 'you' : n)),
@@ -89,7 +89,8 @@ function planFor(eventId, viewerId) {
   const waiting = plain.filter((p) => p.status === 'invited').map((p) => p.name);
   // Paused after a heads-up (ripples/reactions/avoid-heads-up.js): they said yes before.
   const stillGoing = !isHost && mine && mine.status === 'accepted' && mine.needs_owner_decision;
-  const canEditIt = isHost || (mine?.status === 'accepted' && e.status !== 'cancelled');
+  const myRole = isHost ? 'host' : mine && mine.status !== 'declined' ? (mine.role === 'cohost' ? 'cohost' : 'guest') : null;
+  const canEditIt = e.status !== 'cancelled' && ['host', 'cohost'].includes(myRole);
   const next = stillGoing ? 'Still going? Tap to answer'
     : stage === 'invited' ? (e.tentative ? 'Interested? Tap to answer' : 'Tap to respond')
     : isHost && stage === 'idea' ? 'Pick dates'
@@ -97,7 +98,8 @@ function planFor(eventId, viewerId) {
       ? 'Lock in the plan — tell your agent the final details' : null;
 
   return {
-    id: e.id, title: e.title, what: e.activity_type, can_edit: canEditIt, place: e.venue_name || null, notes: e.notes || null,
+    id: e.id, title: e.title, what: e.activity_type, can_edit: canEditIt, my_role: myRole,
+    cohosts: invitations.filter((i) => i.role === 'cohost' && i.status !== 'declined').map((i) => first(i.name)), place: e.venue_name || null, notes: e.notes || null,
     host: { name: first(host?.name), is_you: isHost }, role: isHost ? 'host' : 'guest',
     invitation: mine ? { id: mine.id, status: mine.status, going: mine.status === 'accepted' && (!!mine.going || !e.tentative), must_ask: !!mine.needs_owner_decision && mine.status !== 'declined',
       deferred_to: parseJson(mine.defers_to, []) } : null,
@@ -108,6 +110,8 @@ function planFor(eventId, viewerId) {
     asked, creating: { done: todo.done || 0, total: todo.kept || 0, suggested: todo.suggested || 0 },
     // What friends' ButterflAIs answered this viewer's questions about this plan (answers.js).
     answers: require('./answers').forPlan(e.id, viewerId),
+    // Suggestions waiting: all of them for deciders, the viewer's own otherwise (suggestions.js).
+    suggestions: require('./suggestions').forPlan(e.id, viewerId),
     next,
   };
 }
@@ -145,19 +149,44 @@ function inCircle(eventId, userA, userB) {
 }
 
 /**
- * Who can change a plan (owner, 2026-10-19: "Hosting doesn't mean that I'm the only one who
- * can do anything. Other people should be able to contribute to it and help create it."):
- * the host and everyone who has said yes (deferring counts). Cancelling, removing people and
- * who can see it stay with the host (planops.HOST_ONLY).
+ * Roles (owner, 2026-10-19, after 🐛 #20): "guests suggest, hosts and co-hosts decide", and
+ * "the person the plan is for should become a co-host automatically".
+ *   host    — made the plan: everything, incl. cancel and who's a co-host
+ *   cohost  — the host made them one, or the plan is for them: the host's edits, not cancel
+ *   guest   — invited (answered or not): their own answer and details; everything else they
+ *             say about the plan is a suggestion the host / co-hosts accept or decline
+ * Returns 'host' | 'cohost' | 'guest' | null (not in it, declined, or hid it).
  */
-function canEdit(eventId, userId) {
-  if (!eventId || !userId) return false;
+function roleOf(eventId, userId) {
+  if (!eventId || !userId) return null;
   const e = db._raw().prepare('SELECT host_user_id, status FROM social_events WHERE id = ?').get(eventId);
-  if (!e || e.status === 'cancelled') return false;
-  if (e.host_user_id === userId) return true;
+  if (!e) return null;
+  if (e.host_user_id === userId) return 'host';
   const u = db.getUser(userId);
-  return !!(u?.phone && db._raw().prepare(`SELECT 1 FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
-    WHERE ei.event_id = ? AND c.phone = ? AND ei.status = 'accepted' AND ei.dismissed_at IS NULL`).get(eventId, u.phone));
+  const i = u?.phone && db._raw().prepare(`SELECT ei.role, ei.status FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+    WHERE ei.event_id = ? AND c.phone = ? AND ei.dismissed_at IS NULL`).get(eventId, u.phone);
+  if (!i || i.status === 'declined') return null;
+  return i.role === 'cohost' ? 'cohost' : 'guest';
+}
+/** Can change the plan for everyone: host or co-host, plan not cancelled. */
+function canEdit(eventId, userId) {
+  const e = eventId && db._raw().prepare('SELECT status FROM social_events WHERE id = ?').get(eventId);
+  if (!e || e.status === 'cancelled') return false;
+  return ['host', 'cohost'].includes(roleOf(eventId, userId));
+}
+/**
+ * Who a plan is for, from its name: "Melanie's Birthday Weekend" → the invitee called
+ * Melanie (first name, nickname, or name starting with it). One match only, else null.
+ */
+function forWhom(eventId) {
+  const e = db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(eventId);
+  const m = /^\s*([A-Za-z][\w-]*)['’]s\b/.exec(e?.title || '') || /\b(?:for|with)\s+([A-Z][\w-]*)\s*$/.exec(e?.title || '');
+  if (!m) return null;
+  const want = m[1].toLowerCase();
+  const rows = db._raw().prepare(`SELECT ei.id, COALESCE(c.nickname, c.name) AS name, c.name AS full FROM event_invitations ei
+    JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ? AND ei.status != 'declined'`).all(eventId)
+    .filter((r) => [r.name, r.full].some((n) => String(n || '').toLowerCase().split(/\s+/)[0] === want));
+  return rows.length === 1 ? rows[0].id : null;
 }
 
 /** Normalized plan name for "is this the same plan?" (case, punctuation, spacing). */
@@ -173,4 +202,4 @@ function existingByName(hostUserId, title) {
   return rows.find((r) => sameName(r.title, title)) || null;
 }
 
-module.exports = { planFor, plansFor, existingByName, sameName, inCircle, canEdit };
+module.exports = { planFor, plansFor, existingByName, sameName, inCircle, canEdit, roleOf, forWhom };

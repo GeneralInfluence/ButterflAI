@@ -66,14 +66,23 @@ describe('plan to-dos', () => {
     assert.deepEqual(l.progress, { done: 1, total: 2 });
   });
 
-  test('everyone in the plan sees and changes it (API); someone outside can\'t', async () => {
+  // Was "everyone in the plan sees and changes it". Since 2026-10-19 (owner: "people shouldn't be
+  // able to accidentally edit stuff that they're not focusing on") everyone sees it, whoever adds
+  // an item leads it, and someone else's change is a suggestion to them until they take it on.
+  test('everyone in the plan sees it; whoever adds an item leads it; others suggest or take it on (API); someone outside can\'t', async () => {
     const list = await request.get(`/api/events/${ev}/todos`).set('Cookie', ac);
     assert.equal(list.status, 200);
     assert.ok(list.body.todos.some((t) => t.text === 'Bring the heater' && t.assignee === 'Allie'));
     const add = await request.post(`/api/events/${ev}/todos`).set('Cookie', ac).send({ text: 'Buy marshmallows' });
     assert.equal(add.status, 200);
-    const done = await request.patch(`/api/todos/${add.body.todo.id}`).set('Cookie', sc).send({ done: true });
-    assert.equal(done.body.todo.done, true, 'the host checks off what Allie added');
+    assert.equal(add.body.todo.lead, 'Allie', 'she added it, she leads it');
+    const sug = await request.patch(`/api/todos/${add.body.todo.id}`).set('Cookie', sc).send({ done: true });
+    assert.equal(sug.body.suggested, true, 'the host checking off Allie\'s item is a suggestion to her');
+    const s = (await request.get(`/api/events/${ev}/todos`).set('Cookie', ac)).body.suggestions.find((x) => x.todo_id === add.body.todo.id);
+    assert.equal(s.can_decide, true);
+    assert.equal((await request.post(`/api/suggestions/${s.id}`).set('Cookie', ac).send({ accept: true })).body.status, 'accepted');
+    const done = (await request.get(`/api/events/${ev}/todos`).set('Cookie', ac)).body.todos.find((t) => t.id === add.body.todo.id);
+    assert.equal(done.done, true, 'Allie accepted: done');
     assert.equal((await request.get(`/api/events/${ev}/todos`).set('Cookie', xc)).status, 404);
     assert.equal((await request.patch(`/api/todos/${add.body.todo.id}`).set('Cookie', xc).send({ done: false })).status, 404);
     assert.equal((await request.delete(`/api/todos/${add.body.todo.id}`).set('Cookie', xc)).status, 404);

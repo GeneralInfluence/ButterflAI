@@ -111,6 +111,7 @@ function ensureEventTables() {
       response_note TEXT,
       dismissed_at INTEGER,              -- set when user hides this invite (migration 021)
       going INTEGER NOT NULL DEFAULT 0,  -- said they're going, not just interested (migration 057)
+      role TEXT NOT NULL DEFAULT 'guest', -- guest | cohost (migration 061)
       needs_owner_decision INTEGER NOT NULL DEFAULT 0, -- invitee must decide before their agent responds (migration 030)
       defers_to    TEXT,                 -- JSON array of names the invitee defers to (migration 037)
       deferred_at  INTEGER,              -- when they deferred (migration 037)

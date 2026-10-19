@@ -187,7 +187,8 @@ describe('a new guest sees Creating', () => {
     assert.equal(note.event_id, r.eventId);
     assert.match(note.text, /Creating for Grover Trip — 2 to do/);
     assert.match(note.text, /☐ Book the campsite \(Bam\)/);
-    assert.match(note.text, /☐ Bring the cooler — anyone can take it/);
+    // Whoever adds an item leads it (2026-10-19 — it used to be "anyone can take it").
+    assert.match(note.text, /☐ Bring the cooler \(Sean\)/);
   });
   test('no to-dos, no notice', async () => {
     const sean = mkUser('Sean Empty'); const allie = mkUser('Allie Empty');
