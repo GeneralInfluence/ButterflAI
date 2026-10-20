@@ -63,11 +63,13 @@ const APP_PAGES = [
   { path: '/app/events',      name: 'Events' },
   { path: '/app/creating',    name: 'Creating' },   // its own tab since 🐛 #32
   { path: '/app/settings',    name: 'Settings' },
+  { path: '/app/feed',        name: 'Feed' },       // its own tab since 2026-10-20
 ];
 
 // Home · Plans · Settings since 2026-10-20 (owner: the tabs repeated the pills and the switcher;
 // Chat, Creating and Events are one place, Plans; People is in Settings). Was 5, then 6 tabs.
-const BOTTOM_NAV_TABS = ['<span class="tab-icon">🏠</span>Home</a>', '<span class="tab-icon">🦋</span>Plans</a>', '<span class="tab-icon">⚙️</span>Settings</a>'];
+// Then Home · Feed · Plans · Settings (owner, 2026-10-20: the ideas "should become a feed … their own tab").
+const BOTTOM_NAV_TABS = ['<span class="tab-icon">🏠</span>Home</a>', '<span class="tab-icon">✨</span>Feed</a>', '<span class="tab-icon">🦋</span>Plans</a>', '<span class="tab-icon">⚙️</span>Settings</a>'];
 
 // ── PWA meta tag compliance ───────────────────────────────────────────────────
 
@@ -140,7 +142,7 @@ describe('PWA meta tags — all app pages', () => {
 
 // ── Mobile bottom nav ─────────────────────────────────────────────────────────
 
-describe('Bottom nav — Home · Plans · Settings on every app page', () => {
+describe('Bottom nav — Home · Feed · Plans · Settings on every app page', () => {
   let cookie;
 
   before(async () => {
@@ -148,7 +150,7 @@ describe('Bottom nav — Home · Plans · Settings on every app page', () => {
   });
 
   for (const { path, name } of APP_PAGES) {
-    test(`${name}: has bottom-nav with its 3 tabs`, async () => {
+    test(`${name}: has bottom-nav with its 4 tabs`, async () => {
       const res = await request.get(path).set('Cookie', cookie);
       assert.equal(res.status, 200);
       assert.ok(res.text.includes('bottom-nav'), `${name} must have .bottom-nav`);
@@ -1070,10 +1072,11 @@ describe('no redundant headers in Plans (owner, 2026-10-20)', () => {
     }
     assert.ok(!read('events.html').includes('>Events</h1>'));
   });
-  test('the bottom bar has just Home, Plans, Settings; People is in Settings; Plans reopens where you were', () => {
-    for (const f of ['dashboard.html', 'chat.html', 'creating.html', 'events.html', 'contacts.html', 'settings.html']) {
+  // 4 since the ✨ Feed got its own tab (owner, 2026-10-20) — still no Chat/Creating/Events/People tabs.
+  test('the bottom bar has just Home, Feed, Plans, Settings; People is in Settings; Plans reopens where you were', () => {
+    for (const f of ['dashboard.html', 'chat.html', 'creating.html', 'events.html', 'contacts.html', 'settings.html', 'feed.html']) {
       const nav = read(f).match(/<nav class="bottom-nav">([\s\S]*?)<\/nav>/)[1];
-      assert.equal((nav.match(/<a /g) || []).length, 3, f);
+      assert.equal((nav.match(/<a /g) || []).length, 4, f);
     }
     assert.ok(read('settings.html').includes('href="/app/contacts" class="card" id="people-link"'));
     assert.ok(fs.readFileSync(p.join(__dirname, '../../public/plan-nav.js'), 'utf8').includes("localStorage.setItem('bfly-plans-last'"));

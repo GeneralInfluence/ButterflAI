@@ -100,7 +100,7 @@ app.use(cookieParser());
 // else keeps the default.
 const jsonDefault = express.json();
 const jsonFeedback = express.json({ limit: '4mb' });
-app.use((req, res, next) => (['/api/feedback', '/api/quick', '/api/chat/send'].includes(req.path) ? jsonFeedback : jsonDefault)(req, res, next));
+app.use((req, res, next) => (['/api/feedback', '/api/quick', '/api/chat/send', '/api/ideas'].includes(req.path) ? jsonFeedback : jsonDefault)(req, res, next));
 app.use(express.urlencoded({ extended: true }));
 
 // All /api/* responses must never be cached
@@ -1688,8 +1688,16 @@ app.post('/api/spells/more', webAuth.requireAuth, async (req, res) => {   // ðŸ
   const r = await require('./spells').more(req.user.id);
   return r.error ? res.status(429).json(r) : res.json(r);
 });
+// âœ¨ Feed (ideafeed.js): a page at a time; the page sends the ids it already showed.
+app.get('/app/feed', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/feed.html')));
+app.post('/api/ideas', webAuth.requireAuth, express.json({ limit: '200kb' }), (req, res) => {
+  res.json(require('./ideafeed').page(req.user.id, { seen: req.body?.seen }));
+});
 app.post('/api/spells/:id', webAuth.requireAuth, express.json(), (req, res) => {
-  const r = require('./spells').answer(req.user.id, String(req.params.id), String(req.body?.answer || ''));
+  let id = String(req.params.id);
+  // An idea found around you (someone else's, public): it becomes yours first.
+  if (id.startsWith('pool:')) { id = require('./spells').adopt(req.user.id, id.slice(5)); if (!id) return res.status(404).json({ error: 'NOT_FOUND' }); }
+  const r = require('./spells').answer(req.user.id, id, String(req.body?.answer || ''));
   return r.error ? res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r) : res.json(r);
 });
 

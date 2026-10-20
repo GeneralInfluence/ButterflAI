@@ -32,7 +32,7 @@ const EVERY = 20 * 3600;
 const KINDS = ['nearby', 'reconnect', 'new', 'wish'];
 const PUBLIC_KINDS = ['nearby', 'new'];   // the only ideas that spread (no one's friends or wishes)
 const PER_BATCH = 8;
-const MAX_PER_DAY = 32;                    // the daily batch + three "More ideas"
+const MAX_PER_DAY = 80;                    // the daily batch + more as the ✨ Feed is scrolled (10 batches)
 const ECHOES_PER_DAY = 3;                  // passed-on ideas one person receives a day
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -250,4 +250,19 @@ function purgeOld() {
   return db._raw().prepare("DELETE FROM spells WHERE (status != 'dismissed' AND expires_at < ?) OR (status = 'dismissed' AND created_at < ?)").run(now(), now() - 60 * 86400).changes;
 }
 
-module.exports = { generate, more, tick, forUser, answer, purgeOld, contextFor, associates, echo, KINDS, PUBLIC_KINDS, _setClient };
+/** A public idea from someone in your town, seen in your ✨ Feed: becomes yours (passed on) so you can answer it. */
+function adopt(userId, originId) {
+  const o = db._raw().prepare('SELECT * FROM spells WHERE id = ?').get(originId);
+  const me = db.getUser(userId), from = o && db.getUser(o.user_id);
+  if (!o || !me || !from || o.user_id === userId || !PUBLIC_KINDS.includes(o.kind) || !o.public_title || o.status === 'dismissed') return null;
+  if (!sameTown(me, from) || avoidsEither(me, from)) return null;
+  const have = db._raw().prepare('SELECT id FROM spells WHERE user_id = ? AND (lower(title) = lower(?) OR lower(public_title) = lower(?))').get(userId, o.public_title, o.public_title);
+  if (have) return have.id;
+  const likes = db._raw().prepare("SELECT count(DISTINCT user_id) n FROM spells WHERE lower(public_title) = lower(?) AND status = 'kept'").get(o.public_title).n;
+  const id = uuidv4();
+  db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, source, origin_id, echoes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'echo', ?, ?)`).run(id, userId, o.kind, o.public_title, 'Found around you', o.link, now() + KEEP_DAYS * 86400, o.public_title, o.id, likes);
+  return id;
+}
+
+module.exports = { generate, more, tick, forUser, answer, adopt, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };

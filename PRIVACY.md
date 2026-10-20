@@ -393,6 +393,12 @@ friends or wishes never spread. Avoid lists apply both ways; at most 3 passed-on
 Ideas liked around someone (titles only, no names) also shape what ButterflAI imagines for them. With
 few people around, someone could guess who liked an idea — the owner accepted that ("they don't
 necessarily know that it's from me").
+**The ✨ Feed (2026-10-20):** a tab of ideas, a page at a time (`ideafeed.js`). Besides a person's own
+ideas it shows **public ideas ButterflAI found for other people in the same town** (city or ≤ 80 km) —
+only their public titles and links, never who they were for, how many people got them, or any idea
+about friends or wishes — with how many people around liked each. Avoid lists apply both ways. Its
+"right now" cards show only what the person can already see elsewhere: friends who are out (named),
+counts of what people around are out for, friends' shares, and public plans in town.
 
 ## I'm out (who's near you now) `[2026-10-20]`
 

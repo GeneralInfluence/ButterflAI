@@ -81,7 +81,8 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
     assert.equal(await spells.generate(sean), 1);
     assert.equal(await spells.generate(sean), 0, 'not twice in a day');
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
-    assert.ok(html.includes('<div id="spell-preview"></div>') && html.includes('✨ Sounds nice') && html.includes('✨ ButterflAI imagines…'));
+    // Since 2026-10-20 the ideas themselves are in the ✨ Feed tab; Home's Feeling points there.
+    assert.ok(html.includes('<div id="spell-preview"></div>') && html.includes('href="/app/feed"') && html.includes('for you in your Feed'));
     const home = html.slice(html.indexOf('id="sec-feeling"'), html.indexOf('id="sec-creating"'));
     assert.ok(!home.includes("quickShare('Free tonight'"), 'the quick shares moved to the full Feeling view');
     assert.equal(require('../../home').feedFor(sean.id).summary.feeling.line, '1 idea for you');
@@ -102,9 +103,9 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
     assert.equal(r.made, 8, 'the two repeats are skipped');
     assert.match(seen[0].messages[0].content, /Ideas they already have \(don't repeat\): First idea 0/);
     assert.equal(spells.forUser(sean.id).length, 16, 'More adds to today\'s; nothing replaced');
-    model(batch('Third')); await spells.more(sean.id);
-    model(batch('Fourth')); await spells.more(sean.id);
-    model(batch('Fifth'));
+    // The cap is MAX_PER_DAY (80 since the ✨ Feed asks for more as you scroll — 10 batches).
+    for (let i = 3; i * 8 <= spells.MAX_PER_DAY; i++) { model(batch(`B${i}`)); assert.equal((await spells.more(sean.id)).made, 8); }
+    model(batch('Over'));
     assert.equal((await spells.more(sean.id)).error, 'ENOUGH');
   });
   test('🐛 #37: ✨ Sounds nice passes a public idea on — no name — to friends and plan-mates in town, never friends/wish ideas, avoid lists both ways', async () => {
@@ -165,8 +166,9 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
     for (const x of spells.forUser(a.id)) spells.answer(a.id, x.id, 'wish');
     assert.equal(spells.forUser(b.id).length, 3);
   });
-  test('🐛 #37: Home has ✨ More ideas and says how Sounds nice spreads', () => {
-    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
+  // Ideas moved from Home to their own ✨ Feed tab (owner, 2026-10-20); the feed asks for more as you scroll.
+  test('🐛 #37: the Feed imagines more and says how Sounds nice spreads', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/feed.html'), 'utf8');
     assert.ok(html.includes("fetch('/api/spells/more'") && html.includes('without your name') && html.includes('people around you like this'));
   });
 });

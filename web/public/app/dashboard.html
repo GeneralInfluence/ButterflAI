@@ -185,6 +185,7 @@
      switcher — Chat, Creating and Events are one place, Plans; People is in Settings). -->
 <nav class="bottom-nav">
   <a href="/app/dashboard" class="active"><span class="tab-icon">🏠</span>Home</a>
+  <a href="/app/feed"><span class="tab-icon">✨</span>Feed</a>
   <a href="/app/chat" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon">🦋</span>Plans</a>
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
@@ -500,7 +501,10 @@
     const w = feed.wishes || { mine: [], matches: [] };
     const waitingMatch = w.matches.find((m) => !m.my_answer && m.status === 'open');
     document.getElementById('wish-preview').innerHTML = waitingMatch ? matchHtml(waitingMatch) : '';
-    document.getElementById('spell-preview').innerHTML = (feed.spells || []).slice(0, 2).map(spellHtml).join('');
+    // Ideas live in their own tab now, the ✨ Feed (owner, 2026-10-20) — Home points there.
+    const nIdeas = (feed.spells || []).length;
+    document.getElementById('spell-preview').innerHTML = `<a class="card feed-item" href="/app/feed" style="text-decoration:none;color:inherit"><span class="feed-icon">✨</span><div style="flex:1;min-width:0">
+      <div class="card-title">${nIdeas ? `${nIdeas} idea${nIdeas === 1 ? '' : 's'} for you in your Feed` : 'Ideas around you'}</div><div class="card-sub">What ButterflAI found nearby and what people around you like ›</div></div></a>`;
     document.getElementById('my-plans').innerHTML = minePlansHtml((my_plans || []).slice(0, 1));
     document.getElementById('creating').innerHTML = (creating || []).length ? creatingHtml(creating.slice(0, 1), [])
       : (creating_suggestions || []).length ? creatingHtml([], creating_suggestions.slice(0, 1)) : creatingHtml([], []);
@@ -526,9 +530,7 @@
     if (k === 'feeling') {
       const friends = friendsFeeling(items);
       const w = feed.wishes || { mine: [], matches: [] };
-      body = `<h3>✨ ButterflAI imagines…</h3>${(feed.spells || []).map(spellHtml).join('')}
-        <button class="chip-btn" id="more-spells" style="margin:4px 0 6px" onclick="moreSpells(this)">✨ More ideas</button>
-        <p class="hint" style="margin-top:0">✨ Sounds nice keeps an idea as your wish. Ideas about things happening near you are also passed on to friends and people you make plans with in your town — without your name — so good ideas spread.</p>
+      body = `<a class="card feed-item" href="/app/feed" style="text-decoration:none;color:inherit"><span class="feed-icon">✨</span><div style="flex:1;min-width:0"><div class="card-title">Ideas are in your ✨ Feed</div><div class="card-sub">What ButterflAI found nearby and what people around you like ›</div></div></a>
         <h3>✨ Wishes</h3>
         <form class="share-other wish-form" onsubmit="event.preventDefault(); addWish(this);">
           <input name="wish" placeholder="I wish… e.g. learn to salsa, see live music, a cabin weekend" maxlength="200" aria-label="Make a wish">

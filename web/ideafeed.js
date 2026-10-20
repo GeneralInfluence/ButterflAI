@@ -1,0 +1,88 @@
+/**
+ * ideafeed.js — the ✨ Feed tab (owner, 2026-10-20: "these suggestions should become a feed, a social
+ * feed, and should have their own tab along the bottom … a never-ending feed that is constantly being
+ * populated with stuff that Butterfly has found in their area or other people are up to, and is
+ * constantly updated by the other people's inputs").
+ *
+ * One ranked list, read a page at a time (the page sends what it has already shown):
+ *  1. Right now (first page only): friends who are out near you (named), how many people around you
+ *     are out and for what (counts only — people you could already see in I'm out), friends' shares
+ *     ("Free tonight"), and public plans in your town.
+ *  2. Your ideas (spells.js): what ButterflAI imagined for you and what was passed on to you.
+ *  3. Around you: public ideas ButterflAI found for other people in your town (titles only — no one
+ *     named), most-liked first. Answering one makes it yours (spells.adopt).
+ * When it runs out the page asks for more (spells.more — a new batch with a web search), up to a
+ * daily limit; everyone's ideas and likes keep the "around you" part changing.
+ */
+'use strict';
+
+const db = require('./db');
+const spells = require('./spells');
+
+const PAGE = 10;
+const POOL_DAYS = 14;
+const now = () => Math.floor(Date.now() / 1000);
+
+/** Public ideas from other people in your town, one per idea, most liked first. */
+function pool(user, have) {
+  const rows = db._raw().prepare(`SELECT s.* FROM spells s WHERE s.user_id != ? AND s.public_title IS NOT NULL AND s.kind IN ('nearby', 'new')
+    AND s.status != 'dismissed' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 600`).all(user.id, now() - POOL_DAYS * 86400);
+  const ok = new Map();
+  const byTitle = new Map();
+  for (const r of rows) {
+    const key = r.public_title.toLowerCase();
+    if (have.has(key)) continue;
+    if (!ok.has(r.user_id)) { const u = db.getUser(r.user_id); ok.set(r.user_id, !!u && spells.sameTown(user, u) && !spells.avoidsEither(user, u)); }
+    if (!ok.get(r.user_id)) continue;
+    const g = byTitle.get(key) || { row: r, likes: new Set(), seen: 0 };
+    if (r.status === 'kept') g.likes.add(r.user_id);
+    g.seen++;
+    byTitle.set(key, g);
+  }
+  return [...byTitle.values()].sort((a, b) => b.likes.size - a.likes.size || b.row.created_at - a.row.created_at)
+    .map((g) => ({ type: 'idea', id: `pool:${g.row.id}`, kind: g.row.kind, title: g.row.public_title, link: g.row.link,
+      why: 'Found around you', liked_by: g.likes.size || undefined, around: true }));
+}
+
+/** What's happening right now (first page). */
+function rightNow(user) {
+  const out = [];
+  try {
+    const out_ = require('./outnow');
+    const v = out_.nearby(user.id);
+    for (const f of v.friends) out.push({ type: 'friend_out', id: `out:${f.id}`, title: `${f.name} is out · ${f.distance}`, sub: `Up for ${f.up_for}` });
+    if ((v.around || []).length) out.push({ type: 'around', id: 'around', title: 'Out around you right now', chips: v.around.map((a) => `${a.label}${a.count > 1 ? ` · ${a.count}` : ''}`) });
+    if (!v.me) out.push({ type: 'go_out', id: 'go_out', title: 'Out and about?', sub: 'Say what you’re up for and see who’s nearby' });
+  } catch (_) {}
+  try {
+    const feeling = require('./feeling');
+    for (const p of feeling.plansVisibleTo(user).slice(0, 5)) {
+      out.push({ type: 'share', id: `share:${p.id}`, title: `${require('./people').nameFor(user.id, p.user_id, { first: true })}: ${p.text}`, sub: 'Shared with you' });
+    }
+  } catch (_) {}
+  // Public plans hosted by people in your town (open to anyone).
+  const pub = db._raw().prepare(`SELECT se.id, se.title, se.scheduled_at, se.host_user_id FROM social_events se
+    WHERE se.event_type = 'public' AND COALESCE(se.status, 'open') != 'cancelled' AND se.scheduled_at > ? AND se.scheduled_at < ? AND se.host_user_id != ?
+    ORDER BY se.scheduled_at LIMIT 20`).all(now(), now() + 30 * 86400, user.id);
+  for (const e of pub) {
+    const h = db.getUser(e.host_user_id);
+    if (!h || !spells.sameTown(user, h) || spells.avoidsEither(user, h)) continue;
+    out.push({ type: 'public_plan', id: `event:${e.id}`, title: e.title, sub: new Date(e.scheduled_at * 1000).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: user.timezone || 'America/Los_Angeles' }), url: `/event/${e.id}` });
+  }
+  return out;
+}
+
+/** One page of the feed, leaving out what the page already showed. */
+function page(userId, { seen = [] } = {}) {
+  const user = db.getUser(userId);
+  if (!user) return { items: [], done: true };
+  const shown = new Set((Array.isArray(seen) ? seen : []).slice(0, 2000).map(String));
+  const mine = spells.forUser(userId).map((s) => ({ type: 'idea', ...s }));
+  const have = new Set(db._raw().prepare('SELECT lower(title) t, lower(public_title) p FROM spells WHERE user_id = ?').all(userId).flatMap((r) => [r.t, r.p]).filter(Boolean));
+  const all = [...(shown.size ? [] : rightNow(user)), ...mine, ...pool(user, have)].filter((i) => !shown.has(i.id));
+  const items = all.slice(0, PAGE);
+  const madeToday = db._raw().prepare("SELECT count(*) n FROM spells WHERE user_id = ? AND source = 'own' AND created_at > ?").get(userId, now() - 20 * 3600).n;
+  return { items, done: all.length <= PAGE, can_imagine_more: madeToday < spells.MAX_PER_DAY };
+}
+
+module.exports = { page, pool, rightNow, PAGE };

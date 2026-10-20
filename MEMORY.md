@@ -1117,6 +1117,20 @@ and deleted when the outing ends; avoid lists both ways; meeting new people need
   unknown words only meet the same words. While out: "Around you, people are up for …" (counts of
   people you could already see) with "＋ me too" (`PATCH /api/out`), and "Up for something else too?".
 
+## 33. ✨ Feed — its own tab `[2026-10-20]`
+
+Owner: "these suggestions should become a feed, a social feed, and should have their own tab along the
+bottom … never-ending … constantly being populated with stuff that Butterfly has found in their area or
+other people are up to, and is constantly updated by the other people's inputs." Bottom bar: **Home ·
+Feed · Plans · Settings**. `/app/feed` + `web/ideafeed.js` (`POST /api/ideas` with the ids already
+shown → the next 10): **Right now** (first page: friends out nearby, "Out around you right now" counts,
+friends' shares, public plans in town) → **your ideas** (spells) → **around you**: other people's
+public ideas in your town (public titles, most liked first). Answering one found around you makes it
+yours (`spells.adopt`, `pool:<id>`). At the end the page asks `spells.more` for a new batch (web
+search), up to `MAX_PER_DAY` = 80 a day (~2–5¢ each), then "that's everything for now". Reopening the
+tab after 10 min starts fresh. Home's Feeling now points to the Feed instead of listing ideas.
+Tests: `tests/integration/ideafeed.test.js`.
+
 ## 26. Rate limits are per person `[2026-10-19]`
 
 The app went "completely unresponsive": every request reached us from Fly's proxy address, so
