@@ -176,6 +176,7 @@ function tickPurge() {
   } catch (err) {
     console.error('[coord] plans purge error:', err.message);
   }
+  try { require('./outnow').purgeOld(); } catch (err) { console.error('[coord] out-now purge error:', err.message); }   // outings end; their location goes
   try { require('./spells').purgeOld(); } catch (err) { console.error('[coord] spells purge error:', err.message); }
   // Wishes end after 60 days (wishes.js).
   try {

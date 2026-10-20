@@ -386,6 +386,17 @@ only if they're in the person's own plans, and never someone on their avoid list
 Ideas are kept 7 days; dismissed ones are remembered for 60 days so similar ideas stop. Nothing is
 sent to anyone else.
 
+## I'm out (who's near you now) `[2026-10-20]`
+
+When someone says they're out (`outnow.js`), their phone's location is used to find others out
+nearby. **Nobody ever sees anyone's location** — only a rough distance ("under a mile", "~2 mi").
+The location is rounded to about 1 km, kept only while they're out, and deleted when the outing
+ends or they tap Stop. Friends (people who have each other saved) see each other's first name.
+Anyone else is shown anonymously, and only if both chose "open to meeting new people" (which needs
+"I'm 18 or older") and are up for the same thing; interest reaches the other person only if it's
+mutual, and only then are first names shared. Avoid lists apply both ways. No dating-app data is
+read — those apps can't be connected.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

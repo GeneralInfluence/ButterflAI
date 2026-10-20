@@ -1636,6 +1636,28 @@ app.post('/api/plans/new', webAuth.requireAuth, express.json(), (req, res) => {
   res.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
 });
 
+// 🌴 I'm out — who's near you now and up for something (outnow.js, owner 2026-10-20).
+const publicNearby = (v) => ({ ...v, others: v.others.map(({ _user, ...o }) => o) });   // never the account id
+app.get('/api/out', webAuth.requireAuth, (req, res) => res.json(publicNearby(require('./outnow').nearby(req.user.id))));
+app.post('/api/out', webAuth.requireAuth, express.json(), (req, res) => {
+  const b = req.body || {};
+  const r = require('./outnow').goOut(req.user.id, { up_for: b.up_for, lat: Number(b.lat), lng: Number(b.lng), hours: b.hours, open_to_new: b.open_to_new === true, adult: b.adult === true });
+  return r.error ? res.status(400).json(r) : res.json(r);
+});
+app.post('/api/out/refresh', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./outnow').refresh(req.user.id, { lat: Number(req.body?.lat), lng: Number(req.body?.lng) });
+  return r.error ? res.status(400).json(r) : res.json(r);
+});
+app.delete('/api/out', webAuth.requireAuth, (req, res) => res.json(require('./outnow').stop(req.user.id)));
+app.post('/api/out/reach', webAuth.requireAuth, express.json(), async (req, res) => {
+  const r = await require('./outnow').reach(req.user.id, String(req.body?.id || ''), { activity: req.body?.activity });
+  return r.error ? res.status(400).json(r) : res.json(r);
+});
+app.post('/api/out/asks/:id', webAuth.requireAuth, express.json(), async (req, res) => {
+  const r = await require('./outnow').answer(req.user.id, String(req.params.id), req.body?.yes === true);
+  return r.error ? res.status(404).json(r) : res.json(r);
+});
+
 // ✨ Spells (spells.js, 🐛 #36): ✨ Sounds nice → a wish · plan → text for ＋ New plan · dismiss.
 app.post('/api/spells/:id', webAuth.requireAuth, express.json(), (req, res) => {
   const r = require('./spells').answer(req.user.id, String(req.params.id), String(req.body?.answer || ''));
