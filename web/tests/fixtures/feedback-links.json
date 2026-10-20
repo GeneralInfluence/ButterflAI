@@ -55,5 +55,9 @@
   "29": {
     "note_starts": "Why is the '80s bar on California still there",
     "test": "tests/integration/sweep.test.js › a \"come by tonight\" from months ago is past: off Home, the chat pills and the plan list"
+  },
+  "30": {
+    "note_starts": "I want to be able to get to the event details from this screen",
+    "test": "tests/integration/home-links.test.js › a \"Details\" button next to the plan's pill opens its summary (which links back to the discussion)"
   }
 }

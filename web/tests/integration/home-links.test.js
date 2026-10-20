@@ -62,3 +62,11 @@ describe('🐛 #26: Home opens the thing itself', () => {
     assert.ok(dash.includes('&ask=${esc(i.question_id)}') && chat.includes("fetch('/api/questions/' + encodeURIComponent(askId))"));
   });
 });
+
+describe('🐛 #30: a plan\'s details from its chat', () => {
+  test('a "Details" button next to the plan\'s pill opens its summary (which links back to the discussion)', () => {
+    const chat = read('chat.html');
+    assert.ok(chat.includes("info.textContent = 'ℹ︎ Details'") && chat.includes("info.href = '/app/events?event=' + encodeURIComponent(current.event_id)"));
+    assert.ok(read('events.html').includes('💬 Discussion'));
+  });
+});

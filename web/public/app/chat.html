@@ -491,8 +491,11 @@
             + `<span>${d.tentative ? '🗓️' : '📅'} ${esc(d.title)}</span>${d.tentative ? '<span class="tent">tentative</span>' : ''}</a>`).join('')
           // Standalone housekeeping that isn't about any plan (owner, 2026-10-09).
           + `<a class="tpill${topicEvent === 'general' ? ' active' : ''}" href="/app/chat?event=general">💬 General</a>`;
-        // The host can rename the plan they're in (✎ next to its pill) — for everyone.
+        // The plan's details, one tap from its chat (🐛 #30, 2026-10-20: "I want to get to the
+        // event details from this screen") — the summary has a 💬 Discussion button back. Added below.
         const current = discussions.find((d) => d.event_id === topicEvent);
+
+        // The host can rename the plan they're in (✎ next to its pill) — for everyone.
         if (current && current.can_rename) {
           const active = el.querySelector('.tpill.active');
           const edit = document.createElement('button');
@@ -502,7 +505,13 @@
         }
         el.hidden = false;
         const active = el.querySelector('.tpill.active');
-        if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
+        if (current && active) {
+          const info = document.createElement('a');
+          info.className = 'tpill tpill-info'; info.textContent = 'ℹ︎ Details'; info.title = 'Plan details';
+          info.href = '/app/events?event=' + encodeURIComponent(current.event_id) + (topicDay ? '&day=' + topicDay : '');
+          active.after(info);   // right next to the plan's pill, before ✎
+          info.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+        } else if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
       } catch (_) { /* pills are optional */ }
     }
 
