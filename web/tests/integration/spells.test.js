@@ -32,7 +32,9 @@ function mkUser(name) {
 const knows = (o, u) => db.upsertContact({ invited_by_user_id: o.id, name: u.name, phone: u.phone, tier: 1 });
 function model(list) {
   const seen = [];
-  spells._setClient({ messages: { create: async (req) => { seen.push(req); return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ spells: list }) }] }; } } });
+  // The web search's results name the sites the links are on (links to other sites are dropped, 🐛 #41).
+  const results = { type: 'web_search_tool_result', content: list.filter((x) => x.link).map((x) => ({ type: 'web_search_result', url: x.link, title: 'r' })) };
+  spells._setClient({ messages: { create: async (req) => { seen.push(req); return { stop_reason: 'end_turn', content: [results, { type: 'text', text: JSON.stringify({ spells: list }) }] }; } } });
   return seen;
 }
 
@@ -94,14 +96,18 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
   // But still we influence each other's algorithm".
   test('🐛 #37: eight ideas a day, ✨ More ideas adds more (never repeats), up to a daily limit', async () => {
     const sean = mkUser('Sean M');
-    const batch = (p) => ['nearby', 'nearby', 'reconnect', 'reconnect', 'new', 'new', 'wish', 'wish'].map((k, i) => ({ kind: k, title: `${p} idea ${i}`, why: 'w' }));
-    let seen = model(batch('First'));
+    // Distinct ideas (titles differing only by a number now count as the same idea — 🐛 #41).
+    const W = ['jazz', 'pottery', 'salsa', 'hiking', 'trivia', 'karaoke', 'bowling', 'kayaking', 'climbing', 'yoga', 'tacos', 'sushi', 'bingo', 'chess', 'darts', 'ramen', 'opera', 'ballet', 'rodeo', 'circus', 'poetry', 'improv', 'curling', 'archery', 'fencing', 'polo', 'rugby', 'squash', 'tennis', 'golf', 'surfing', 'sailing', 'rowing', 'skating', 'sledding', 'skiing', 'birding', 'fishing', 'camping', 'baking', 'brewing', 'tasting', 'painting', 'knitting', 'quilting', 'weaving', 'sewing', 'carving', 'welding', 'gardening', 'stargazing', 'drumming', 'singing', 'dancing', 'juggling', 'magic', 'puppets', 'origami', 'calligraphy', 'mosaic', 'candles', 'soap', 'perfume', 'cheese', 'wine', 'cider', 'mead', 'kombucha', 'pickles', 'bread', 'pasta', 'dumplings', 'curry', 'barbecue', 'chili', 'pie', 'donuts', 'waffles', 'crepes', 'gelato', 'fondue', 'tapas', 'mezze', 'dim sum', 'pho', 'tamales', 'empanadas', 'arepas', 'pupusas', 'gumbo', 'paella', 'risotto', 'gnocchi', 'ravioli', 'lasagna', 'falafel', 'shawarma', 'kebab', 'biryani', 'samosas', 'naan', 'bao', 'ramen bar'];
+    let w = 0;
+    const batch = (p) => ['nearby', 'nearby', 'reconnect', 'reconnect', 'new', 'new', 'wish', 'wish'].map((k) => ({ kind: k, title: p === 'First' ? `First ${['jazz', 'pottery', 'salsa', 'hiking', 'trivia', 'karaoke', 'bowling', 'kayaking'][w++ % 8]} night` : `${W[w++ % W.length]} ${p} meetup`, why: 'w' }));
+    const first = batch('First');
+    let seen = model(first);
     assert.equal(await spells.generate(sean, { force: true }), 8);
     assert.match(seen[0].messages[0].content, /Imagine 8 ideas, two of each kind/);
-    seen = model([...batch('First').slice(0, 2), ...batch('Second')]);
+    seen = model([...first.slice(0, 2), ...batch('Second')]);
     const r = await spells.more(sean.id);
     assert.equal(r.made, 8, 'the two repeats are skipped');
-    assert.match(seen[0].messages[0].content, /Ideas they already have \(don't repeat\): First idea 0/);
+    assert.match(seen[0].messages[0].content, /Ideas they already have \(don't repeat\): First jazz night/);
     assert.equal(spells.forUser(sean.id).length, 16, 'More adds to today\'s; nothing replaced');
     // The cap is MAX_PER_DAY (80 since the ✨ Feed asks for more as you scroll — 10 batches).
     for (let i = 3; i * 8 <= spells.MAX_PER_DAY; i++) { model(batch(`B${i}`)); assert.equal((await spells.more(sean.id)).made, 8); }
@@ -119,6 +125,8 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
       { kind: 'reconnect', title: 'Lunch with Kim?', public_title: 'Lunch with Kim', why: 'x' },
       { kind: 'new', title: 'Salsa class', why: 'no public title → never spreads' }]);
     await spells.generate(sean, { force: true });
+    // The link opened securely (🐛 #41 — only checked links are shown, and passed on with the idea).
+    db._raw().prepare("UPDATE spells SET link_ok = 1 WHERE link = 'https://example.com/jazz'").run();
     const mine = spells.forUser(sean.id);
     const jazz = mine.find((x) => x.kind === 'nearby');
     const r = spells.answer(sean.id, jazz.id, 'wish');
@@ -161,7 +169,7 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
   });
   test('🐛 #37: no more than three passed-on ideas a day for anyone', async () => {
     const a = mkUser('A Cap'); const b = mkUser('B Cap'); knows(a, b); knows(b, a);
-    model([1, 2, 3, 4].map((i) => ({ kind: 'nearby', title: `Show ${i} with B?`, public_title: `Show ${i}`, why: 'x' })));
+    model(['Jazz', 'Opera', 'Rodeo', 'Circus'].map((t) => ({ kind: 'nearby', title: `${t} show with B?`, public_title: `${t} show`, why: 'x' })));
     await spells.generate(a, { force: true });
     for (const x of spells.forUser(a.id)) spells.answer(a.id, x.id, 'wish');
     assert.equal(spells.forUser(b.id).length, 3);
@@ -171,5 +179,53 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
   test('🐛 #37: the Feed imagines more and says how Sounds nice spreads', () => {
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
     assert.ok(html.includes("fetch('/api/spells/more'") && html.includes('people around you like this'));
+  });
+
+  // 🐛 #41 (Sean, 2026-10-20): "I opened the cargo website and it was an unsecured website … how did you
+  // find it in the first place? If it's an unsecured site, how do I know it's real?" — the model linked
+  // cargoconcerthall.com (broken https; the venue's site is cargoreno.com), named Oct 24 a Friday, and
+  // the same two concerts came back twice.
+  test('🐛 #41: links only to sites the search returned and that open securely, weekdays fixed, the same event never twice', async () => {
+    const sean = mkUser('Sean V');
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const d = new Date(Date.now() + 4 * 86400e3).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const real = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(`${d}T12:00:00Z`).getUTCDay()];
+    const wrong = real === 'Friday' ? 'Saturday' : 'Friday';
+    const seen = [];
+    spells._setClient({ messages: { create: async (req) => { seen.push(req); return { stop_reason: 'end_turn', content: [
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://www.cargoreno.com/upcoming-events', title: 'Cargo' }] },
+      { type: 'text', text: JSON.stringify({ spells: [
+        { kind: 'nearby', title: `Free Throw at Cargo ${wrong}`, public_title: `Free Throw at Cargo ${wrong}`, why: `Live indie music ${wrong}`, link: 'https://www.cargoreno.com/upcoming-events', date: d, place: 'Cargo Concert Hall' },
+        { kind: 'nearby', title: 'New Constellations at Cargo', why: 'x', link: 'https://cargoconcerthall.com', date: d, place: 'Cargo Concert Hall' },
+        { kind: 'nearby', title: `Free Throw at Cargo on ${real}`, why: 'the same concert again', link: 'https://downtownreno.org/events/', date: d },
+        { kind: 'nearby', title: 'Last week’s show', why: 'over', date: '2020-01-01' },
+      ] }) }] }; } } });
+    await spells.generate(sean, { force: true });
+    assert.match(seen[0].messages[0].content, /Facts must come from your search results/);
+    const list = spells.forUser(sean.id);
+    assert.deepEqual(list.map((x) => x.title).sort(), [`Free Throw at Cargo ${real}`, 'New Constellations at Cargo'].sort(), 'same concert once, past one gone, weekday fixed');
+    const ft = list.find((x) => x.title.startsWith('Free Throw'));
+    assert.match(ft.why, new RegExp(real));
+    assert.equal(ft.date, d); assert.equal(ft.place, 'Cargo Concert Hall'); assert.equal(ft.source_site, 'cargoreno.com');
+    assert.equal(ft.link, null, 'not shown until it has opened securely');
+    const nc = db._raw().prepare("SELECT link FROM spells WHERE user_id = ? AND title = 'New Constellations at Cargo'").get(sean.id);
+    assert.equal(nc.link, null, 'a site the search never returned: no link');
+    // The link is checked: a site that won't open securely stays hidden.
+    const og = require('../../ogimage');
+    og._setLookup(async () => [{ address: '93.184.216.34' }]);
+    og._setFetch(async (url) => { if (url.includes('cargoreno')) throw new Error('TLS alert internal error'); return { status: 200, ok: true, headers: new Map([['content-type', 'text/html']]), text: async () => '' }; });
+    await spells.fillImages({ limit: 500 });
+    const after = spells.forUser(sean.id).find((x) => x.title.startsWith('Free Throw'));
+    assert.equal(after.link, null);
+    assert.equal(after.link_ok, 0);
+    og._setFetch(async () => ({ status: 200, ok: true, headers: new Map([['content-type', 'text/html']]), text: async () => '' }));
+    db._raw().prepare("UPDATE spells SET image_checked = 0, link_ok = NULL WHERE user_id = ?").run(sean.id);
+    await spells.fillImages({ limit: 500 });
+    assert.equal(spells.forUser(sean.id).find((x) => x.title.startsWith('Free Throw')).link, 'https://www.cargoreno.com/upcoming-events');
+    assert.equal((await og.check('http://example.com/')).ok, false, 'plain http is never shown');
+    og._setFetch(null);
+    assert.equal(spells.fixWeekdays('Jazz Fri and Saturday night', '2026-10-24'), 'Jazz Sat and Saturday night');
+    assert.ok(spells.alike(spells.words('New Constellations at Cargo Thursday'), spells.words('New Constellations at Cargo Thursday Night')));
+    assert.ok(!spells.alike(spells.words('Jazz at Shea’s'), spells.words('Pottery at The Wedge')));
   });
 });

@@ -1137,6 +1137,15 @@ passive-aggressive) · Make it a plan · More, the 🔁 likes line, caption. Pic
 (`web/ogimage.js` — public addresses only, also after redirects; ≤ 512 KB, 6 s; https only;
 `spells.image`, migration 073; `spells.fillImages` once per link, after each batch, from the page and the
 coord loop — which also fills older ideas), else a colored tile with the idea on it.
+**Trust (🐛 #41 — "how do I know it's real?"; the model linked cargoconcerthall.com, a broken-https
+domain, not the venue's cargoreno.com, called Oct 24 a Friday, and repeated two concerts):** a link is
+kept only if its host came back in the web search results (`web_search_tool_result`), and shown only
+once `ogimage.check` opened it over https (`spells.link_ok`); ideas carry `date` (past ones dropped,
+weekdays in the text corrected in code — `fixWeekdays`) and `place`; near-repeats are skipped
+(`alike`, ≥ 75% shared words); each post says "Found in a web search · site" or "Imagined by
+ButterflAI". **Map (🐛 #43):** Explore has List · Map (Leaflet + OpenStreetMap tiles); places geocoded
+once each (`geocode.js`, Nominatim ≤ 1/s); pins green (today) → purple (2+ weeks), grey with no date;
+`GET /api/ideas/map`. Migration 074. Retro: links checked before this are re-checked.
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`

@@ -95,5 +95,13 @@
   "39": {
     "note_starts": "We need to have an image there sort of like an Instagram feed",
     "test": "tests/integration/ideafeed.test.js › 🐛 #39: Instagram-style posts — a picture (the page's share image, or a colored tile), ✨ Sounds fun, Make it a plan, Right now as stories"
+  },
+  "41": {
+    "note_starts": "I opened the cargo website and it was an unsecured website",
+    "test": "tests/integration/spells.test.js › 🐛 #41: links only to sites the search returned and that open securely, weekdays fixed, the same event never twice"
+  },
+  "43": {
+    "note_starts": "Is it possible to have a map view of the explorer",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #43: a map of Explore — ideas with a place are pinned (looked up once per place), green today → purple later"
   }
 }

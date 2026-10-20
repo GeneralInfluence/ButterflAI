@@ -404,6 +404,10 @@ page once to find the picture it offers for sharing (og:image) — public addres
 internal ones are refused, including by redirect), nothing about the person is sent. The person's phone
 then loads the picture from that site with no referrer, so the site learns an IP address but not which
 ButterflAI page showed it.
+**Checking links and places (🐛 #41, #43):** an idea's link is kept only if its site came back in the web
+search, and shown only after it opened over https. For the map, the idea's place name and town (e.g.
+"Cargo Concert Hall, Reno") are looked up on OpenStreetMap's Nominatim — nothing about the person. The
+map shows ideas only — never where any person is.
 
 ## I'm out (who's near you now) `[2026-10-20]`
 

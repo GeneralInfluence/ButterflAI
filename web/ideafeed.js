@@ -40,7 +40,8 @@ function pool(user, have) {
     byTitle.set(key, g);
   }
   return [...byTitle.values()].sort((a, b) => b.likes.size - a.likes.size || b.row.created_at - a.row.created_at)
-    .map((g) => ({ type: 'idea', id: `pool:${g.row.id}`, kind: g.row.kind, title: g.row.public_title, link: g.row.link, image: g.row.image || null,
+    .map((g) => ({ type: 'idea', id: `pool:${g.row.id}`, kind: g.row.kind, title: g.row.public_title, link: g.row.link_ok === 1 ? g.row.link : null, image: g.row.image || null,
+      source_site: g.row.link ? spells.host(g.row.link) : null, date: g.row.date || null, place: g.row.place || null, lat: g.row.lat ?? null, lng: g.row.lng ?? null,
       why: 'Found around you', liked_by: g.likes.size || undefined, around: true }));
 }
 
@@ -82,9 +83,21 @@ function page(userId, { seen = [] } = {}) {
   const all = [...(shown.size ? [] : rightNow(user)), ...mine, ...pool(user, have)].filter((i) => !shown.has(i.id));
   const items = all.slice(0, PAGE);
   // Pictures still to look up get looked up now, for the next scroll (in the background).
-  if (items.some((i) => i.type === 'idea' && i.link && !i.image)) spells.fillImages().catch(() => {});
+  if (items.some((i) => i.type === 'idea' && ((i.source_site && !i.link && !i.image) || (i.place && i.lat == null)))) spells.fillImages().catch(() => {});
   const madeToday = db._raw().prepare("SELECT count(*) n FROM spells WHERE user_id = ? AND source = 'own' AND created_at > ?").get(userId, now() - 20 * 3600).n;
   return { items, done: all.length <= PAGE, can_imagine_more: madeToday < spells.MAX_PER_DAY };
 }
 
-module.exports = { page, pool, rightNow, PAGE };
+/** Everything on Explore that has a place on the map (🐛 #43): your ideas and those found around you. */
+function map(userId) {
+  const user = db.getUser(userId);
+  if (!user) return { pins: [] };
+  const mine = spells.forUser(userId).map((s) => ({ type: 'idea', ...s }));
+  const have = new Set(db._raw().prepare('SELECT lower(title) t, lower(public_title) p FROM spells WHERE user_id = ?').all(userId).flatMap((r) => [r.t, r.p]).filter(Boolean));
+  const pins = [...mine, ...pool(user, have)].filter((i) => Number.isFinite(i.lat) && Number.isFinite(i.lng))
+    .map(({ id, kind, title, date, place, lat, lng, link, image, liked_by, why }) => ({ id, kind, title, date, place, lat, lng, link, image, liked_by, why }));
+  const me = Number.isFinite(user.lat) && Number.isFinite(user.lng) ? { lat: user.lat, lng: user.lng } : null;
+  return { pins, me, today: new Date().toLocaleDateString('en-CA', { timeZone: user.timezone || 'America/Los_Angeles' }) };
+}
+
+module.exports = { page, pool, rightNow, map, PAGE };

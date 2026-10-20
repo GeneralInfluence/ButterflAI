@@ -1691,6 +1691,7 @@ app.post('/api/spells/more', webAuth.requireAuth, async (req, res) => {   // �
 // 🧭 Explore (ideafeed.js): a page at a time; the page sends the ids it already showed.
 app.get('/app/explore', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/explore.html')));
 app.get('/app/feed', (req, res) => res.redirect(301, '/app/explore'));   // its first name
+app.get('/api/ideas/map', webAuth.requireAuth, (req, res) => res.json(require('./ideafeed').map(req.user.id)));   // 🐛 #43
 app.post('/api/ideas', webAuth.requireAuth, express.json({ limit: '200kb' }), (req, res) => {
   res.json(require('./ideafeed').page(req.user.id, { seen: req.body?.seen }));
 });

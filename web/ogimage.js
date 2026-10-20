@@ -64,9 +64,14 @@ function pick(html, base) {
 }
 
 /** The share picture for a page, or null. */
-async function find(link) {
+async function find(link) { return (await check(link))?.image || null; }
+
+/** Does the page open (over https, at a public address)? And its share picture. null = couldn't check. */
+async function check(link) {
   if (!_enabled) return null;
   let url = await publicUrl(link);
+  if (!url) return { ok: false, image: null };
+  if (url.protocol !== 'https:') return { ok: false, image: null };   // not secure — not shown
   for (let hop = 0; url && hop < 4; hop++) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 6000);
@@ -75,9 +80,11 @@ async function find(link) {
       if (r.status >= 300 && r.status < 400) {
         const next = r.headers.get('location');
         url = next ? await publicUrl(new URL(next, url).href) : null;
+        if (url && url.protocol !== 'https:') return { ok: false, image: null };   // sent to an insecure page
         continue;
       }
-      if (!r.ok || !/html/i.test(r.headers.get('content-type') || 'text/html')) return null;
+      if (!r.ok) return { ok: false, image: null };
+      if (!/html/i.test(r.headers.get('content-type') || 'text/html')) return { ok: true, image: null };
       let html = '';
       if (r.body && r.body.getReader) {
         const reader = r.body.getReader();
@@ -90,10 +97,10 @@ async function find(link) {
         }
         try { reader.cancel(); } catch (_) {}
       } else html = String(await r.text()).slice(0, 512 * 1024);
-      return pick(html, url);
-    } catch (_) { return null; } finally { clearTimeout(timer); }
+      return { ok: true, image: pick(html, url) };
+    } catch (_) { return { ok: false, image: null }; } finally { clearTimeout(timer); }   // TLS errors land here
   }
-  return null;
+  return { ok: false, image: null };
 }
 
-module.exports = { find, pick, privateIp, publicUrl, _setFetch, _setLookup };
+module.exports = { find, check, pick, privateIp, publicUrl, _setFetch, _setLookup };

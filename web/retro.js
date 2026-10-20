@@ -687,6 +687,16 @@ const TASKS = [
       return `linked ${linked}, closed ${closed}`;
     },
   },
+  {
+    id: '2026-10-20-recheck-idea-links',
+    added: Date.UTC(2026, 9, 20) / 1000,
+    kind: 'internal',
+    about: '🐛 #41: idea links are shown only once checked to open securely. This user\'s ideas checked before that (picture looked up, link never judged) are queued again, so their links are checked and their places looked up for the map.',
+    run(user) {
+      const r = db._raw().prepare("UPDATE spells SET image_checked = 0 WHERE user_id = ? AND link IS NOT NULL AND link_ok IS NULL AND image_checked = 1").run(user.id);
+      return `requeued ${r.changes}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

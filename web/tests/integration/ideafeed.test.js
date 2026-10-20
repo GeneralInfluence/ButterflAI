@@ -145,7 +145,7 @@ describe('✨ Feed', () => {
     knows(me, friend); knows(friend, me);
     const id1 = idea(me, { title: 'Jazz at Shea’s' }); idea(me, { title: 'Jazz again', pub: 'Jazz again' });
     db._raw().prepare("UPDATE spells SET link = 'https://example.com/jazz' WHERE user_id = ?").run(me.id);
-    await spells.fillImages();
+    await spells.fillImages({ limit: 500 });   // earlier tests' ideas are in the queue too
     assert.equal(hits.filter((h) => h === 'https://example.com/jazz').length, 1, 'once per link');
     assert.equal(spells.forUser(me.id)[0].image, 'https://example.com/img/jazz.jpg');
     spells.answer(me.id, id1, 'wish');
@@ -160,5 +160,30 @@ describe('✨ Feed', () => {
     assert.equal(og.pick('<meta content="http://x.com/a.png" property="og:image">', new URL('https://x.com')), 'https://x.com/a.png', 'http pictures asked for over https');
     assert.equal(og.pick('<meta name="twitter:image" content="javascript:alert(1)">', new URL('https://x.com')), null);
     og._setFetch(null);
+  });
+
+  // 🐛 #43 (Sean, 2026-10-20): "Is it possible to have a map view of the explorer so I can know where these
+  // things are? And then the color of the pins is how far away they are. So green would be for right now
+  // and purple. Certainly not red would be for further in the future".
+  test('🐛 #43: a map of Explore — ideas with a place are pinned (looked up once per place), green today → purple later', async () => {
+    const geo = require('../../geocode');
+    const asked = [];
+    geo._setFetch(async (url) => { asked.push(decodeURIComponent(url)); return { ok: true, json: async () => [{ lat: '39.527', lon: '-119.813' }] }; });
+    const me = mkUser('Sean Map', 'Reno'); const o = mkUser('Other Map', 'Reno');
+    const a = idea(me, { title: 'Bluegrass at Cargo' }); idea(o, { title: 'Comedy at Cargo' });
+    db._raw().prepare("UPDATE spells SET place = 'Cargo Concert Hall', date = ? WHERE id = ?").run(new Date().toISOString().slice(0, 10), a);
+    db._raw().prepare("UPDATE spells SET place = 'Cargo Concert Hall' WHERE title = 'Comedy at Cargo'").run();
+    idea(me, { title: 'No place idea' });
+    await spells.fillImages({ limit: 500 });
+    assert.equal(asked.filter((u) => u.includes('Cargo Concert Hall, Reno')).length, 1, 'once per place; only the place and town are sent');
+    const m = ideafeed.map(me.id);
+    assert.deepEqual(m.pins.map((p) => p.title).sort(), ['Bluegrass at Cargo', 'Comedy at Cargo']);
+    assert.ok(m.pins.every((p) => p.lat === 39.527 && p.lng === -119.813));
+    geo._setFetch(null);
+    const c = await cookieFor(me);
+    assert.equal((await request.get('/api/ideas/map').set('Cookie', c)).body.pins.length, 2);
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes("showView('map')") && html.includes('leaflet') && html.includes('[0x34, 0xc7, 0x59], b = [0x6c, 0x47, 0xff]'), 'green → purple, never red');
+    assert.ok(html.includes('Found in a web search'), '🐛 #41: each post says where it came from');
   });
 });

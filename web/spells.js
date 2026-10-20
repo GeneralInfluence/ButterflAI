@@ -92,7 +92,8 @@ Imagine 8 ideas, two of each kind:
 - "wish": a way one of their wishes could happen (or, with no wishes, something they'd likely love from what they said).
 Each: a short, inviting title (under 70 characters, like "Jazz at Shea's Thursday with Allie?") and one line why. Warm, specific, never pushy. Only use friends' first names from the list above.
 For "nearby" and "new" ideas also give "public_title": the same idea with no person named and nothing about them (like "Jazz at Shea's Thursday") — it may be passed on to others.
-Reply with JSON only: {"spells":[{"kind":"nearby","title":"…","public_title":"…","why":"…","link":"https://…"}, …]}`;
+Facts must come from your search results: "link" only to a page you actually found (the event's own page if you found it), "date" (YYYY-MM-DD) when it's on a day, "place" (the venue's name) when it's somewhere. Today is ${today}; get weekdays right. Never two ideas about the same event.
+Reply with JSON only: {"spells":[{"kind":"nearby","title":"…","public_title":"…","why":"…","link":"https://…","date":"YYYY-MM-DD","place":"…"}, …]}`;
 
 /** Imagine today's spells for one person (once a day). Returns how many were made. */
 async function generate(user, { force = false, more = false } = {}) {
@@ -105,8 +106,10 @@ async function generate(user, { force = false, more = false } = {}) {
   const messages = [{ role: 'user', content: PROMPT(user, ctx, today) }];
   const tools = user.city ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2, ...(user.timezone ? { user_location: { type: 'approximate', city: user.city, timezone: user.timezone } } : {}) }] : undefined;
   let text = '';
+  const found = new Set();   // the sites the web search actually returned (🐛 #41)
   for (let i = 0; i < 3; i++) {
     const r = await c.messages.create({ model: DEFAULT_MODEL, max_tokens: 1200, messages, ...(tools ? { tools } : {}) });
+    for (const b of r.content || []) if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) for (const x of b.content) { const h = host(x.url); if (h) found.add(h); }
     text = (r.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     if (r.stop_reason !== 'pause_turn') break;
     messages.push({ role: 'assistant', content: r.content });
@@ -120,18 +123,29 @@ async function generate(user, { force = false, more = false } = {}) {
   // Today's replace yesterday's untouched ones; "More ideas" adds to them. Passed-on ideas stay.
   if (!more) db._raw().prepare("DELETE FROM spells WHERE user_id = ? AND status = 'new' AND source = 'own'").run(user.id);
   const have = new Set(db._raw().prepare("SELECT lower(title) t FROM spells WHERE user_id = ? AND status = 'new'").all(user.id).map((r) => r.t));
+  // Ideas already around (new, or answered this week): a near-repeat in other words is skipped.
+  // (Passed-on ideas aren't here: one matching yours is merged into it below.)
+  const recent = db._raw().prepare("SELECT title FROM spells WHERE user_id = ? AND source = 'own' AND (status = 'new' OR created_at > ?)").all(user.id, now() - 7 * 86400).map((r) => words(r.title));
   for (const s of list.filter((x) => x && KINDS.includes(x.kind) && clean(x.title)).filter(ok)) {
     if (made >= PER_BATCH) break;
     if (have.has(clean(s.title, 90).toLowerCase())) continue;
-    const link = /^https?:\/\//.test(String(s.link || '')) ? String(s.link).slice(0, 400) : null;
+    if (recent.some((w) => alike(w, words(s.title)))) continue;
+    // A link only to a site the search actually returned; never plain http (🐛 #41).
+    let link = /^https:\/\//.test(String(s.link || '')) ? String(s.link).slice(0, 400) : null;
+    if (link && !found.has(host(link))) link = null;
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(s.date || '')) && !Number.isNaN(Date.parse(s.date)) ? s.date : null;
+    if (date && date < today) continue;   // already over
+    if (date) { s.title = fixWeekdays(s.title, date); s.why = fixWeekdays(s.why, date); if (s.public_title) s.public_title = fixWeekdays(s.public_title, date); }
+    const place = clean(s.place, 80) || null;
     const pub = PUBLIC_KINDS.includes(s.kind) && clean(s.public_title) && ok({ title: s.public_title, why: '' }) ? clean(s.public_title, 90) : null;
     // Its public title matches another of today's ideas (not a passed-on one, which is merged below): a repeat.
     const repeat = pub && pub.toLowerCase() !== clean(s.title, 90).toLowerCase() && have.has(pub.toLowerCase());
     have.add(clean(s.title, 90).toLowerCase());
     if (repeat && !db._raw().prepare("SELECT 1 FROM spells WHERE user_id = ? AND status = 'new' AND source = 'echo' AND lower(title) = lower(?)").get(user.id, pub)) continue;
     const sid = uuidv4();
-    db._raw().prepare('INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(sid, user.id, s.kind, clean(s.title, 90), clean(s.why, 200), link, now() + KEEP_DAYS * 86400, pub);
+    db._raw().prepare('INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, date, place) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(sid, user.id, s.kind, clean(s.title, 90), clean(s.why, 200), link, now() + KEEP_DAYS * 86400, pub, date, place);
+    recent.push(words(s.title));
     // The same idea was passed on to them already: one card — theirs — carrying who-many liked it.
     const dup = pub && db._raw().prepare("SELECT id, echoes FROM spells WHERE user_id = ? AND status = 'new' AND source = 'echo' AND lower(title) = lower(?)").get(user.id, pub);
     if (dup) { db._raw().prepare('UPDATE spells SET echoes = ? WHERE id = ?').run(dup.echoes, sid); db._raw().prepare('DELETE FROM spells WHERE id = ?').run(dup.id); }
@@ -212,16 +226,19 @@ function echo(fromUserId, spell) {
     }
     const today = db._raw().prepare("SELECT count(*) n FROM spells WHERE user_id = ? AND source = 'echo' AND created_at > ?").get(u.id, now() - 86400).n;
     if (today >= ECHOES_PER_DAY) continue;
-    const img = db._raw().prepare('SELECT image, image_checked FROM spells WHERE id = ?').get(spell.id) || {};
-    db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, source, origin_id, echoes, image, image_checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'echo', ?, 1, ?, ?)`).run(uuidv4(), u.id, spell.kind, spell.public_title, 'People around you like this', spell.link, now() + KEEP_DAYS * 86400, spell.public_title, spell.id, img.image || null, img.image_checked || 0);
+    const o = db._raw().prepare('SELECT * FROM spells WHERE id = ?').get(spell.id) || {};
+    db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, source, origin_id, echoes, image, image_checked, link_ok, date, place, lat, lng, geo_checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'echo', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`).run(uuidv4(), u.id, spell.kind, spell.public_title, 'People around you like this', spell.link, now() + KEEP_DAYS * 86400, spell.public_title, spell.id,
+      o.image || null, o.image_checked || 0, o.link_ok ?? null, o.date || null, o.place || null, o.lat ?? null, o.lng ?? null, o.geo_checked || 0);
     sent++;
   }
   return sent;
 }
 
-const view = (s) => ({ id: s.id, kind: s.kind, title: s.title, why: s.why, link: s.link, status: s.status,
-  image: s.image || null, passed_on: s.source === 'echo' || s.echoes > 0, liked_by: s.echoes || undefined, can_spread: !!s.public_title && PUBLIC_KINDS.includes(s.kind) });
+// A link is shown only once it's been checked to open securely (🐛 #41).
+const view = (s) => ({ id: s.id, kind: s.kind, title: s.title, why: s.why, status: s.status,
+  image: s.image || null, link: s.link_ok === 1 ? s.link : null, link_ok: s.link_ok, source_site: s.link ? host(s.link) : null,
+  date: s.date || null, place: s.place || null, lat: s.lat ?? null, lng: s.lng ?? null, passed_on: s.source === 'echo' || s.echoes > 0, liked_by: s.echoes || undefined, can_spread: !!s.public_title && PUBLIC_KINDS.includes(s.kind) });
 function forUser(userId) {
   return db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND status = 'new' AND expires_at > ? ORDER BY CASE kind WHEN 'nearby' THEN 0 WHEN 'reconnect' THEN 1 WHEN 'wish' THEN 2 ELSE 3 END, echoes DESC, created_at DESC")
     .all(userId, now()).map(view);
@@ -252,23 +269,61 @@ function purgeOld() {
   return db._raw().prepare("DELETE FROM spells WHERE (status != 'dismissed' AND expires_at < ?) OR (status = 'dismissed' AND created_at < ?)").run(now(), now() - 60 * 86400).changes;
 }
 
-/** Pictures for ideas with a link (Explore, 🐛 #39): the page's share image, looked up once per link. */
-let _filling = false;
-async function fillImages({ limit = 12 } = {}) {
-  if (_filling) return 0;
-  _filling = true;
+/** For ideas with a link: does it open securely (🐛 #41), and its share picture (🐛 #39) — once per link.
+ *  For ideas at a place: where it is, for the map (🐛 #43). */
+// One run at a time: a call while one is running waits for it, then runs (nothing is skipped).
+// (At most one waiting: scrolling Explore asks often, and the next run covers everything anyway.)
+let _filling = Promise.resolve(), _waiting = null;
+function fillImages(opts) {
+  if (_waiting) return _waiting;
+  const run = _filling.then(() => { _waiting = null; return fillOnce(opts); });
+  _waiting = run;
+  _filling = run.catch(() => 0);
+  return run;
+}
+async function fillOnce({ limit = 12 } = {}) {
   let n = 0;
   try {
     const rows = db._raw().prepare(`SELECT id, link FROM spells WHERE link IS NOT NULL AND image_checked = 0 AND status IN ('new', 'kept')
       ORDER BY created_at DESC LIMIT ?`).all(limit);
     for (const r of rows) {
-      const known = db._raw().prepare('SELECT image FROM spells WHERE link = ? AND image_checked = 1 AND image IS NOT NULL LIMIT 1').get(r.link);
-      const img = known ? known.image : await require('./ogimage').find(r.link);
-      db._raw().prepare('UPDATE spells SET image = ?, image_checked = 1 WHERE link = ? AND image_checked = 0').run(img, r.link);
-      if (img) n++;
+      const known = db._raw().prepare('SELECT image, link_ok FROM spells WHERE link = ? AND image_checked = 1 LIMIT 1').get(r.link);
+      const c = known ? { ok: known.link_ok === 1, image: known.image } : await require('./ogimage').check(r.link);
+      if (!c) continue;   // couldn't check (offline) — try later
+      db._raw().prepare('UPDATE spells SET image = ?, link_ok = ?, image_checked = 1 WHERE link = ? AND image_checked = 0').run(c.image, c.ok ? 1 : 0, r.link);
+      if (c.image) n++;
     }
-  } catch (err) { console.warn('[spells] images:', err.message); } finally { _filling = false; }
+    const places = db._raw().prepare(`SELECT s.id, s.place, u.city FROM spells s JOIN users u ON u.id = s.user_id
+      WHERE s.place IS NOT NULL AND s.geo_checked = 0 AND s.status IN ('new', 'kept') ORDER BY s.created_at DESC LIMIT ?`).all(limit);
+    for (const p of places) {
+      const known = db._raw().prepare('SELECT lat, lng FROM spells WHERE lower(place) = lower(?) AND geo_checked = 1 AND lat IS NOT NULL LIMIT 1').get(p.place);
+      const g = known || await require('./geocode').find(p.place, p.city);
+      db._raw().prepare('UPDATE spells SET lat = ?, lng = ?, geo_checked = 1 WHERE id = ?').run(g?.lat ?? null, g?.lng ?? null, p.id);
+    }
+  } catch (err) { console.warn('[spells] images:', err.message); }
   return n;
+}
+
+// ── Keeping ideas true (🐛 #41) ──
+function host(u) { try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase(); } catch (_) { return null; } }
+const STOP = new Set('a an the at in on with and or for to of your you this that night day week weekend tonight today tomorrow monday tuesday wednesday thursday friday saturday sunday mon tue wed thu fri sat sun jan feb mar apr may jun jul aug sep sept oct nov dec january february march april june july august september october november december'.split(' '));
+function words(t) { return new Set(String(t || '').toLowerCase().replace(/[^a-z0-9\s&]/g, ' ').split(/\s+/).filter((w) => w && !STOP.has(w) && !/^\d+(st|nd|rd|th)?$/.test(w))); }
+function alike(a, b) {
+  if (!a.size || !b.size) return false;
+  let both = 0; for (const w of a) if (b.has(w)) both++;
+  return both / Math.min(a.size, b.size) >= 0.75 && both >= 2;
+}
+const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+/** "Friday" in an idea for Sat Oct 24 → "Saturday" (the model gets weekdays wrong). */
+function fixWeekdays(text, date) {
+  if (!text) return text;
+  const real = DAYS[new Date(`${date}T12:00:00Z`).getUTCDay()];
+  return String(text).replace(/\b(sun|mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?)(day)?\b/gi, (m) => {
+    const full = m.length > 4 || /day$/i.test(m);
+    let r = full ? real : real.slice(0, 3);
+    if (m[0] === m[0].toUpperCase()) r = r[0].toUpperCase() + r.slice(1);
+    return r;
+  });
 }
 
 /** A public idea from someone in your town, seen in your 🧭 Explore: becomes yours (passed on) so you can answer it. */
@@ -281,9 +336,9 @@ function adopt(userId, originId) {
   if (have) return have.id;
   const likes = db._raw().prepare("SELECT count(DISTINCT user_id) n FROM spells WHERE lower(public_title) = lower(?) AND status = 'kept'").get(o.public_title).n;
   const id = uuidv4();
-  db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, source, origin_id, echoes, image, image_checked)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'echo', ?, ?, ?, ?)`).run(id, userId, o.kind, o.public_title, 'Found around you', o.link, now() + KEEP_DAYS * 86400, o.public_title, o.id, likes, o.image, o.image_checked);
+  db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, source, origin_id, echoes, image, image_checked, link_ok, date, place, lat, lng, geo_checked)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'echo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, userId, o.kind, o.public_title, 'Found around you', o.link, now() + KEEP_DAYS * 86400, o.public_title, o.id, likes, o.image, o.image_checked, o.link_ok, o.date, o.place, o.lat, o.lng, o.geo_checked);
   return id;
 }
 
-module.exports = { generate, more, tick, forUser, answer, adopt, fillImages, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
+module.exports = { generate, more, tick, forUser, answer, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
