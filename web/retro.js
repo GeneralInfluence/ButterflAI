@@ -20,7 +20,7 @@ const push = require('./push');
 const topics = require('./topics');
 const { createAnthropicClient, DEFAULT_MODEL } = require('./anthropic-client');
 
-const MAX_PER_TICK = 30;   // grows with the task list (every behavior change adds one)
+const MAX_PER_TICK = 60;   // grows with the task list (every behavior change adds one)
 const now = () => Math.floor(Date.now() / 1000);
 const RETRY = Symbol('retry');
 
@@ -550,6 +550,20 @@ const TASKS = [
       if (!e) return 'not as left';
       const r = require('./planops').update(user.id, e.id, { proposed_dates: [{ from: '2026-10-23', to: '2026-10-24' }], tentative: false }, { via: 'retro' });
       return r.ok ? 'Fri–Sat, locked in' : `not changed: ${r.error}`;
+    },
+  },
+  {
+    id: '2026-10-20-using-it-means-signed-up',
+    added: Date.UTC(2026, 9, 20) / 1000,
+    kind: 'internal',
+    about: 'Sign-up is just your name (owner, 2026-10-20: "she\'s using the app. She gets notices."). Anyone using ButterflAI — in a plan, or with a chat — whose account was still "not finished" (Alexandria: "New user", logged in with a code, never saw the old 3-contacts wizard) counts as signed up, so check-ins and nudges include them. Anyone still on a placeholder name is asked it in the app (name-prompt.js).',
+    run(user) {
+      if (user.onboarding_state === 'complete') return 'already';
+      const inPlan = db._raw().prepare(`SELECT 1 FROM social_events WHERE host_user_id = ? UNION SELECT 1 FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id WHERE c.phone = ? LIMIT 1`).get(user.id, user.phone || '');
+      const chatted = db._raw().prepare('SELECT 1 FROM conversation_history WHERE user_id = ? LIMIT 1').get(user.id);
+      if (!inPlan && !chatted) return 'not using it';
+      db.updateUser(user.id, { onboarding_state: 'complete' });
+      return 'signed up';
     },
   },
   {

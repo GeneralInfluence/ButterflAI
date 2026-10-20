@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1089_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1091_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -1011,6 +1011,18 @@ Bam's July 16 open invite had no date, so it was never "past".
 - **Names as the viewer knows them** (`people.nameFor`): agent queries/replies, questions,
   suggestions and FYIs use the viewer's contact name, never an account placeholder ("New user"
   — Alexandria never finished sign-up, so Sean's agent said "New's assistant").
+
+## 28. Sign-up is just your name `[LOCKED 2026-10-20]`
+
+Owner: "What is it that Alexandria needs to do in order to finish signing up? … she's using the
+app." Logging in with a phone code made "New user" (not finished); finishing was an old wizard
+(name + 3 contacts + how often) nobody used, and unfinished accounts were skipped by check-ins
+and nudges. Now: a first login is a full account; any account on a placeholder name is asked
+its name once on whatever screen it opens (`public/name-prompt.js`, `needs_name` on
+`/api/user/me`; placeholders refused); saving it completes sign-up. The wizard page and
+"Finish setup" banner are gone (`/app/onboarding` → Home). Retro: everyone in a plan or with a
+chat counts as signed up. SMS-first sign-up (onboarding.js) is unchanged. Test:
+`signup-name.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`
 

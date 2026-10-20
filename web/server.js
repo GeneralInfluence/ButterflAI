@@ -1544,7 +1544,9 @@ app.get('/app/contacts',   webAuth.requireAuthPage, (req, res) => res.sendFile(p
 app.get('/app/dashboard',  webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/dashboard.html')));
 app.get('/app/events',     webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/events.html')));
 app.get('/app/settings',   webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/settings.html')));
-app.get('/app/onboarding', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/onboarding.html')));
+// The old "Finish setup" wizard (name + 3 contacts + how often) is gone — people join through
+// plans and invites, and the only thing asked is their name (name-prompt.js). 2026-10-20.
+app.get('/app/onboarding', webAuth.requireAuthPage, (req, res) => res.redirect('/app/dashboard'));
 app.get('/app',            (req, res) => res.redirect('/app/dashboard'));
 
 // ── OTP auth ──────────────────────────────────────────────────────────────────
@@ -1884,6 +1886,7 @@ app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, 
 app.get('/api/user/me', webAuth.requireAuth, (req, res) => {
   const { id, name, nickname, also_known_as, phone, city, lat, lng, share_location, test_user } = req.user;
   res.json({ id, name, nickname, also_known_as, phone, city, lat, lng,
+    needs_name: require('./people').PLACEHOLDER.test(String(name || '').trim()) || !String(name || '').trim(),   // name-prompt.js
     share_location: share_location === 0 ? false : true, // default true if null/1
     test_user: !!test_user });
 });
@@ -2166,7 +2169,9 @@ app.patch('/api/user/me', webAuth.requireAuth, express.json(), (req, res) => {
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
-  const updates = { name: name.trim() };
+  if (require('./people').PLACEHOLDER.test(name.trim())) return res.status(400).json({ error: 'Type your real name' });
+  // Having a name is all sign-up is (2026-10-20).
+  const updates = { name: name.trim().replace(/\s+/g, ' ').slice(0, 60), onboarding_state: 'complete' };
   if (typeof nickname === 'string') updates.nickname = nickname.trim() || null;
   if (typeof also_known_as === 'string') updates.also_known_as = also_known_as.trim() || null;
   db.updateUser(req.user.id, updates);

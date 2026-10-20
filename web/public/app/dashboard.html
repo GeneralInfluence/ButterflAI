@@ -143,11 +143,6 @@
   <!-- Install app prompt slot (populated by install-prompt.js) -->
   <div id="install-prompt-slot"></div>
 
-  <!-- Finish setup banner (shown if onboarding incomplete) -->
-  <div class="banner" id="onboarding-banner" style="display:none;">
-    <p>⚙️ Your agent isn't fully set up yet.</p>
-    <a href="/app/onboarding">Finish setup →</a>
-  </div>
 
   <!-- Home = Feeling · Creating · Happenings (owner, 2026-10-12). All three visible at a
        glance (2026-10-13): summary beside each title, one preview item, › opens it full screen. -->
@@ -410,13 +405,6 @@
   }
 
   async function load() {
-    // Check onboarding state
-    try {
-      const me = await fetch('/api/user/me').then(r => r.json());
-      if (me.onboarding_state && me.onboarding_state !== 'complete') {
-        document.getElementById('onboarding-banner').style.display = 'flex';
-      }
-    } catch (_) {}
     await loadFeed();
     showOpenSection();
   }
@@ -428,6 +416,7 @@
   <script src="/update-check.js"></script>
   <script src="/feedback.js"></script>
   <script src="/notify-prompt.js"></script>
+  <script src="/name-prompt.js"></script>
   <script src="/install-prompt.js"></script>
 
 </body>

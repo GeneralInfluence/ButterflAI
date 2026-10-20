@@ -155,9 +155,10 @@ function verifyOtpHandler(req, res) {
   // Find or create user
   let user = db.getUserByPhone(phone);
   if (!user) {
-    // New user — create account, start onboarding
+    // New user — a full account at once; the only thing asked is their name, by
+    // name-prompt.js on the first screen they open (2026-10-20: Alexandria stayed "New user").
     const id = uuidv4();
-    db.createUser({ id, phone, name: 'New user', onboarding_state: 'new' });
+    db.createUser({ id, phone, name: 'New user', onboarding_state: 'complete' });
     user = db.getUser(id);
   }
 
