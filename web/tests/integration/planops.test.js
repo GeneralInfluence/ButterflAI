@@ -85,7 +85,8 @@ describe('planops.update', () => {
     const sean = mkUser('Sean Pick');
     const r = await planops.create(sean.id, { title: 'Pick a date', proposed_dates: [{ from: isoDaysAhead(10), to: isoDaysAhead(11) }] });
     const at = new Date(Date.now() + 12 * 86400000).toISOString();
-    const u = planops.update(sean.id, r.eventId, { scheduled_at: at });
+    // Dropping a multi-day range for one date is explicit since 🐛 #25 (proposed_dates: []).
+    const u = planops.update(sean.id, r.eventId, { scheduled_at: at, proposed_dates: [] });
     assert.equal(u.ok, true);
     const e = row(r.eventId);
     assert.equal(e.proposed_dates, null);

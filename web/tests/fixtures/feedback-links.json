@@ -35,5 +35,9 @@
   "23": {
     "note_starts": "Why can't I lock in Melanie's birthday weekend",
     "test": "tests/integration/lock-in.test.js › Lock it in → confirmed, the same two days, no \"(proposed)\""
+  },
+  "25": {
+    "note_starts": "You locked it into just Friday which destroys all the Saturday events",
+    "test": "tests/integration/date-range.test.js › the agent's exact call (tentative false, when \"… through …\") → both days, confirmed"
   }
 }

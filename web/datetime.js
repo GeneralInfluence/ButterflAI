@@ -154,6 +154,33 @@ function resolveEventDateTime(whenText, timezone, now = new Date()) {
 }
 
 /**
+ * A date range in words → { from, to } ('YYYY-MM-DD'), or null: "Friday October 23 through
+ * Saturday October 24", "Oct 23-24", "Oct 23 to Oct 25", "friday through sunday".
+ * (🐛 #25, 2026-10-19: "Friday October 23 through Saturday October 24" was read as Friday and
+ * the weekend's Saturday was dropped.)
+ */
+function resolveRange(text, timezone, now = new Date()) {
+  const tz = timezone || 'America/Los_Angeles';
+  const s = String(text || '').toLowerCase();
+  const parts = s.split(/\s+(?:through|thru|to|until|till)\s+|\s*[–—]\s*|(?<=\d)\s*-\s*(?=\w)|\s+-\s+/);
+  if (parts.length !== 2) return null;
+  const a = parseDate(parts[0], tz, now);
+  if (!a) return null;
+  // "Oct 23-24": the second side is just a day of the same month.
+  const bare = /^(\d{1,2})(st|nd|rd|th)?\b/.exec(parts[1].trim());
+  let b = bare && !/[a-z]{3}/.test(parts[1].replace(/st|nd|rd|th/, '')) ? { y: a.y, m: a.m, d: +bare[1] } : parseDate(parts[1], tz, now);
+  if (!b) return null;
+  const iso = (x) => `${x.y}-${String(x.m).padStart(2, '0')}-${String(x.d).padStart(2, '0')}`;
+  let from = iso(a), to = iso(b);
+  if (to < from) {   // "friday through sunday" when Sunday came out earlier: the next one
+    const d = new Date(to + 'T12:00:00Z'); while (d.toISOString().slice(0, 10) < from) d.setUTCDate(d.getUTCDate() + 7);
+    to = d.toISOString().slice(0, 10);
+  }
+  if ((Date.parse(to) - Date.parse(from)) / 86400e3 > 14) return null;
+  return from === to ? null : { from, to };
+}
+
+/**
  * A day without a time ("October 30", "friday", "the 30th") → noon of that day in `timezone`
  * (a placeholder; the plan says "time TBD"). null if no day can be read.
  */
@@ -224,4 +251,4 @@ function resolveUntil(phrase, timezone, now = new Date()) {
   };
 }
 
-module.exports = { resolveDateOnly, saysTime, TIME_WORDS, resolveEventDateTime, resolveUntil, parseTime, parseDate, zonedWallTimeToUTC };
+module.exports = { resolveRange, resolveDateOnly, saysTime, TIME_WORDS, resolveEventDateTime, resolveUntil, parseTime, parseDate, zonedWallTimeToUTC };

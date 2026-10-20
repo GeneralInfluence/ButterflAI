@@ -79,7 +79,9 @@ async function create(hostId, input, { via = 'agent' } = {}) {
 
   // Dates: a spoken day+time is resolved here, in the host's timezone (never by the model).
   let resolved = null, timeTbd = false;
-  if (input.when && !input.flexible_time) {
+  const range = input.when && !input.proposed_dates ? datetime.resolveRange(input.when, host.timezone || 'America/Los_Angeles') : null;
+  if (range) data.proposed_dates = [range];   // "Fri Oct 23 through Sat Oct 24" is the plan's days (🐛 #25)
+  else if (input.when && !input.flexible_time) {
     resolved = datetime.resolveEventDateTime(input.when, host.timezone || 'America/Los_Angeles');
     // A day but no time ("October 30") is that day, time TBD — not "date TBD", and not a made-up 7pm.
     if (!resolved) { resolved = datetime.resolveDateOnly(input.when, host.timezone || 'America/Los_Angeles'); timeTbd = !!resolved; }
@@ -133,6 +135,19 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
   // Dates
   let when = changes.scheduled_at;
   let timeTbd = changes.time_tbd === true;
+  // A range in words ("Friday Oct 23 through Saturday Oct 24") is the plan's days, not its first day (🐛 #25).
+  if (changes.when && changes.proposed_dates === undefined) {
+    const range = datetime.resolveRange(changes.when, db.getUser(actorId)?.timezone || 'America/Los_Angeles');
+    if (range) { changes = { ...changes, proposed_dates: [range] }; delete changes.when; }
+  }
+  // A multi-day plan never quietly shrinks to one day: setting a single date over a range
+  // needs the range dropped on purpose (proposed_dates: []) (🐛 #25 — the weekend lost Saturday).
+  if ((changes.when || changes.scheduled_at) && changes.proposed_dates === undefined && via === 'agent') {
+    const opts = JSON.parse(e.proposed_dates || 'null');
+    if (opts && opts.length === 1 && opts[0].from !== opts[0].to) {
+      return { error: 'WOULD_DROP_DAYS', message: `This plan covers ${opts[0].from} to ${opts[0].to}. To keep all its days, don't set a single date — lock it in with tentative: false (or pass when as the range). Only if your user wants it on ONE day, call again with proposed_dates: [] as well.` };
+    }
+  }
   if (changes.when) {
     const tz = db.getUser(actorId)?.timezone || 'America/Los_Angeles';
     let r = timeTbd ? null : datetime.resolveEventDateTime(changes.when, tz);

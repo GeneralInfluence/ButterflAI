@@ -539,6 +539,20 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-20-weekend-keeps-saturday',
+    added: Date.UTC(2026, 9, 20) / 1000,
+    kind: 'internal',
+    about: '🐛 #25 (Sean: "You locked it into just Friday which destroys all the Saturday events"): "Friday October 23 through Saturday October 24" was read as Friday, which dropped the weekend\'s Fri–Sat range. Put Melanie\'s Birthday Weekend back on Fri Oct 23 – Sat Oct 24, locked in (confirmed), keeping the new notes. Only if it is still as that change left it.',
+    run(user) {
+      if (!db._raw().prepare("SELECT 1 FROM feedback WHERE id = 25 AND user_note LIKE 'You locked it into just Friday%'").get()) return 'no report';
+      const e = db._raw().prepare(`SELECT id FROM social_events WHERE host_user_id = ? AND title = 'Melanie''s Birthday Weekend' AND COALESCE(status, 'open') != 'cancelled'
+        AND proposed_dates IS NULL AND time_tbd = 1`).get(user.id);
+      if (!e) return 'not as left';
+      const r = require('./planops').update(user.id, e.id, { proposed_dates: [{ from: '2026-10-23', to: '2026-10-24' }], tentative: false }, { via: 'retro' });
+      return r.ok ? 'Fri–Sat, locked in' : `not changed: ${r.error}`;
+    },
+  },
+  {
     id: '2026-10-19-options-asked-for-not-given',
     added: Date.UTC(2026, 9, 19) / 1000,
     kind: 'propose',

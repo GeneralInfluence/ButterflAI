@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1064_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1074_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -960,7 +960,11 @@ in" only existed for one date + time; a weekend is one proposed range. Now a pla
 proposed range (or a set date) locks in as is → `dates.kind = 'days'`, stage confirmed, all-day
 across the days on calendars; several options → pick one (`PICK_DATES`; a button per option).
 The host / co-hosts get "It's happening — lock it in" once someone is going or Creating has
-items. No timed reminders exist yet — the agent no longer offers them. Test: `lock-in.test.js`.
+items.
+🐛 #25 (same night): the agent locked it in with when = "Friday October 23 through Saturday
+October 24" → read as Friday, and setting a date dropped the range. Now `datetime.resolveRange`
+reads ranges in words ("… through …", "Oct 23-24"), and the agent can't shrink a multi-day plan
+to one day without dropping the range on purpose (`WOULD_DROP_DAYS`). Test: `date-range.test.js`. No timed reminders exist yet — the agent no longer offers them. Test: `lock-in.test.js`.
 
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 

@@ -95,7 +95,8 @@ describe('undo from the change log', () => {
   test('revert puts every field back as it was before that moment, and logs it', async () => {
     const w = await twoPlans();
     const before = row(w.mel);
-    planops.update(w.sean.id, w.mel, { notes: 'wrong', scheduled_at: '2027-01-02T10:00:00-08:00', flexible_time: true }, { via: 'agent' });
+    // via 'app': since 🐛 #25 the agent can't drop a multi-day range by setting one date (WOULD_DROP_DAYS).
+    planops.update(w.sean.id, w.mel, { notes: 'wrong', scheduled_at: '2027-01-02T10:00:00-08:00', flexible_time: true }, { via: 'app' });
     const at = db._raw().prepare("SELECT created_at FROM plan_changes WHERE event_id = ? AND field = 'notes' ORDER BY id DESC").get(w.mel).created_at;
     const r = planops.revert(w.sean.id, w.mel, { at });
     assert.equal(r.ok, true);
@@ -109,7 +110,7 @@ describe('undo from the change log', () => {
     const m = await planops.create(sean.id, { title: "Melanie's Birthday Weekend", proposed_dates: [{ from: '2026-10-23', to: '2026-10-24' }],
       notes: 'Friday: massage. Saturday: Hot springs, dinner at Sassafras' });
     planops.update(sean.id, m.eventId, { notes: "Carson City Hot Springs + massage + dinner at Sassafras Eclectic Food Joint. Flexible — kids likely won't stay",
-      scheduled_at: '2026-10-17T13:00:00-07:00', flexible_time: true }, { via: 'agent' });
+      scheduled_at: '2026-10-17T13:00:00-07:00', flexible_time: true, proposed_dates: [] }, { via: 'agent' });   // the old bad change (dropping the range is explicit since 🐛 #25)
     const task = require('../../retro').TASKS.find((t) => t.id === '2026-10-14-undo-melanie-changes-from-liams-chat');
     assert.match(task.run(sean), /^reverted /);
     const e = row(m.eventId);
