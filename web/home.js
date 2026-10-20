@@ -117,12 +117,15 @@ function feedFor(userId) {
   const myShares = myPlans(userId);
   const mineMade = plansFromShares(userId, myShares.map((p) => p.id));
   const mine = myShares.map((p) => ({ plan_id: p.id, text: p.text, until: p.expires_at, made_plan: mineMade[p.id] || null }));
+  // ✨ Wishes lead Feeling (owner, 2026-10-20) — yours and the mutual wishes ButterflAI found.
+  const wishes = require('./wishes').forUser(userId);
   return {
     items,
     my_plans: mine,
+    wishes,
     creating,
     creating_suggestions: creatingSuggestions,
-    summary: homeSummary({ items, mine, creating, suggestions: creatingSuggestions }),
+    summary: homeSummary({ items, mine, creating, suggestions: creatingSuggestions, wishes }),
   };
 }
 
@@ -135,10 +138,14 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
  * computed here once so the page only displays it. Counts come from the same lists the
  * full views show, so they always agree.
  */
-function homeSummary({ items, mine, creating, suggestions }) {
+function homeSummary({ items, mine, creating, suggestions, wishes = { mine: [], matches: [] } }) {
   const friendPlans = items.filter((i) => i.type === 'plan').length;
   const interest = items.filter((i) => i.type === 'interest').length;
-  const feeling = [mine.length ? `You: ${mine[0].text}` : '',
+  const active = wishes.mine.filter((w) => w.status === 'active').length;
+  const toAnswer = wishes.matches.filter((m) => !m.my_answer && ['open'].includes(m.status)).length;
+  const feeling = [toAnswer ? `${plural(toAnswer, 'shared wish', 'shared wishes')}` : '',
+    active ? `${plural(active, 'wish', 'wishes')}` : '',
+    mine.length ? `You: ${mine[0].text}` : '',
     friendPlans ? `${plural(friendPlans, 'friend', 'friends')} shared` : '',
     interest ? `${interest} up for something` : ''].filter(Boolean);
 
@@ -153,7 +160,7 @@ function homeSummary({ items, mine, creating, suggestions }) {
   const happening = [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', coming ? `${coming} coming up` : ''].filter(Boolean);
 
   return {
-    feeling: { line: feeling.join(' · ') || 'Nothing shared yet', needs_you: false },
+    feeling: { line: feeling.join(' · ') || 'Make a wish', needs_you: toAnswer > 0 },
     creating: { line: making.join(' · ') || 'All caught up', needs_you: yours > 0 },
     happenings: { line: happening.join(' · ') || 'Nothing yet', needs_you: needs > 0 },
   };

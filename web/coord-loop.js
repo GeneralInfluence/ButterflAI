@@ -131,6 +131,9 @@ async function tick(transport = stubTransport) {
     // Apply behavior changes to what already exists, once per existing user (retro.js).
     const retroRuns = await require('./retro').tick();
     if (retroRuns) console.log(`[coord] ran ${retroRuns} retro task(s)`);
+    // Wishes: the agents look for mutual wishes (wishes.js) — new wishes are compared once.
+    const wished = await require('./wishes').match();
+    if (wished) console.log(`[coord] found ${wished} shared wish(es)`);
     // The daily consistency sweep: repeats, same-name plans, stale questions, stuck calendar entries (sweep.js).
     const swept = require('./sweep').run();
     if (swept && Object.keys(swept).length) console.log('[coord] sweep fixed', JSON.stringify(swept));
@@ -169,6 +172,13 @@ function tickPurge() {
     if (n) console.log(`[coord] purged ${n} expired plans/interest signals`);
   } catch (err) {
     console.error('[coord] plans purge error:', err.message);
+  }
+  // Wishes end after 60 days (wishes.js).
+  try {
+    const n = require('./wishes').purgeOld();
+    if (n) console.log(`[coord] ended ${n} wish(es) past 60 days`);
+  } catch (err) {
+    console.error('[coord] wishes purge error:', err.message);
   }
   // What messages were understood as (understand.js) holds people's words: kept 90 days.
   try {

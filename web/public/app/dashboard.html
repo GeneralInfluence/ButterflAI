@@ -146,9 +146,15 @@
 
   <!-- Home = Feeling · Creating · Happenings (owner, 2026-10-12). All three visible at a
        glance (2026-10-13): summary beside each title, one preview item, › opens it full screen. -->
-  <!-- Feeling: share what you're up for — friends see it in Happenings; nobody is pinged -->
+  <!-- Feeling: ✨ wishes first — things you'd love to happen; the agents look for people who wish
+       for the same (owner, 2026-10-20: "cast a spell into the world … to bring the world together").
+       Then the quick shares (what you're up for — friends see it in Happenings; nobody is pinged). -->
   <section class="home-sec" id="sec-feeling">
     <button type="button" class="sec-head" onclick="openSection('feeling')" aria-label="Open Feeling"><h2>Feeling</h2><span class="sec-line" id="line-feeling"></span><span class="sec-more">›</span></button>
+    <form class="share-other wish-form" onsubmit="event.preventDefault(); addWish(this);">
+      <input name="wish" placeholder="✨ I wish… e.g. hot springs with friends this fall" maxlength="200" aria-label="Make a wish">
+      <button type="submit">Wish</button></form>
+    <div id="wish-preview"></div>
     <div class="share-row">
       <button class="chip-btn" onclick="quickShare('Free tonight', 'tonight')">🟢 Free tonight</button>
       <button class="chip-btn" onclick="quickShare('Free this weekend', 'this weekend')">📅 Free this weekend</button>
@@ -296,6 +302,46 @@
     : `<button type="button" class="feed-action share-plan-btn" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit" onclick="planFromShare('${esc(shareId)}', this)">${label} ›</button>`;
   const minePlansHtml = (list) => (list || []).map(p =>
     `<div class="mine"><span>You: ${esc(p.text)} · until ${when(p.until)}<br>${shareAction(p.plan_id, p.made_plan, 'Make it a plan')}</span><button title="Remove" onclick="removePlan('${esc(p.plan_id)}')">✕</button></div>`).join('');
+  // ── Wishes (wishes.js) ──
+  function wishHtml(w) {
+    return `<div class="card feed-item"><span class="feed-icon">✨</span><div style="flex:1;min-width:0">
+      <div class="card-title">${esc(w.text)}</div>
+      <div class="card-sub">${w.status === 'planned' ? 'It’s a plan now' : w.open_to_new ? 'Open to people you haven’t met' : 'Only people you know'}</div>
+      ${w.status === 'planned' && w.event_id ? `<a class="feed-action" href="/app/chat?event=${esc(w.event_id)}" style="text-decoration:none">Open plan ›</a>` : `<div class="share-row" style="margin:6px 0 0">
+        <label style="font-size:13px;color:#3a3a3c"><input type="checkbox" ${w.open_to_new ? '' : 'checked'} onchange="toggleWishOpen('${esc(w.id)}', !this.checked)"> Only people I know</label></div>`}
+      </div><button title="Remove" style="background:none;border:none;color:#c7c7cc;font-size:16px;cursor:pointer" onclick="removeWish('${esc(w.id)}')">✕</button></div>`;
+  }
+  function matchHtml(m) {
+    const who = m.who ? esc(m.who) : 'Someone near you';
+    const body = m.status === 'planned' || m.status === 'connected'
+      ? (m.event_id ? `<a class="feed-action" href="/app/chat?event=${esc(m.event_id)}" style="text-decoration:none">Open the plan ›</a>` : '')
+      : m.waiting_on_them ? '<div class="card-sub">You’re open to it — waiting on them (they won’t know who you are unless they are too)</div>'
+      : m.kind === 'friend'
+        ? `<div class="share-row" style="margin:6px 0 0"><button class="chip-btn" onclick="answerMatch('${esc(m.id)}','plan',this)">Make it a plan</button><button class="chip-btn" onclick="answerMatch('${esc(m.id)}','no',this)">Not now</button></div>`
+        : `<div class="share-row" style="margin:6px 0 0"><button class="chip-btn" onclick="answerMatch('${esc(m.id)}','open',this)">Open to meeting</button><button class="chip-btn" onclick="answerMatch('${esc(m.id)}','no',this)">Not now</button></div>`;
+    return `<div class="card feed-item needs-you"><span class="feed-icon">🪄</span><div style="flex:1;min-width:0">
+      <div class="card-title">${who} wishes for this too</div><div class="card-sub">${esc(m.together)}</div>${body}</div></div>`;
+  }
+  async function addWish(form) {
+    const input = form.querySelector('input'); const text = input.value.trim(); if (!text) return;
+    input.value = '';
+    await fetch('/api/wishes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }).catch(() => {});
+    loadFeed();
+  }
+  async function toggleWishOpen(id, open) {
+    await fetch('/api/wishes/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ open_to_new: open }) }).catch(() => {});
+    loadFeed();
+  }
+  async function removeWish(id) {
+    await fetch('/api/wishes/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
+    loadFeed();
+  }
+  async function answerMatch(id, answer, btn) {
+    if (btn) btn.disabled = true;
+    const r = await fetch('/api/wish-matches/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer }) }).then((x) => x.json()).catch(() => ({}));
+    if (r.event_id && answer !== 'no') { location.href = '/app/chat?event=' + encodeURIComponent(r.event_id); return; }
+    loadFeed();
+  }
   async function planFromShare(shareId, btn) {
     if (btn) { btn.disabled = true; btn.textContent = 'Making the plan…'; }
     try {
@@ -318,7 +364,11 @@
       const el = document.getElementById('line-' + k), sm = (summary || {})[k] || {};
       el.textContent = sm.line || ''; el.classList.toggle('needs', !!sm.needs_you);
     }
-    // One preview each: your active share; your next to-do (or a suggestion); the top happening.
+    // One preview each: a shared wish waiting for you (or your newest wish), your active share;
+    // your next to-do (or a suggestion); the top happening.
+    const w = feed.wishes || { mine: [], matches: [] };
+    const waitingMatch = w.matches.find((m) => !m.my_answer && m.status === 'open');
+    document.getElementById('wish-preview').innerHTML = waitingMatch ? matchHtml(waitingMatch) : (w.mine[0] ? wishHtml(w.mine[0]) : '');
     document.getElementById('my-plans').innerHTML = minePlansHtml((my_plans || []).slice(0, 1));
     document.getElementById('creating').innerHTML = (creating || []).length ? creatingHtml(creating.slice(0, 1), [])
       : (creating_suggestions || []).length ? creatingHtml([], creating_suggestions.slice(0, 1)) : creatingHtml([], []);
@@ -343,7 +393,16 @@
     let body = '';
     if (k === 'feeling') {
       const friends = friendsFeeling(items);
-      body = `<div class="share-row">
+      const w = feed.wishes || { mine: [], matches: [] };
+      body = `<h3>✨ Wishes</h3>
+        <form class="share-other wish-form" onsubmit="event.preventDefault(); addWish(this);">
+          <input name="wish" placeholder="I wish… e.g. learn to salsa, see live music, a cabin weekend" maxlength="200" aria-label="Make a wish">
+          <button type="submit">Wish</button></form>
+        ${w.matches.map(matchHtml).join('')}
+        ${w.mine.map(wishHtml).join('') || ''}
+        <p class="hint">Your ButterflAI looks for people who wish for the same thing — your friends, and people near you you haven't met (unless you choose "Only people I know"). Nobody sees your wishes; when it's someone else's wish too, you both hear about it. People you don't know stay anonymous until you're both open to meeting.</p>
+        <h3>Right now</h3>
+        <div class="share-row">
           <button class="chip-btn" onclick="quickShare('Free tonight', 'tonight')">🟢 Free tonight</button>
           <button class="chip-btn" onclick="quickShare('Free this weekend', 'this weekend')">📅 Free this weekend</button>
           <button class="chip-btn" onclick="quickShare('Laying low tonight', 'tonight')">🛋️ Laying low tonight</button></div>

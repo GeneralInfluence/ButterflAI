@@ -486,7 +486,7 @@ function revert(actorId, eventId, { at, via = 'undo' } = {}) {
 const FIELD_WORDS = { time_tbd: 'the time', title: 'the name', notes: 'the notes', venue_name: 'the place', venue_address: 'the address', scheduled_at: 'the date/time',
   date_tbd: 'the date', proposed_dates: 'the proposed dates', tentative: 'locked in / tentative', flexible_time: 'the time', duration_mins: 'how long',
   status: 'cancelled / reopened', group_id: 'the group', event_type: 'who can see it', host_attending: 'whether you\'re going', activity_type: 'what it is' };
-const VIA_WORDS = { agent: 'ButterflAI', app: 'You', undo: 'Undo', retro: 'ButterflAI (cleanup)', negotiation: 'Agents', desire: 'ButterflAI', share: 'You', ripple: 'ButterflAI', understood: 'ButterflAI (from your message)', suggestion: 'Accepted suggestion' };
+const VIA_WORDS = { agent: 'ButterflAI', app: 'You', undo: 'Undo', retro: 'ButterflAI (cleanup)', negotiation: 'Agents', desire: 'ButterflAI', share: 'You', ripple: 'ButterflAI', understood: 'ButterflAI (from your message)', suggestion: 'Accepted suggestion', wish: 'ButterflAI (a shared wish)' };
 
 /**
  * Recent changes to a plan's own details, grouped by moment, newest first — what the host

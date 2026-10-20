@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1131_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1140_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -178,7 +178,7 @@ A contact agreeing to be messaged has NOT agreed to be modeled. The agent may kn
 ## 5. Open questions — do NOT act unilaterally `[OPEN]`
 
 1. **Agent-to-agent minimization — enforcement mechanism.** How to *technically* stop a coordinating agent from retaining the other human's availability/preferences as durable profile data? (ephemeral coordination tokens? protocol-level constraint?) Hardest unsolved Tier-2 problem.
-2. **Network-graph consent gap — now also gates venue recommendations.** Even with per-message minimization, Tier-2 coordination across many users implicitly assembles a social graph nobody consented to *as a graph*. **This directly blocks the cross-user venue-aggregation feature** ("people who like similar things also like X") that the owner wants eventually. v1 records favorites per-user and shares them only bilaterally between coordinating agents — fine. Mining favorites across users requires deciding the consent model + honest user-facing disclosure FIRST. Do not build aggregation until then. Likely bounded by what is chosen NOT to retain/aggregate, not a clean technical fix.
+2. **Network-graph consent gap — now also gates venue recommendations.** *(Decided for wishes, 2026-10-20 — §29: mutual-wish matching, anonymous outside your circle until both opt in. Still open for venues/aggregation.)* Even with per-message minimization, Tier-2 coordination across many users implicitly assembles a social graph nobody consented to *as a graph*. **This directly blocks the cross-user venue-aggregation feature** ("people who like similar things also like X") that the owner wants eventually. v1 records favorites per-user and shares them only bilaterally between coordinating agents — fine. Mining favorites across users requires deciding the consent model + honest user-facing disclosure FIRST. Do not build aggregation until then. Likely bounded by what is chosen NOT to retain/aggregate, not a clean technical fix.
 3. **Inference governance UI.** Which inferences are surfaced vs suppressed, and how the user accepts/rejects/corrects them.
 4. **Decay specifics.** Actual TTLs/refresh cadence for `passively_accumulated`; promotion path to `user_asserted`.
 5. **Onboarding friction vs growth.** Strong consent adds friction that suppresses network growth; find the honest balance.
@@ -1055,6 +1055,25 @@ invited them … she should already have the name Alex"): an account on a placeh
 inviter's saved name — the contact on their first invitation, else the most common saved name
 for that number (`people.knownName` / `fillName`, at first login, on `/api/user/me`, and a
 retro). The prompt only appears when nobody knows the name; Settings → Edit changes it.
+
+## 29. ✨ Wishes — matched between agents `[LOCKED 2026-10-20]`
+
+Owner (🐛 #35): Feeling should be "things I wish would happen … not concrete plans … cast a spell
+into the world … to bring the world together". Decisions: **it's between the agents** (people don't
+browse wishes; agents look for overlap); **a match only when it's both people's wish, and both
+hear**; **names only if close** (saved each other); **outside your circle, serendipity** — anonymous
+("someone near you") until both are open, then names and a plan for the two. This **decides Open Q2
+for wishes**: cross-user matching is allowed for wishes, under the protections below.
+- `web/wishes.js` (migration 066: `wishes`, `wish_matches`, `wish_checked`): add / remove / "Only
+  people I know" (open_to_new); `match()` from the coord loop — each new wish compared once (Haiku)
+  with close people's wishes and, when both are open, nearby people's (same city or ≤ 80 km, shared
+  location only; avoid lists both ways); a match notifies both in the app. Friend: "Make it a plan"
+  → plan with the other invited. Nearby: both "Open to meeting" → introduced (saved to each other's
+  contacts) and a plan for the two. "Not now": the other is never told. Wishes end after 60 days.
+- Home → Feeling leads with "✨ I wish…" and shared wishes; quick shares ("Free tonight") stay below.
+  Agent: `manage_wishes`; rule WISHES ARE NOT PLANS (a wish isn't routed to a new plan).
+- Not yet: matching wishes with local events / free weekends (only people today).
+- Tests: `tests/integration/wishes.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`
 

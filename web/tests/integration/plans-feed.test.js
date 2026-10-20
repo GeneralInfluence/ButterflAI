@@ -217,7 +217,8 @@ describe('Home summary lines (home.homeSummary)', () => {
   });
   test('empty sections say so', () => {
     const s = homeSummary({ items: [], mine: [], creating: [], suggestions: [] });
-    assert.deepEqual([s.feeling.line, s.creating.line, s.happenings.line], ['Nothing shared yet', 'All caught up', 'Nothing yet']);
+    // Feeling invites a wish since ✨ Wishes (2026-10-20) — was "Nothing shared yet".
+    assert.deepEqual([s.feeling.line, s.creating.line, s.happenings.line], ['Make a wish', 'All caught up', 'Nothing yet']);
     assert.equal(s.happenings.needs_you, false);
   });
 });

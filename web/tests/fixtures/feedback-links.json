@@ -75,5 +75,9 @@
   "34": {
     "note_starts": "I don't see an easy way to create a new event",
     "test": "tests/integration/new-plan.test.js › the agent is told the user tapped ＋ New plan, and creates it — no routing guess, no long discussion"
+  },
+  "35": {
+    "note_starts": "I want the feeling section to be more about what it is that I might want to do",
+    "test": "tests/integration/wishes.test.js › friends: both told by name; \"Make it a plan\" makes the plan with the other invited"
   }
 }

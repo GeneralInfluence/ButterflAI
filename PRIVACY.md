@@ -362,6 +362,21 @@ in `understood` so the person can undo it and so corrections can improve the rea
 visible only to that person (chips in their chat) and the admin, and are **deleted after 90
 days**.
 
+## Wishes `[LOCKED 2026-10-20]`
+
+People can write wishes — things they'd love to happen (`wishes.js`, MEMORY.md §29). Owner
+decisions: matching happens between the agents; nobody browses anyone's wishes.
+- **A wish's text is never shown to another person.** A match is made only when it is the other
+  person's wish too; both are told only what they have in common ("Hot springs this fall").
+- **Names only for people close to you** (you have each other saved). Anyone else is "someone near
+  you" until **both** say they're open to meeting — only then are names shared (and each is saved to
+  the other's contacts, with a plan for the two). Saying "Not now" tells the other person nothing.
+- **Who can be matched:** close people; and people near you (same city or within 80 km, from
+  location you chose to share) only if both wishes are open to new people. Each wish has "Only people
+  I know". Avoid lists apply both ways.
+- Wishes are compared by Anthropic's model inside ButterflAI (like any agent turn); each pair once.
+- Wishes end after 60 days and are deleted (with their matches) when removed.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

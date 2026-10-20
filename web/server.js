@@ -1636,6 +1636,25 @@ app.post('/api/plans/new', webAuth.requireAuth, express.json(), (req, res) => {
   res.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
 });
 
+// ✨ Wishes (wishes.js, owner 2026-10-20): yours, and the matches your ButterflAI found.
+app.get('/api/wishes', webAuth.requireAuth, (req, res) => res.json(require('./wishes').forUser(req.user.id)));
+app.post('/api/wishes', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./wishes').add(req.user.id, { text: req.body?.text, open_to_new: req.body?.open_to_new !== false });
+  return r.error ? res.status(400).json(r) : res.json(r);
+});
+app.patch('/api/wishes/:id', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./wishes').update(req.user.id, String(req.params.id), { open_to_new: req.body?.open_to_new });
+  return r.error ? res.status(404).json(r) : res.json(r);
+});
+app.delete('/api/wishes/:id', webAuth.requireAuth, (req, res) => {
+  const r = require('./wishes').remove(req.user.id, String(req.params.id));
+  return r.error ? res.status(404).json(r) : res.json(r);
+});
+app.post('/api/wish-matches/:id', webAuth.requireAuth, express.json(), async (req, res) => {
+  const r = await require('./wishes').answer(req.user.id, String(req.params.id), String(req.body?.answer || ''));
+  return r.error ? res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r) : res.json(r);
+});
+
 // GET /api/plans — every plan you're in, as one object each (plan.js). The calendar and
 // Home read these instead of re-deriving stage / dates / people (owner, 2026-10-12).
 app.get('/api/plans', webAuth.requireAuth, (req, res) => {

@@ -457,6 +457,12 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'manage_wishes',
+    description: 'Your user\'s wishes — things they\'d love to happen someday, with no date or guest list yet ("I wish we could go to the hot springs this fall", "I\'d love to learn salsa"). add: record one (open_to_new false if they only want it with people they know). list. remove. ButterflAI looks for people who wish for the same thing and tells both; never tell your user someone else\'s wish.',
+    input_schema: { type: 'object', properties: {
+      action: { type: 'string', enum: ['add', 'list', 'remove'] }, text: { type: 'string' }, wish_id: { type: 'string' }, open_to_new: { type: 'boolean' } }, required: ['action'] },
+  },
+  {
     name: 'decide_suggestion',
     description: 'Accept or decline a suggestion someone made for a plan (or a Creating item) your user decides on — listed under "suggestions waiting" in Open events. Only when your user said so.',
     input_schema: { type: 'object', properties: {
@@ -1522,6 +1528,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       return planops.merge(userId, keep, drop, { via: 'agent' });
     }
 
+    case 'manage_wishes': {
+      const w = require('./wishes');
+      if (toolInput.action === 'add') return w.add(userId, { text: toolInput.text, open_to_new: toolInput.open_to_new !== false });
+      if (toolInput.action === 'remove') return w.remove(userId, toolInput.wish_id);
+      return w.forUser(userId);
+    }
+
     case 'decide_suggestion': {
       return require('./suggestions').decide(userId, toolInput.suggestion_id, toolInput.accept === true);
     }
@@ -2537,6 +2550,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   ADDING PEOPLE TO A PLAN: when your user wants someone added to a plan that exists, use update_event invite_contact_ids — they get the plan's invite and show on it. Never send_logistics_sms as an invite (it leaves the plan with no guests). Don't tell invitees things your user didn't say (who has tickets, which days).
   DATES AS SAID: pass the date in your user's words (when). A day with no time is that day, "time TBD" — never add a time ("evening", "7pm") they didn't give; "the 30th" is one day, not a weekend range.
   ONE PLAN AT A TIME: in a plan's discussion, change only that plan. Something your user says there ("noon till 6", "kids won't last") is about that plan — never copy it onto their other plans. To change another plan they must name it.
+  WISHES ARE NOT PLANS: "I wish…", "I'd love to someday…", "it'd be great to…" with no date, place or people decided → manage_wishes add (ButterflAI looks for others who wish for the same thing). A concrete plan (people, a day, "let's do X") → create_social_event. Never tell your user anyone else's wishes; matches reach them on their own.
   PLANS ARE MADE TOGETHER — GUESTS SUGGEST, HOSTS AND CO-HOSTS DECIDE: the host and co-hosts (the person a plan is for is one automatically; the host can add more with set_cohost) change a plan for everyone. A guest's change still goes through update_event / merge_plans — it becomes a suggestion the host and co-hosts accept or decline; tell your user "suggested to X", never "changed", and never "I can't". Only the host cancels. When your user decides on a suggestion ("yes, do Melanie's idea"), use decide_suggestion.
   CREATING ITEMS HAVE A LEAD AND A TEAM: whoever brings an item up leads it. Before adding, check the list — if it's already there in other words, add details to that item (manage_todos update), never a second one. Only the item's team edits it; your user's ideas about someone else's item go to them as a suggestion, unless your user is taking it on themselves ("I'll book it" → join: true).
   PLAN CIRCLE: agents of people who are in the same plan (host, or said yes) are insiders for THAT plan — they settle its logistics between themselves and only bring their users what needs a decision. Your state says whether a question comes from INSIDE a plan or from OUTSIDE your user's plans; never treat an outsider as an insider.
@@ -3084,7 +3098,8 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       // A user message outside any pill that isn't tied to a plan yet is routed; if it's
       // about a plan that doesn't exist, the agent creates it before replying.
       if (USER_CHANNELS.includes(msg.channel) && !msg.event_id && !isPrivate && !planRouted
-          && !topics.eventsTouched(userId, toolLog).length) {
+          && !topics.eventsTouched(userId, toolLog).length
+          && !toolLog.some((t) => t.name === 'manage_wishes' && !t.result?.error)) {   // a wish isn't a plan (2026-10-20)
         planRouted = true;
         routed = await topics.route(userId, msg.text, replyText).catch(() => null);
         if (routed?.kind === 'new') {
