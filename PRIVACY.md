@@ -377,6 +377,15 @@ decisions: matching happens between the agents; nobody browses anyone's wishes.
 - Wishes are compared by Anthropic's model inside ButterflAI (like any agent turn); each pair once.
 - Wishes end after 60 days and are deleted (with their matches) when removed.
 
+## Spells (ideas ButterflAI imagines for you) `[2026-10-20]`
+
+Once a day ButterflAI suggests a few ideas to a person (`spells.js`). They are built **only** from
+that person's own recent messages (never private-mode ones), their own plans and wishes, and public
+web search results for their city — **never from other people's conversations**. A friend is named
+only if they're in the person's own plans, and never someone on their avoid list (checked in code).
+Ideas are kept 7 days; dismissed ones are remembered for 60 days so similar ideas stop. Nothing is
+sent to anyone else.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

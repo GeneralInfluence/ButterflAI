@@ -79,5 +79,9 @@
   "35": {
     "note_starts": "I want the feeling section to be more about what it is that I might want to do",
     "test": "tests/integration/wishes.test.js › friends: both told by name; \"Make it a plan\" makes the plan with the other invited"
+  },
+  "36": {
+    "note_starts": "So the free tonight free this weekend",
+    "test": "tests/integration/spells.test.js › built from your own plans, friends, wishes and words (+ a web search for what's on near you)"
   }
 }

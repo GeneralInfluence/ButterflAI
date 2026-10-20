@@ -131,6 +131,9 @@ async function tick(transport = stubTransport) {
     // Apply behavior changes to what already exists, once per existing user (retro.js).
     const retroRuns = await require('./retro').tick();
     if (retroRuns) console.log(`[coord] ran ${retroRuns} retro task(s)`);
+    // Spells: once a day each person gets a few ideas imagined for them (spells.js).
+    const cast = await require('./spells').tick();
+    if (cast) console.log(`[coord] imagined ${cast} idea(s)`);
     // Wishes: the agents look for mutual wishes (wishes.js) — new wishes are compared once.
     const wished = await require('./wishes').match();
     if (wished) console.log(`[coord] found ${wished} shared wish(es)`);
@@ -173,6 +176,7 @@ function tickPurge() {
   } catch (err) {
     console.error('[coord] plans purge error:', err.message);
   }
+  try { require('./spells').purgeOld(); } catch (err) { console.error('[coord] spells purge error:', err.message); }
   // Wishes end after 60 days (wishes.js).
   try {
     const n = require('./wishes').purgeOld();

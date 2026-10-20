@@ -151,15 +151,13 @@
        Then the quick shares (what you're up for — friends see it in Happenings; nobody is pinged). -->
   <section class="home-sec" id="sec-feeling">
     <button type="button" class="sec-head" onclick="openSection('feeling')" aria-label="Open Feeling"><h2>Feeling</h2><span class="sec-line" id="line-feeling"></span><span class="sec-more">›</span></button>
+    <!-- ✨ What ButterflAI imagines for you (spells.js, 🐛 #36), then your wish box and shared wishes.
+         The quick "Free tonight" shares live in the full Feeling view. -->
+    <div id="spell-preview"></div>
+    <div id="wish-preview"></div>
     <form class="share-other wish-form" onsubmit="event.preventDefault(); addWish(this);">
       <input name="wish" placeholder="✨ I wish… e.g. hot springs with friends this fall" maxlength="200" aria-label="Make a wish">
       <button type="submit">Wish</button></form>
-    <div id="wish-preview"></div>
-    <div class="share-row">
-      <button class="chip-btn" onclick="quickShare('Free tonight', 'tonight')">🟢 Free tonight</button>
-      <button class="chip-btn" onclick="quickShare('Free this weekend', 'this weekend')">📅 Free this weekend</button>
-      <button class="chip-btn" onclick="quickShare('Laying low tonight', 'tonight')">🛋️ Laying low tonight</button>
-    </div>
     <div id="my-plans"></div>
   </section>
 
@@ -311,6 +309,24 @@
         <label style="font-size:13px;color:#3a3a3c"><input type="checkbox" ${w.open_to_new ? '' : 'checked'} onchange="toggleWishOpen('${esc(w.id)}', !this.checked)"> Only people I know</label></div>`}
       </div><button title="Remove" style="background:none;border:none;color:#c7c7cc;font-size:16px;cursor:pointer" onclick="removeWish('${esc(w.id)}')">✕</button></div>`;
   }
+  // A spell: an idea ButterflAI imagined for you — ✨ Sounds nice (becomes your wish), Make it a plan, ✕.
+  const SPELL_ICON = { nearby: '📍', reconnect: '💛', new: '🌱', wish: '✨' };
+  function spellHtml(s) {
+    return `<div class="card feed-item"><span class="feed-icon">${SPELL_ICON[s.kind] || '✨'}</span><div style="flex:1;min-width:0">
+      <div class="card-title">${esc(s.title)}</div>${s.why ? `<div class="card-sub">${esc(s.why)}</div>` : ''}
+      ${s.link ? `<a class="card-sub" href="${esc(s.link)}" target="_blank" rel="noopener" style="color:#6c47ff">More ›</a>` : ''}
+      <div class="share-row" style="margin:6px 0 0"><button class="chip-btn" onclick="answerSpell('${esc(s.id)}','wish',this)">✨ Sounds nice</button><button class="chip-btn" onclick="answerSpell('${esc(s.id)}','plan',this)">Make it a plan</button></div>
+      </div><button title="Not for me" aria-label="Not for me" style="background:none;border:none;color:#c7c7cc;font-size:16px;cursor:pointer;align-self:flex-start" onclick="answerSpell('${esc(s.id)}','dismiss',this)">✕</button></div>`;
+  }
+  async function answerSpell(id, answer, btn) {
+    if (btn) btn.disabled = true;
+    const r = await fetch('/api/spells/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer }) }).then((x) => x.json()).catch(() => ({}));
+    if (answer === 'plan' && r.text) {   // straight into ＋ New plan, already filled in
+      const p = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: r.text }) }).then((x) => x.json()).catch(() => null);
+      if (p && p.ts) { location.href = '/app/chat?new=' + encodeURIComponent(p.ts); return; }
+    }
+    loadFeed();
+  }
   function matchHtml(m) {
     const who = m.who ? esc(m.who) : 'Someone near you';
     const body = m.status === 'planned' || m.status === 'connected'
@@ -368,7 +384,8 @@
     // your next to-do (or a suggestion); the top happening.
     const w = feed.wishes || { mine: [], matches: [] };
     const waitingMatch = w.matches.find((m) => !m.my_answer && m.status === 'open');
-    document.getElementById('wish-preview').innerHTML = waitingMatch ? matchHtml(waitingMatch) : (w.mine[0] ? wishHtml(w.mine[0]) : '');
+    document.getElementById('wish-preview').innerHTML = waitingMatch ? matchHtml(waitingMatch) : '';
+    document.getElementById('spell-preview').innerHTML = (feed.spells || []).slice(0, 2).map(spellHtml).join('');
     document.getElementById('my-plans').innerHTML = minePlansHtml((my_plans || []).slice(0, 1));
     document.getElementById('creating').innerHTML = (creating || []).length ? creatingHtml(creating.slice(0, 1), [])
       : (creating_suggestions || []).length ? creatingHtml([], creating_suggestions.slice(0, 1)) : creatingHtml([], []);
@@ -394,7 +411,8 @@
     if (k === 'feeling') {
       const friends = friendsFeeling(items);
       const w = feed.wishes || { mine: [], matches: [] };
-      body = `<h3>✨ Wishes</h3>
+      body = `${(feed.spells || []).length ? `<h3>✨ ButterflAI imagines…</h3>${feed.spells.map(spellHtml).join('')}` : ''}
+        <h3>✨ Wishes</h3>
         <form class="share-other wish-form" onsubmit="event.preventDefault(); addWish(this);">
           <input name="wish" placeholder="I wish… e.g. learn to salsa, see live music, a cabin weekend" maxlength="200" aria-label="Make a wish">
           <button type="submit">Wish</button></form>

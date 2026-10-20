@@ -970,9 +970,11 @@ describe('Home at a glance: three sections, each opens full screen', () => {
     assert.ok(home.includes('location.hash = k'));
     assert.match(home, /#sec-full \{ position: fixed; inset: 0; z-index: 200;/);
   });
-  test('Feeling keeps the one-tap shares on Home; the full view has the rest', () => {
+  // Since 🐛 #36 (2026-10-20) Feeling on Home leads with ideas ButterflAI imagines and wishes; the
+  // one-tap shares moved into the full Feeling view ("Right now").
+  test('Feeling on Home leads with ideas and wishes; the shares are in the full view', () => {
     const main = home.slice(home.indexOf('<main>'), home.indexOf('</main>'));
-    assert.ok(main.includes("quickShare('Free tonight', 'tonight')"));
+    assert.ok(!main.includes("quickShare('Free tonight', 'tonight')") && home.includes("quickShare('Free tonight', 'tonight')") && main.includes('id="spell-preview"'));
     assert.ok(!main.includes('id="share-text"'), 'the free-text share lives in the full view');
     assert.ok(home.includes('<h3>Friends</h3>') && home.includes('creatingFullHtml('));
   });

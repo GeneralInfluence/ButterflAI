@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1140_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1145_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -1072,7 +1072,15 @@ for wishes**: cross-user matching is allowed for wishes, under the protections b
   contacts) and a plan for the two. "Not now": the other is never told. Wishes end after 60 days.
 - Home → Feeling leads with "✨ I wish…" and shared wishes; quick shares ("Free tonight") stay below.
   Agent: `manage_wishes`; rule WISHES ARE NOT PLANS (a wish isn't routed to a new plan).
-- Not yet: matching wishes with local events / free weekends (only people today).
+- **✨ Spells — "imagine what's possible" (🐛 #36, same day):** once a day per person
+  (`web/spells.js`, migration 067, coord loop) a short model call with web search imagines ~4 ideas:
+  something real happening nearby (with a link), reconnecting with a friend not seen in a while,
+  something new that widens their circle, a way a wish could happen. Each: **✨ Sounds nice** (→ a
+  wish, so mutual matching starts), **Make it a plan** (→ ＋ New plan, filled in), **✕** (remembered,
+  so similar ones stop). Built only from the person's own chats/plans/wishes + public events; friends
+  only from their own plans, never avoid-listed (checked in code). Kept 7 days. Home → Feeling leads
+  with them; the Free-tonight shares are in the full Feeling view.
+- Not yet: matching wishes with free weekends on everyone's calendars.
 - Tests: `tests/integration/wishes.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`

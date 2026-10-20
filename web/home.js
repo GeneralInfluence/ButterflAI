@@ -119,13 +119,15 @@ function feedFor(userId) {
   const mine = myShares.map((p) => ({ plan_id: p.id, text: p.text, until: p.expires_at, made_plan: mineMade[p.id] || null }));
   // ✨ Wishes lead Feeling (owner, 2026-10-20) — yours and the mutual wishes ButterflAI found.
   const wishes = require('./wishes').forUser(userId);
+  const spells = require('./spells').forUser(userId);   // ✨ ideas ButterflAI imagined for you (🐛 #36)
   return {
     items,
     my_plans: mine,
     wishes,
+    spells,
     creating,
     creating_suggestions: creatingSuggestions,
-    summary: homeSummary({ items, mine, creating, suggestions: creatingSuggestions, wishes }),
+    summary: homeSummary({ items, mine, creating, suggestions: creatingSuggestions, wishes, spells }),
   };
 }
 
@@ -138,12 +140,13 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
  * computed here once so the page only displays it. Counts come from the same lists the
  * full views show, so they always agree.
  */
-function homeSummary({ items, mine, creating, suggestions, wishes = { mine: [], matches: [] } }) {
+function homeSummary({ items, mine, creating, suggestions, wishes = { mine: [], matches: [] }, spells = [] }) {
   const friendPlans = items.filter((i) => i.type === 'plan').length;
   const interest = items.filter((i) => i.type === 'interest').length;
   const active = wishes.mine.filter((w) => w.status === 'active').length;
   const toAnswer = wishes.matches.filter((m) => !m.my_answer && ['open'].includes(m.status)).length;
   const feeling = [toAnswer ? `${plural(toAnswer, 'shared wish', 'shared wishes')}` : '',
+    spells.length ? `${plural(spells.length, 'idea', 'ideas')} for you` : '',
     active ? `${plural(active, 'wish', 'wishes')}` : '',
     mine.length ? `You: ${mine[0].text}` : '',
     friendPlans ? `${plural(friendPlans, 'friend', 'friends')} shared` : '',

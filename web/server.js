@@ -1636,6 +1636,12 @@ app.post('/api/plans/new', webAuth.requireAuth, express.json(), (req, res) => {
   res.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
 });
 
+// ✨ Spells (spells.js, 🐛 #36): ✨ Sounds nice → a wish · plan → text for ＋ New plan · dismiss.
+app.post('/api/spells/:id', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./spells').answer(req.user.id, String(req.params.id), String(req.body?.answer || ''));
+  return r.error ? res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r) : res.json(r);
+});
+
 // ✨ Wishes (wishes.js, owner 2026-10-20): yours, and the matches your ButterflAI found.
 app.get('/api/wishes', webAuth.requireAuth, (req, res) => res.json(require('./wishes').forUser(req.user.id)));
 app.post('/api/wishes', webAuth.requireAuth, express.json(), (req, res) => {
