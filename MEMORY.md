@@ -1160,6 +1160,12 @@ tapping More remembers the idea; on returning to Explore a sheet asks "Back from
 think?" — 😍 Into it (= Sounds fun: kept + passed on) · 🤷 Meh · 👎 Not for me (hidden) + a note
 (`spells.react`, `spells.note`, migration 076, `POST /api/spells/:id/react`). Notes feed the next ideas
 ("What they said about ideas they looked at — follow it"); they never leave the person.
+**Pages open inside ButterflAI with a comment bar (owner, same day: going back to comment is "unnecessary
+friction that will lose people"):** More → `/app/view?id=` — the site itself in a frame when it allows it
+(`spells.frameable` from X-Frame-Options / CSP frame-ancestors, checked with the link; no referrer,
+sandboxed), else its preview (picture, `page_desc` = its own og:description, date/place, Open ↗). Pinned at
+the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (comments add up). Replaced the
+"back from a page" sheet. Migration 077; retro re-checks links checked before.
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`

@@ -411,7 +411,9 @@ map shows ideas only — never where any person is.
 **What you thought of a page (🐛 #42):** back from an idea's page, a person can say what they thought.
 "Into it" works like ✨ Sounds fun (kept, its public title passed on); their written note stays theirs —
 it shapes the ideas ButterflAI imagines for them (sent to Anthropic with that request) and is never shown
-to or shared with anyone else.
+to or shared with anyone else. Pages open inside ButterflAI when the site allows it — in a sandboxed frame with no referrer, so
+the site can't tell it's inside ButterflAI or read anything from it; otherwise ButterflAI shows the site's own
+public description of itself (read when the link is checked).
 
 ## I'm out (who's near you now) `[2026-10-20]`
 

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ButterflAI">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <meta name="theme-color" content="#6c47ff">
+  <title>ButterflAI — Look</title>
+  <!-- An idea's page inside ButterflAI with a comment bar (Sean, 2026-10-20: "when I open a website in the
+       app, there's no way for me to … comment on it … while I'm looking at it … unnecessary friction that
+       will lose people"). The site itself when it allows being shown inside another page; otherwise its
+       preview (picture, what it says it's about) and a link out. What you say shapes your ideas
+       (spells.react); 😍 also passes it on. -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f7; color: #1c1c1e; display: flex; flex-direction: column; }
+    .top { flex: none; display: flex; align-items: center; gap: 8px; background: #fff; border-bottom: 1px solid #e5e5e5; padding: calc(6px + env(safe-area-inset-top, 0px)) 8px 6px; }
+    .top button, .top a { background: none; border: none; font: inherit; font-size: 20px; color: #6c47ff; text-decoration: none; padding: 6px 10px; cursor: pointer; }
+    .top .site { flex: 1; min-width: 0; font-size: 14px; color: #3a3a3c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+    .page { flex: 1; min-height: 0; position: relative; background: #fff; }
+    .page iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    .preview { position: absolute; inset: 0; overflow-y: auto; padding: 0 0 16px; }
+    .preview img { width: 100%; max-height: 50vh; object-fit: cover; display: block; background: #f2f2f7; }
+    .preview .body { padding: 16px; }
+    .preview h1 { font-size: 20px; line-height: 1.3; margin-bottom: 8px; }
+    .preview p { font-size: 15px; line-height: 1.45; color: #3a3a3c; margin-bottom: 10px; }
+    .preview .facts { font-size: 14px; color: #3a3a3c; margin-bottom: 12px; }
+    .preview .out { display: inline-block; background: #6c47ff; color: #fff; border-radius: 999px; padding: 10px 18px; text-decoration: none; font-weight: 600; }
+    .preview .why { font-size: 13px; color: #8e8e93; margin-top: 12px; }
+    .bar { flex: none; background: #fff; border-top: 1px solid #e5e5e5; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -2px 8px rgba(0,0,0,.05); }
+    .verdicts { display: flex; gap: 6px; margin-bottom: 6px; }
+    .verdicts button { flex: 1; border: 1px solid #e5e5e5; background: #fff; border-radius: 999px; padding: 7px 4px; font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
+    .verdicts button.on { background: #ede9fe; border-color: #6c47ff; color: #6c47ff; font-weight: 600; }
+    .say { display: flex; gap: 6px; align-items: flex-end; }
+    .say textarea { flex: 1; min-width: 0; border: 1.5px solid #e5e5e5; border-radius: 18px; padding: 8px 12px; font: inherit; font-size: 16px; resize: none; max-height: 96px; }
+    .say textarea:focus { outline: none; border-color: #6c47ff; }
+    .say button { flex: none; width: 38px; height: 38px; border-radius: 50%; border: none; background: #6c47ff; color: #fff; font-size: 18px; cursor: pointer; }
+    .say button:disabled { opacity: .4; }
+    .saved { font-size: 12px; color: #6c47ff; min-height: 15px; padding: 3px 4px 0; }
+    .empty { padding: 40px 20px; text-align: center; color: #8e8e93; }
+  </style>
+</head>
+<body>
+<div class="top">
+  <button id="back" aria-label="Back to Explore">✕</button>
+  <div class="site" id="site"></div>
+  <a id="out" target="_blank" rel="noopener" aria-label="Open in your browser" title="Open in your browser">↗</a>
+</div>
+<div class="page" id="page"></div>
+<div class="bar">
+  <div class="verdicts" id="verdicts"><button data-v="into">😍 Into it</button><button data-v="meh">🤷 Meh</button><button data-v="no">👎 Not for me</button></div>
+  <div class="say"><textarea id="say" rows="1" maxlength="500" placeholder="What do you think?"></textarea><button id="send" aria-label="Save" disabled>↑</button></div>
+  <div class="saved" id="saved" style="color:#8e8e93">Only you and your ButterflAI see what you say</div>
+</div>
+<script>
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const id = new URLSearchParams(location.search).get('id') || '';
+  const pageEl = document.getElementById('page'), sayEl = document.getElementById('say'), sendEl = document.getElementById('send'), savedEl = document.getElementById('saved');
+  document.getElementById('back').onclick = () => (history.length > 1 ? history.back() : (location.href = '/app/explore'));
+  let item = null;
+  async function load() {
+    const r = await fetch('/api/spells/' + encodeURIComponent(id) + '/page');
+    if (r.status === 401) { location.href = '/app/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
+    if (!r.ok) { pageEl.innerHTML = '<div class="empty">This page isn’t available any more.</div>'; document.querySelector('.bar').hidden = true; return; }
+    item = await r.json();
+    document.getElementById('site').textContent = item.site;
+    document.getElementById('out').href = item.link;
+    if (item.frameable) {
+      // The site itself, inside ButterflAI. It can't see who you are (no referrer) or reach this page.
+      pageEl.innerHTML = `<iframe src="${esc(item.link)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" title="${esc(item.site)}"></iframe>`;
+    } else {
+      const when = item.date ? new Date(item.date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+      pageEl.innerHTML = `<div class="preview">${item.image ? `<img src="${esc(item.image)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
+        <div class="body"><h1>${esc(item.title)}</h1>${item.description ? `<p>${esc(item.description)}</p>` : ''}
+        ${when || item.place ? `<div class="facts">${when ? '📅 ' + esc(when) : ''}${when && item.place ? ' · ' : ''}${item.place ? '📍 ' + esc(item.place) : ''}</div>` : ''}
+        <a class="out" href="${esc(item.link)}" target="_blank" rel="noopener">Open ${esc(item.site)} ↗</a>
+        <div class="why">${esc(item.site)} doesn’t let other apps show its page, so here’s what it says about itself. Say what you think below either way.</div></div></div>`;
+    }
+    if (item.status === 'kept') mark('into'); else if (item.status === 'dismissed') mark('no');
+  }
+  function mark(v) { document.querySelectorAll('#verdicts button').forEach((b) => b.classList.toggle('on', b.dataset.v === v)); }
+  async function save(body) {
+    const r = await fetch('/api/spells/' + encodeURIComponent(id) + '/react', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((x) => x.json()).catch(() => ({}));
+    savedEl.style.color = '#6c47ff';
+    if (r.error) { savedEl.textContent = 'Couldn’t save — try again'; return r; }
+    savedEl.textContent = body.verdict === 'into' ? (r.passed_on ? '😍 Kept as a wish and passed on — your ButterflAI will remember' : '😍 Kept as a wish — your ButterflAI will remember')
+      : body.verdict === 'no' ? '👎 Got it — fewer ideas like this' : '✓ Saved — this shapes your ideas';
+    return r;
+  }
+  document.getElementById('verdicts').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    mark(b.dataset.v);
+    save({ verdict: b.dataset.v });
+  });
+  sayEl.addEventListener('input', () => { sendEl.disabled = !sayEl.value.trim(); sayEl.style.height = 'auto'; sayEl.style.height = Math.min(sayEl.scrollHeight, 96) + 'px'; });
+  async function send() {
+    const note = sayEl.value.trim(); if (!note) return;
+    sendEl.disabled = true;
+    const r = await save({ note });
+    if (!r.error) { sayEl.value = ''; sayEl.style.height = 'auto'; }
+  }
+  sendEl.onclick = send;
+  sayEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+  window.bflyFeedbackState = () => ({ screen: 'view', idea: id, site: item && item.site, framed: item && item.frameable });
+  load();
+</script>
+<script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
+<script src="/update-check.js"></script>
+</body>
+</html>

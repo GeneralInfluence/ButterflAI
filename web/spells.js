@@ -278,6 +278,22 @@ function answer(userId, id, ans) {
 }
 
 /**
+ * An idea's page, opened inside ButterflAI with a comment bar (Sean, 2026-10-20: commenting while
+ * looking). Yours, or one found around you (same town, public — as Explore shows it).
+ */
+function page(userId, id) {
+  let s = null;
+  if (String(id).startsWith('pool:')) {
+    const o = db._raw().prepare('SELECT * FROM spells WHERE id = ?').get(String(id).slice(5));
+    const me = db.getUser(userId), from = o && db.getUser(o.user_id);
+    if (o && from && o.user_id !== userId && PUBLIC_KINDS.includes(o.kind) && o.public_title && sameTown(me, from) && !avoidsEither(me, from)) s = { ...o, title: o.public_title, why: null };
+  } else s = db._raw().prepare('SELECT * FROM spells WHERE id = ? AND user_id = ?').get(id, userId);
+  if (!s || !s.link || s.link_ok !== 1) return null;
+  return { id: String(id), title: s.title, why: s.why, link: s.link, site: host(s.link), image: s.image || null, frameable: s.frameable === 1,
+    description: s.page_desc || null, date: s.date || null, place: s.place || null, status: s.status, note: s.user_id === userId ? s.note : null };
+}
+
+/**
  * After looking at an idea's page (🐛 #42): into it (kept as a wish and passed on, like ✨ Sounds fun),
  * meh, or not for me (hidden, and similar ideas stop) — plus anything they want to say about it, which
  * stays theirs and shapes what ButterflAI imagines for them next. The note never reaches anyone else.
@@ -287,7 +303,8 @@ function react(userId, id, { verdict, note } = {}) {
   if (!s) return { error: 'NOT_FOUND' };
   if (!['into', 'meh', 'no'].includes(verdict) && !String(note || '').trim()) return { error: 'EMPTY' };
   const text = String(note || '').replace(/\s+/g, ' ').trim().slice(0, 500) || null;
-  if (text) db._raw().prepare('UPDATE spells SET note = ? WHERE id = ?').run(text, id);
+  // Several comments while looking at one page add up (newest last).
+  if (text) db._raw().prepare('UPDATE spells SET note = ? WHERE id = ?').run((s.note ? `${s.note} · ${text}` : text).slice(-500), id);
   let out = { ok: true };
   if (verdict === 'into' && s.status === 'new') out = { ...answer(userId, id, 'wish'), noted: !!text };
   else if (verdict === 'no' && s.status === 'new') out = { ...answer(userId, id, 'dismiss'), noted: !!text };
@@ -318,10 +335,11 @@ async function fillOnce({ limit = 12 } = {}) {
     const rows = db._raw().prepare(`SELECT id, link FROM spells WHERE link IS NOT NULL AND image_checked = 0 AND status IN ('new', 'kept')
       ORDER BY created_at DESC LIMIT ?`).all(limit);
     for (const r of rows) {
-      const known = db._raw().prepare('SELECT image, link_ok FROM spells WHERE link = ? AND image_checked = 1 LIMIT 1').get(r.link);
-      const c = known ? { ok: known.link_ok === 1, image: known.image } : await require('./ogimage').check(r.link);
+      const known = db._raw().prepare('SELECT image, link_ok, frameable, page_desc FROM spells WHERE link = ? AND image_checked = 1 LIMIT 1').get(r.link);
+      const c = known ? { ok: known.link_ok === 1, image: known.image, frameable: known.frameable === 1, desc: known.page_desc } : await require('./ogimage').check(r.link);
       if (!c) continue;   // couldn't check (offline) — try later
-      db._raw().prepare('UPDATE spells SET image = ?, link_ok = ?, image_checked = 1 WHERE link = ? AND image_checked = 0').run(c.image, c.ok ? 1 : 0, r.link);
+      db._raw().prepare('UPDATE spells SET image = ?, link_ok = ?, frameable = ?, page_desc = ?, image_checked = 1 WHERE link = ? AND image_checked = 0')
+        .run(c.image, c.ok ? 1 : 0, c.ok ? (c.frameable ? 1 : 0) : null, c.desc || null, r.link);
       if (c.image) n++;
     }
     const places = db._raw().prepare(`SELECT s.id, s.place, u.city FROM spells s JOIN users u ON u.id = s.user_id
@@ -372,4 +390,4 @@ function adopt(userId, originId) {
   return id;
 }
 
-module.exports = { generate, more, tick, forUser, answer, react, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
+module.exports = { generate, more, tick, forUser, answer, react, page, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };

@@ -697,6 +697,16 @@ const TASKS = [
       return `requeued ${r.changes}`;
     },
   },
+  {
+    id: '2026-10-20-recheck-pages-for-viewer',
+    added: Date.UTC(2026, 9, 20) / 1000,
+    kind: 'internal',
+    about: 'Pages now open inside ButterflAI with a comment bar: this user\'s ideas whose links were checked before are checked again for whether the site can be shown inside ButterflAI, and what it says about itself.',
+    run(user) {
+      const r = db._raw().prepare('UPDATE spells SET image_checked = 0 WHERE user_id = ? AND link_ok = 1 AND frameable IS NULL').run(user.id);
+      return `requeued ${r.changes}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

@@ -1695,6 +1695,12 @@ app.get('/api/ideas/map', webAuth.requireAuth, (req, res) => res.json(require('.
 app.post('/api/ideas', webAuth.requireAuth, express.json({ limit: '200kb' }), (req, res) => {
   res.json(require('./ideafeed').page(req.user.id, { seen: req.body?.seen }));
 });
+// An idea's page inside ButterflAI with a comment bar (2026-10-20).
+app.get('/app/view', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/view.html')));
+app.get('/api/spells/:id/page', webAuth.requireAuth, (req, res) => {
+  const p = require('./spells').page(req.user.id, String(req.params.id));
+  return p ? res.json(p) : res.status(404).json({ error: 'NOT_FOUND' });
+});
 // 🐛 #42: what they thought after looking at an idea's page.
 app.post('/api/spells/:id/react', webAuth.requireAuth, express.json(), (req, res) => {
   let id = String(req.params.id);

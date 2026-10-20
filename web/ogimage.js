@@ -63,6 +63,16 @@ function pick(html, base) {
   return null;
 }
 
+/** What the page says it's about (og:description / description), short. */
+function describe(html) {
+  for (const m of html.match(/<meta\b[^>]*>/gi) || []) {
+    const key = ((m.match(/\b(?:property|name)\s*=\s*["']([^"']+)["']/i) || [])[1] || '').toLowerCase();
+    const val = (m.match(/\bcontent\s*=\s*["']([^"']+)["']/i) || [])[1];
+    if (val && (key === 'og:description' || key === 'description' || key === 'twitter:description')) return decode(val).replace(/\s+/g, ' ').trim().slice(0, 400);
+  }
+  return null;
+}
+
 /** The share picture for a page, or null. */
 async function find(link) { return (await check(link))?.image || null; }
 
@@ -84,7 +94,11 @@ async function check(link) {
         continue;
       }
       if (!r.ok) return { ok: false, image: null };
-      if (!/html/i.test(r.headers.get('content-type') || 'text/html')) return { ok: true, image: null };
+      // Can it be shown inside ButterflAI? Not if the site forbids being framed.
+      const xfo = String(r.headers.get('x-frame-options') || '').toLowerCase();
+      const fa = (String(r.headers.get('content-security-policy') || '').match(/frame-ancestors([^;]*)/i) || [])[1];
+      const frameable = !xfo && (fa == null || /(^|\s)\*(\s|$)/.test(fa) || /butterflai\.social/.test(fa));
+      if (!/html/i.test(r.headers.get('content-type') || 'text/html')) return { ok: true, image: null, frameable };
       let html = '';
       if (r.body && r.body.getReader) {
         const reader = r.body.getReader();
@@ -97,10 +111,10 @@ async function check(link) {
         }
         try { reader.cancel(); } catch (_) {}
       } else html = String(await r.text()).slice(0, 512 * 1024);
-      return { ok: true, image: pick(html, url) };
+      return { ok: true, image: pick(html, url), frameable, desc: describe(html) };
     } catch (_) { return { ok: false, image: null }; } finally { clearTimeout(timer); }   // TLS errors land here
   }
   return { ok: false, image: null };
 }
 
-module.exports = { find, check, pick, privateIp, publicUrl, _setFetch, _setLookup };
+module.exports = { find, check, pick, describe, privateIp, publicUrl, _setFetch, _setLookup };

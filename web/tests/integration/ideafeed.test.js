@@ -215,7 +215,42 @@ describe('✨ Feed', () => {
     assert.match(prompt, /"Comedy night at the Laugh Factory" \(into it\): love the late show/);
     assert.match(prompt, /"Pottery wheel taster" \(not for them\): too messy/);
     assert.match(prompt, /"Swing dance lesson": maybe with lessons first/);
+    // The "back from the page" sheet became a comment bar on the page itself (/app/view, same day — Sean:
+    // going back to say something is "unnecessary friction that will lose people").
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
-    assert.ok(html.includes('what did you think?') && html.includes("onclick=\"visiting(") && html.includes('only you and your ButterflAI see this'));
+    assert.ok(html.includes('href="/app/view?id=${encodeURIComponent(i.id)}"') && !html.includes('function askAboutVisit'));
+  });
+
+  // Sean, 2026-10-20: "it's a real bummer that when I open a website in the app, there's no way for me to edit
+  // over it somehow or comment on it somehow while I'm looking at it … if I have to do this separate step of
+  // going back and saying something … I'm creating unnecessary friction that will lose people."
+  test('a page opens inside ButterflAI with a comment bar: the site itself when it allows it, else its preview', async () => {
+    const og = require('../../ogimage');
+    og._setLookup(async () => [{ address: '93.184.216.34' }]);
+    og._setFetch(async (url) => ({ status: 200, ok: true,
+      headers: new Map([['content-type', 'text/html'], ...(url.includes('blocks') ? [['x-frame-options', 'SAMEORIGIN']] : url.includes('csp') ? [['content-security-policy', "default-src 'self'; frame-ancestors 'self'"]] : [])]),
+      text: async () => '<head><meta property="og:image" content="https://img.test/a.jpg"><meta name="description" content="Live music six nights a week"></head>' }));
+    const me = mkUser('Sean W'); const o = mkUser('Other W');
+    const ok = idea(me, { title: 'Open site' }), blocks = idea(me, { title: 'Blocking site' }), csp = idea(me, { title: 'CSP site' }), pooled = idea(o, { title: 'Pooled site' });
+    for (const [id, link] of [[ok, 'https://open.test/e'], [blocks, 'https://blocks.test/e'], [csp, 'https://csp.test/e'], [pooled, 'https://open.test/p']]) db._raw().prepare('UPDATE spells SET link = ?, image_checked = 0 WHERE id = ?').run(link, id);
+    await spells.fillImages({ limit: 500 });
+    og._setFetch(null);
+    const c = await cookieFor(me);
+    const page = async (id) => (await request.get('/api/spells/' + encodeURIComponent(id) + '/page').set('Cookie', c)).body;
+    assert.equal((await page(ok)).frameable, true);
+    const b = await page(blocks);
+    assert.equal(b.frameable, false);
+    assert.equal(b.description, 'Live music six nights a week');
+    assert.equal(b.site, 'blocks.test');
+    assert.equal((await page(csp)).frameable, false, "CSP frame-ancestors 'self' refuses");
+    assert.equal((await page(`pool:${pooled}`)).title, 'Pooled site', 'one found around you too');
+    assert.equal((await request.get(`/api/spells/${idea(o, { title: 'Not mine' })}/page`).set('Cookie', c)).status, 404, 'someone else\'s own idea: no');
+    // Comments while looking add up; a verdict from the bar.
+    await request.post(`/api/spells/${ok}/react`).set('Cookie', c).send({ note: 'love the patio' });
+    await request.post(`/api/spells/${ok}/react`).set('Cookie', c).send({ note: 'too pricey though' });
+    assert.equal(db._raw().prepare('SELECT note FROM spells WHERE id = ?').get(ok).note, 'love the patio · too pricey though');
+    const view = await request.get('/app/view?id=' + ok).set('Cookie', c);
+    assert.equal(view.status, 200);
+    assert.ok(view.text.includes('<iframe') && view.text.includes('referrerpolicy="no-referrer"') && view.text.includes('id="verdicts"') && view.text.includes('What do you think?') && view.text.includes('Only you and your ButterflAI see what you say'));
   });
 });

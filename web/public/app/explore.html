@@ -167,7 +167,7 @@
         <button class="x" title="Not for me" aria-label="Not for me" onclick="answer('${esc(i.id)}','dismiss',this)">✕</button></div>
       ${picHtml(i)}
       <div class="actions"><button class="act" onclick="answer('${esc(i.id)}','wish',this)">✨ Sounds fun</button><button class="act" onclick="answer('${esc(i.id)}','plan',this)">Make it a plan</button>
-        ${i.link ? `<a class="act link" href="${esc(i.link)}" target="_blank" rel="noopener" onclick="visiting('${esc(i.id)}', this)" data-title="${esc(i.title)}" data-site="${esc(i.source_site || '')}">More ›</a>` : ''}</div>
+        ${i.link ? `<a class="act link" href="/app/view?id=${encodeURIComponent(i.id)}">More ›</a>` : ''}</div>
       ${liked ? `<div class="liked">${liked}</div>` : ''}
       <div class="caption"><b>${esc(i.title)}</b>${why ? ` <span>${esc(why)}</span>` : ''}</div>
       ${when || i.place ? `<div class="facts">${when ? `<span>📅 ${esc(when)}</span>` : ''}${i.place ? `<span>📍 ${esc(i.place)}</span>` : ''}</div>` : ''}
@@ -221,40 +221,7 @@
     }
   }
 
-  // ── Back from a page (🐛 #42): "what did you think?" — shapes your ideas; 😍 also passes it on ──
-  function visiting(id, a) {
-    try { sessionStorage.setItem('bfly-visit', JSON.stringify({ id, title: a.dataset.title, site: a.dataset.site, at: Date.now() })); } catch (_) {}
-  }
-  function askAboutVisit() {
-    let v = null;
-    try { v = JSON.parse(sessionStorage.getItem('bfly-visit') || 'null'); } catch (_) {}
-    if (!v || Date.now() - v.at < 3000 || document.querySelector('.sheet-bg')) return;
-    try { sessionStorage.removeItem('bfly-visit'); } catch (_) {}
-    const bg = document.createElement('div');
-    bg.className = 'sheet-bg';
-    bg.onclick = (e) => { if (e.target === bg) bg.remove(); };
-    bg.innerHTML = `<div class="sheet"><div class="who" style="font-size:17px">Back from ${esc(v.site || 'the page')} — what did you think?</div>
-      <div class="sub">${esc(v.title)}</div>
-      <div class="row" id="verdicts"><button class="chip" data-v="into">😍 Into it</button><button class="chip" data-v="meh">🤷 Meh</button><button class="chip" data-v="no">👎 Not for me</button></div>
-      <textarea id="visit-note" maxlength="500" placeholder="What caught your eye, or what didn’t? (only you and your ButterflAI see this)" style="width:100%;margin-top:10px;border:1.5px solid #e5e5e5;border-radius:12px;padding:10px;font:inherit;font-size:15px;min-height:70px"></textarea>
-      <div class="row"><button class="chip" id="visit-save" style="background:#6c47ff;border-color:#6c47ff;color:#fff">Save</button><button class="chip" onclick="this.closest('.sheet-bg').remove()">Skip</button></div></div>`;
-    document.body.appendChild(bg);
-    let verdict = null;
-    bg.querySelectorAll('[data-v]').forEach((b) => b.onclick = () => { verdict = b.dataset.v; bg.querySelectorAll('[data-v]').forEach((x) => x.classList.toggle('on', x === b)); });
-    bg.querySelector('#visit-save').onclick = async () => {
-      const note = bg.querySelector('#visit-note').value.trim();
-      if (!verdict && !note) { bg.remove(); return; }
-      const r = await fetch('/api/spells/' + encodeURIComponent(v.id) + '/react', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ verdict, note }) }).then((x) => x.json()).catch(() => ({}));
-      bg.remove();
-      const post = document.querySelector(`.post[data-id="${CSS.escape(v.id)}"]`);
-      if (post && verdict === 'no') post.remove();
-      else if (post && verdict === 'into') { const b = post.querySelector('.act'); b.classList.add('on'); b.disabled = true; b.textContent = r.passed_on ? '✨ Kept · passed on' : '✨ Kept as a wish'; }
-    };
-  }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(askAboutVisit, 300); });
-  window.addEventListener('pageshow', () => setTimeout(askAboutVisit, 300));
-  window.addEventListener('focus', () => setTimeout(askAboutVisit, 300));
-
+  // (More opens the page inside ButterflAI with a comment bar — /app/view; it replaced the "back from a page" sheet.)
   // ── Map (🐛 #43): pins colored by how soon — green today → purple two weeks or more; grey with no date ──
   let mapObj = null, mapLoaded = false;
   function colorFor(date, today) {
@@ -288,7 +255,7 @@
       const c = colorFor(p.date, d.today);
       const when = p.date ? new Date(p.date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : 'No date';
       L.circleMarker([p.lat, p.lng], { radius: 10, color: '#fff', weight: 2, fillColor: c, fillOpacity: 1 }).addTo(mapObj)
-        .bindPopup(`<b>${esc(p.title)}</b><br>${esc(when)}${p.place ? ' · ' + esc(p.place) : ''}${p.link ? `<br><a href="${esc(p.link)}" target="_blank" rel="noopener">More ›</a>` : ''}`);
+        .bindPopup(`<b>${esc(p.title)}</b><br>${esc(when)}${p.place ? ' · ' + esc(p.place) : ''}${p.link ? `<br><a href="/app/view?id=${encodeURIComponent(p.id)}">More ›</a>` : ''}`);
       pts.push([p.lat, p.lng]);
     }
     if (d.me) { L.circleMarker([d.me.lat, d.me.lng], { radius: 6, color: '#fff', weight: 2, fillColor: '#1c1c1e', fillOpacity: 1 }).addTo(mapObj).bindPopup('You'); pts.push([d.me.lat, d.me.lng]); }
