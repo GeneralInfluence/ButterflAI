@@ -1745,6 +1745,10 @@ app.patch('/api/todos/:id', webAuth.requireAuth, express.json(), (req, res) => {
   return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
 });
 // "I'm on it" / step off (owner, 2026-10-19: anyone can take a thing on; then they can edit it).
+app.post('/api/todos/:id/together', webAuth.requireAuth, async (req, res) => {   // 🍻 🐛 #44
+  const r = await todos.together(req.user.id, String(req.params.id));
+  return r.error ? res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r) : res.json(r);
+});
 app.post('/api/todos/:id/join', webAuth.requireAuth, (req, res) => {
   const r = todos.join(req.user.id, req.params.id);
   return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);

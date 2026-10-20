@@ -94,6 +94,7 @@
       ${t.yours ? `<input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done">` : ''}
       <span class="t">${esc(t.shown || t.text)}${det ? `<span class="det">${esc(det)}</span>` : ''}${t.notes ? `<span class="det">${esc(t.notes)}</span>` : ''}</span>
       ${(t.team || []).length ? `<span class="who">${esc(t.team.join(', '))}</span>` : ''}
+      ${t.done ? '' : `<button type="button" class="btn together" title="Make it its own little plan — figure it out together over a drink, coffee or a call">${t.together_event_id ? '🍻 Plan ›' : '🍻 Together'}</button>`}
       ${t.yours ? '<button type="button" class="x remove" aria-label="Remove">✕</button>' : '<button type="button" class="btn onit">I’m on it</button>'}</li>`;
   }
   function planHtml(p, data, full) {
@@ -153,6 +154,10 @@
     if (e.target.matches('input[type=checkbox]')) call('PATCH', url, { done: e.target.checked });
     else if (e.target.matches('.keep')) call('PATCH', url, { keep: true });
     else if (e.target.matches('.onit')) call('POST', url + '/join');
+    else if (e.target.matches('.together')) {   // 🐛 #44: do it together → its own plan, opened in chat
+      e.target.disabled = true;
+      fetch(url + '/together', { method: 'POST' }).then((r) => r.json()).then((d) => { if (d.event_id) location.href = '/app/chat?event=' + encodeURIComponent(d.event_id); else { e.target.disabled = false; alert(d.message || 'Couldn’t make the plan'); } }).catch(() => { e.target.disabled = false; });
+    }
     else if (e.target.matches('.remove')) call('DELETE', url);
   });
   document.getElementById('main').addEventListener('submit', (e) => {

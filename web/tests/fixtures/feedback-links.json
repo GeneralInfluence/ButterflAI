@@ -107,5 +107,9 @@
   "40": {
     "note_starts": "Out and about should be the same interface",
     "test": "tests/integration/outnow.test.js › 🐛 #40: Out and about is one shared panel on Home and Explore, shorter on Explore"
+  },
+  "44": {
+    "note_starts": "I like these things about a quick call with Allie",
+    "test": "tests/integration/together.test.js › a Creating item becomes its own small plan with the people on it — tentative, no date, one per item"
   }
 }

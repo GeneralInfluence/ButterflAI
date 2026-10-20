@@ -70,7 +70,14 @@ function contextFor(user) {
   // Ideas people around them liked lately (no names) — how people nearby influence each other (🐛 #37).
   const around = [...new Set(associates(user.id).filter((u) => sameTown(user, u))
     .flatMap((u) => db._raw().prepare(`SELECT public_title FROM spells WHERE user_id = ? AND status = 'kept' AND public_title IS NOT NULL AND created_at > ?`).all(u.id, t - 14 * 86400).map((r) => r.public_title)))].slice(0, 10);
-  return { plans, friends, said, wishes, dismissed, current, around, avoidedNames: (avoided || []).map((a) => a.name).filter(Boolean) };
+  // Open Creating items in their plans, and who's on them — doing one together can be its own fun (🐛 #44).
+  const todos = db._raw().prepare(`SELECT t.id, t.text, se.title AS plan FROM event_todos t JOIN social_events se ON se.id = t.event_id
+    WHERE t.done_at IS NULL AND t.suggested = 0 AND COALESCE(se.status, 'open') != 'cancelled' AND (se.host_user_id = ? OR EXISTS (
+      SELECT 1 FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = se.id AND c.phone = ? AND ei.status = 'accepted'))
+    ORDER BY t.created_at DESC LIMIT 8`).all(user.id, user.phone || '')
+    .map((t) => ({ text: t.text, plan: t.plan, with: require('./todos').team(t.id).filter((m) => m.phone !== user.phone).map((m) => String(m.name).split(' ')[0])
+      .filter((n) => !(avoided || []).some((a) => String(a.name || '').split(' ')[0] === n)) }));
+  return { plans, friends, said, wishes, dismissed, current, around, todos, avoidedNames: (avoided || []).map((a) => a.name).filter(Boolean) };
 }
 
 const PROMPT = (user, c, today) => `You are ButterflAI, imagining what could be fun for ${String(user.name || 'this person').split(' ')[0]} — gentle ideas ("spells") that might make good things happen with the people in their life and widen their circle. Today is ${today}${user.city ? `; they live in ${user.city}` : ''}.
@@ -81,15 +88,17 @@ What you know (their own):
 - Their wishes: ${c.wishes.join('; ') || 'none yet'}
 - Things they said lately: ${c.said.slice(0, 15).map((s) => `"${s}"`).join(' ') || 'nothing'}
 - Not into (dismissed before — don't suggest anything like these): ${c.dismissed.join('; ') || 'nothing yet'}
+- Things they're making happen in their plans (and who's on them): ${(c.todos || []).map((t) => `${t.text} (${t.plan}${t.with.length ? `, with ${t.with.join(' & ')}` : ''})`).join('; ') || 'none'}
 - Ideas they already have (don't repeat): ${(c.current || []).join('; ') || 'none'}
 - Liked lately by people around them (anonymous — a hint at what's good nearby): ${(c.around || []).join('; ') || 'nothing yet'}
 
 ${user.city ? `Search the web once or twice for what's actually on in or near ${user.city} in the next two weeks (shows, music, markets, classes, outdoor things) and use real ones.` : ''}
 Imagine 8 ideas, two of each kind:
 - "nearby": something real happening near them soon (name, day, place; include the link).
-- "reconnect": doing something with a friend they haven't seen in a while (only friends listed above).
+- "reconnect": doing something with a friend they haven't seen in a while (only friends listed above) — or making one of the things they're making happen into time together: figuring it out over a drink, a coffee or a quick call with the people on it ("Plan the massages over a drink with Melanie?").
 - "new": something that widens their circle — a class, a group, a meetup, a new scene.
 - "wish": a way one of their wishes could happen (or, with no wishes, something they'd likely love from what they said).
+Every idea is something fun to do — never an errand, a chore or a reminder ("Confirm Zack's name with Liam" is not an idea).
 Each: a short, inviting title (under 70 characters, like "Jazz at Shea's Thursday with Allie?") and one line why. Warm, specific, never pushy. Only use friends' first names from the list above.
 For "nearby" and "new" ideas also give "public_title": the same idea with no person named and nothing about them (like "Jazz at Shea's Thursday") — it may be passed on to others.
 Facts must come from your search results: "link" only to a page you actually found (the event's own page if you found it), "date" (YYYY-MM-DD) when it's on a day, "place" (the venue's name) when it's somewhere. Today is ${today}; get weekdays right. Never two ideas about the same event.

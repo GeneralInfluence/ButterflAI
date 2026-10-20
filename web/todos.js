@@ -57,7 +57,7 @@ function view(t, viewerId = null) {
     when_text: t.when_text || null, place: t.place || null, status: t.status || 'idea', notes: t.notes || null,
     // Can this viewer edit it? (on its team) — otherwise their changes are suggestions.
     yours: !!me && crew.some((m) => m.phone === me),
-    suggested: !!t.suggested, done: !!t.done_at };
+    suggested: !!t.suggested, done: !!t.done_at, together_event_id: t.together_event_id || null };
 }
 
 // A day the plan covers, or null (to-dos can't be for a day outside the plan).
@@ -272,4 +272,35 @@ function progressFor(eventIds) {
   return out;
 }
 
-module.exports = { list, add, update, remove, join, leave, team, onTeam, mine, forHome, members, progressFor, repeats, keyWords, STATUSES };
+/**
+ * 🍻 Do it together (🐛 #44): a Creating item becomes its own small plan — a drink, coffee or a call to
+ * figure it out together — with the people involved: whoever else is on the item; if nobody, the plan's
+ * host and co-hosts. Tentative, no date yet; you're its host. One per item (asking again opens it).
+ */
+async function together(userId, todoId) {
+  const t = own(userId, todoId);
+  if (!t) return { error: 'NOT_FOUND' };
+  const me = db.getUser(userId);
+  if (!members(t.event_id).some((m) => m.phone === me?.phone)) return { error: 'NOT_IN_PLAN' };
+  if (t.together_event_id) {
+    const e = db._raw().prepare("SELECT id FROM social_events WHERE id = ? AND COALESCE(status, 'open') != 'cancelled'").get(t.together_event_id);
+    if (e) return { ok: true, event_id: e.id, existing: true };
+  }
+  const parent = db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(t.event_id);
+  let people = team(t.id).filter((m) => m.phone !== me.phone);
+  if (!people.length) {
+    people = require('./suggestions').deciders(t.event_id).filter((u) => u !== userId).map((u) => db.getUser(u)).filter(Boolean)
+      .map((u) => ({ phone: u.phone, name: members(t.event_id).find((m) => m.phone === u.phone)?.name || u.name }));
+  }
+  const contactIds = people.slice(0, 6).map((p) => db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(userId, p.phone)?.id
+    || db.upsertContact({ invited_by_user_id: userId, name: p.name, phone: p.phone, tier: 1 }));
+  const title = `${t.text} — together`.slice(0, 80);
+  const r = await require('./planops').create(userId, { title, activity_type: 'hangout', tentative: true,
+    notes: `To figure out “${t.text}” for ${parent?.title || 'the plan'} together — over a drink, coffee or a call.`, contact_ids: contactIds }, { via: 'app' });
+  const eventId = r.eventId || null;
+  if (!eventId) return { error: r.error || 'NOT_CREATED', message: r.message };
+  db._raw().prepare('UPDATE event_todos SET together_event_id = ? WHERE id = ?').run(eventId, t.id);
+  return { ok: true, event_id: eventId, with: people.slice(0, 6).map((p) => first(p.name)) };
+}
+
+module.exports = { together, list, add, update, remove, join, leave, team, onTeam, mine, forHome, members, progressFor, repeats, keyWords, STATUSES };

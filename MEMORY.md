@@ -1150,6 +1150,11 @@ once each (`geocode.js`, Nominatim ≤ 1/s); pins green (today) → purple (2+ w
 `public/outnow-ui.js` (#out-now), loaded by Home and Explore; on Explore (`data-compact`) it starts as
 one line ("Out and about? · I'm out") that opens the same form; Explore's stories no longer repeat
 friends-out / out-now / go-out.
+**🍻 Do it together (🐛 #44 — "figuring it out together … over a drink … could be its own event"):**
+a Creating item's 🍻 Together makes it a small tentative plan, "<item> — together", hosted by you with
+the others on the item (else the plan's host / co-hosts), one per item (`todos.together`,
+`event_todos.together_event_id`, migration 075, `POST /api/todos/:id/together`). Ideas see open Creating
+items and who's on them and may suggest doing one together; ideas are never errands or reminders.
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`
