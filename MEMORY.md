@@ -1120,6 +1120,13 @@ only if asked, and never messages them (no number → `how_to_reach` says so). R
 app icon's long-press shortcut (manifest `shortcuts`), Share from any app (share_target now
 takes title/text/url; sw.js sends text to Quick note, vCards still go to import), or an iPhone
 Shortcut on Back Tap/Action button. Test: `tests/integration/quick-note.test.js`.
+**Capture the screen, not the app (owner, same day: "don't pick any special way to connect to
+the dating apps … the little overlay for any app where you will try to capture whatever you can
+from the screen"):** no dating-app integrations. A screenshot (📷 on Quick note, or Share a
+screenshot from any app → ButterflAI; share_target `screenshot`, sw.js `/pending-shot`) is shrunk in the browser and read
+**once** by `web/screenread.js` into a few facts (app, person, where, into, what was talked about —
+never looks); only those facts join the note; the image is stored nowhere (tested). The true
+floating button over other apps needs a native Android app (iOS allows none) — not built yet.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

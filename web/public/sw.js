@@ -63,6 +63,15 @@ async function handleShare(request) {
   try {
     const fd = await request.formData();
     const files = fd.getAll('contacts');
+    // A screenshot shared from any app → Quick note, which reads it (2026-10-20).
+    const shot = fd.getAll('screenshot').find((f) => f instanceof File && f.size);
+    if (shot) {
+      const cache = await caches.open(SHARE_CACHE);
+      await cache.put('/pending-shot', new Response(shot, { headers: { 'Content-Type': shot.type || 'image/png' } }));
+      const q = new URLSearchParams({ shot: '1' });
+      const t = fd.get('text'); if (t) q.set('text', String(t).slice(0, 1500));
+      return Response.redirect('/app/quick?' + q.toString(), 303);
+    }
     // Text or a link shared from another app (Tinder, Instagram…) → Quick note (2026-10-20).
     if (!files.some((f) => f instanceof File && f.size)) {
       const q = new URLSearchParams();

@@ -394,8 +394,8 @@ The location is rounded to about 1 km, kept only while they're out, and deleted 
 ends or they tap Stop. Friends (people who have each other saved) see each other's first name.
 Anyone else is shown anonymously, and only if both chose "open to meeting new people" (which needs
 "I'm 18 or older") and are up for the same thing; interest reaches the other person only if it's
-mutual, and only then are first names shared. Avoid lists apply both ways. No dating-app data is
-read — those apps can't be connected.
+mutual, and only then are first names shared. Avoid lists apply both ways. No dating app is
+connected; ButterflAI only sees what a person chooses to screenshot into a Quick note.
 
 ## Quick notes about people met elsewhere `[2026-10-20]`
 
@@ -404,6 +404,11 @@ contact — name, where they met (`met_via`) and what the user said about them (
 every contact it is the user's alone: never shown to that person, other users or their agents,
 and nobody is messaged (there's usually no number). The note goes to Anthropic like any message
 to the agent.
+A **screenshot** attached to a Quick note (or shared to ButterflAI from any app) is read once by
+Anthropic's model into a few facts — the app, the person's name, where they are, what they're
+into, what was talked about; never anyone's looks — and then discarded: **the image is not
+stored** anywhere by ButterflAI. Screenshots can show the other person's profile and messages,
+so only those few facts are kept, on the user's own contact.
 
 ## Rules for contributors (including the agent)
 

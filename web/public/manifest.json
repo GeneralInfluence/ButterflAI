@@ -51,6 +51,12 @@
             "text/x-vcard",
             ".vcf"
           ]
+        },
+        {
+          "name": "screenshot",
+          "accept": [
+            "image/*"
+          ]
         }
       ]
     }

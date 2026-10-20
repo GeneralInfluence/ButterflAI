@@ -31,14 +31,24 @@
     .secondary { background: #fff; color: #1c1c1e; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
     #done { display: none; background: #fff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 14px; margin-top: 14px; font-size: 15px; line-height: 1.45; }
     #reply { margin-top: 6px; color: #3a3a3c; white-space: pre-wrap; }
+    .shot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+    .shot label { background: #ede9fe; color: #6c47ff; border-radius: 12px; padding: 10px 14px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .shot input { display: none; }
+    .shot img { height: 64px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+    .shot button { flex: none; background: none; color: #8e8e93; padding: 6px; font-size: 13px; }
     .hint { font-size: 12px; color: #8e8e93; margin-top: 16px; line-height: 1.45; }
   </style>
 </head>
 <body>
 <main>
   <h1>✍️ Quick note</h1>
-  <p class="sub">Who are you talking to, and what are they into? I'll save them (no number needed) and think of something you'd both enjoy. I never message them.</p>
+  <p class="sub">Who are you talking to, and what are they into? Add a screenshot of the app you're in and I'll read what I can from it. I'll save them (no number needed) and think of something you'd both enjoy. I never message them, and I don't keep the screenshot.</p>
   <textarea id="text" placeholder="Talking to Sarah on Tinder — she's in Kings Beach, loves paddleboarding and tacos"></textarea>
+  <div class="shot">
+    <label>📷 Add screenshot<input type="file" id="file" accept="image/*"></label>
+    <img id="preview" alt="" hidden>
+    <button id="unshot" hidden>Remove</button>
+  </div>
   <div class="row">
     <a class="btn secondary" href="/app/dashboard">Close</a>
     <button class="primary" id="save">Save</button>
@@ -46,7 +56,7 @@
   <div id="done">✓ Got it. <div id="reply">Saving…</div>
     <div class="row"><a class="btn secondary" id="chat" href="/app/chat">Open chat</a><button class="secondary" id="another">Another</button></div>
   </div>
-  <p class="hint">Getting here fast: on Android, long-press the ButterflAI icon → Quick note, or Share from any app → ButterflAI. On iPhone, make a Shortcut that opens butterflai.social/app/quick and put it on Back Tap or the Action button.</p>
+  <p class="hint">Getting here fast: take a screenshot in any app and Share it → ButterflAI. On Android you can also long-press the ButterflAI icon → Quick note; on iPhone, make a Shortcut that opens butterflai.social/app/quick and put it on Back Tap or the Action button.</p>
 </main>
 <script>
   const textEl = document.getElementById('text');
@@ -57,6 +67,47 @@
   const shared = [params.get('title'), params.get('text'), params.get('url')].filter(Boolean).join(' ');
   if (shared) textEl.value = shared;
   textEl.focus();
+
+  // The screenshot, made smaller in the browser before it's sent (read once, never kept).
+  let image = null;
+  const previewEl = document.getElementById('preview');
+  const unshotEl = document.getElementById('unshot');
+  function setImage(url) {
+    image = url;
+    previewEl.hidden = !url; unshotEl.hidden = !url;
+    if (url) previewEl.src = url;
+  }
+  function shrink(blob) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(img.src);
+        resolve(c.toDataURL('image/jpeg', 0.8));
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(blob);
+    });
+  }
+  document.getElementById('file').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) { try { setImage(await shrink(f)); } catch (_) { alert('That picture couldn\'t be opened'); } }
+    e.target.value = '';
+  });
+  unshotEl.addEventListener('click', () => setImage(null));
+  // A screenshot shared from another app (Share → ButterflAI) waits in the service worker's cache.
+  if (params.get('shot')) {
+    (async () => {
+      try {
+        const cache = await caches.open('butterflai-share-v1');
+        const r = await cache.match('/pending-shot');
+        if (r) { setImage(await shrink(await r.blob())); await cache.delete('/pending-shot'); }
+      } catch (_) {}
+    })();
+  }
 
   async function waitForReply(since) {
     for (let i = 0; i < 30; i++) {
@@ -73,15 +124,16 @@
 
   saveEl.addEventListener('click', async () => {
     const text = textEl.value.trim();
-    if (!text) { textEl.focus(); return; }
+    if (!text && !image) { textEl.focus(); return; }
     saveEl.disabled = true;
     try {
-      const r = await fetch('/api/quick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const r = await fetch('/api/quick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, image }) });
       if (r.status === 401) { location.href = '/app/login?next=' + encodeURIComponent('/app/quick'); return; }
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Could not save');
       doneEl.style.display = 'block';
-      replyEl.textContent = 'Saving…';
+      replyEl.textContent = image ? 'Reading your screen…' : 'Saving…';
+      setImage(null);
       waitForReply(d.ts);
     } catch (e) { alert(e.message); }
     saveEl.disabled = false;

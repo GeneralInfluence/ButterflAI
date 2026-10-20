@@ -100,7 +100,7 @@ app.use(cookieParser());
 // else keeps the default.
 const jsonDefault = express.json();
 const jsonFeedback = express.json({ limit: '4mb' });
-app.use((req, res, next) => (req.path === '/api/feedback' ? jsonFeedback : jsonDefault)(req, res, next));
+app.use((req, res, next) => (['/api/feedback', '/api/quick'].includes(req.path) ? jsonFeedback : jsonDefault)(req, res, next));
 app.use(express.urlencoded({ extended: true }));
 
 // All /api/* responses must never be cached
@@ -1630,12 +1630,22 @@ app.get('/api/questions/:id', webAuth.requireAuth, (req, res) => {
 // that I've hit that button." Queued like a chat message, marked new_plan; the agent creates it.
 // ✍️ Quick note (2026-10-20): from inside another app — "talking to Sarah on Tinder, she's in Kings
 // Beach…". Queued with intent capture: the agent saves the person, what they're into, and a wish.
-app.post('/api/quick', webAuth.requireAuth, express.json(), (req, res) => {
+// A screenshot of the screen they were on (any app) is read once into a few facts
+// (screenread.js) and dropped — the image is never stored.
+app.post('/api/quick', webAuth.requireAuth, async (req, res) => {
   const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim().slice(0, 2000);
-  if (!text) return res.status(400).json({ error: 'Say who and what' });
-  db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text, intent: 'capture' });
-  sse.push(req.user.id, { role: 'status', text: 'Saving that…' });
-  res.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
+  const image = typeof req.body?.image === 'string' ? req.body.image : null;
+  if (image && !require('./screenread').MEDIA.test(image)) return res.status(400).json({ error: 'That picture can\'t be read' });
+  if (!text && !image) return res.status(400).json({ error: 'Say who and what' });
+  const ts = Math.floor(Date.now() / 1000);
+  sse.push(req.user.id, { role: 'status', text: image ? 'Reading your screen…' : 'Saving that…' });
+  res.json({ ok: true, ts });
+  let note = text;
+  if (image) {
+    const seen = await require('./screenread').read(image);
+    note = [text || 'From my screen:', seen ? `[What was on my screen]\n${seen}` : '[I attached a screenshot, but it couldn\'t be read.]'].join('\n\n');
+  }
+  db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text: note.slice(0, 4000), intent: 'capture' });
 });
 app.get('/app/quick', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/quick.html')));
 
