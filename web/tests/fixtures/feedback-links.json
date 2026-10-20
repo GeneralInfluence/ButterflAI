@@ -103,5 +103,9 @@
   "43": {
     "note_starts": "Is it possible to have a map view of the explorer",
     "test": "tests/integration/ideafeed.test.js › 🐛 #43: a map of Explore — ideas with a place are pinned (looked up once per place), green today → purple later"
+  },
+  "40": {
+    "note_starts": "Out and about should be the same interface",
+    "test": "tests/integration/outnow.test.js › 🐛 #40: Out and about is one shared panel on Home and Explore, shorter on Explore"
   }
 }

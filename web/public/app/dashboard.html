@@ -190,6 +190,7 @@
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
 
+<script src="/outnow-ui.js"></script>
 <script>
   function fmtDate(ts) {
     if (!ts) return '';
@@ -311,105 +312,7 @@
         <label style="font-size:13px;color:#3a3a3c"><input type="checkbox" ${w.open_to_new ? '' : 'checked'} onchange="toggleWishOpen('${esc(w.id)}', !this.checked)"> Only people I know</label></div>`}
       </div><button title="Remove" style="background:none;border:none;color:#c7c7cc;font-size:16px;cursor:pointer" onclick="removeWish('${esc(w.id)}')">✕</button></div>`;
   }
-  // ── 🌴 I'm out: who's near you now (outnow.js, owner 2026-10-20) ──
-  let outPicks = new Set(['drink']);
-  let outMinutes = 20;   // how far they'll go (owner: "willing to drive 5–10 minutes")
-  const OUT_ACTS = { coffee: '☕ Coffee', drink: '🍺 A drink', dinner: '🍽️ Dinner', hang: '🏖️ Hang out' };
-  let outView = null;
-  // 🐛 #38: your own activities ("a hike", "skiing", "beer at the park") next to the four presets.
-  const outLabel = (a) => OUT_ACTS[a] || a;
-  const pickStyle = 'background:#ede9fe;border-color:#6c47ff;color:#6c47ff';
-  function outChips(list) {
-    return list.map((k) => `<button class="chip-btn" style="${outPicks.has(k) ? pickStyle : ''}" data-act="${esc(k)}" onclick="toggleOut(this.dataset.act)">${esc(outLabel(k))}</button>`).join('');
-  }
-  function addOutAct(inputId, then) {
-    const el = document.getElementById(inputId);
-    const t = (el.value || '').replace(/\s+/g, ' ').trim().slice(0, 40);
-    if (!t) { el.focus(); return; }
-    el.value = '';
-    then(t);
-  }
-  async function setOutActs(list) {
-    await fetch('/api/out', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ up_for: list }) }).catch(() => {});
-    loadOut(false);
-  }
-  function hereNow() {
-    return new Promise((ok, no) => navigator.geolocation ? navigator.geolocation.getCurrentPosition((p) => ok(p.coords), no, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }) : no(new Error('no location')));
-  }
-  async function loadOut(refreshSpot) {
-    try {
-      outView = await fetch('/api/out').then((r) => r.json());
-      if (outView.me && refreshSpot) {   // still out: update where you are (rounded on the server)
-        hereNow().then((c) => fetch('/api/out/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat: c.latitude, lng: c.longitude }) }).then(() => loadOut(false))).catch(() => {});
-      }
-    } catch (_) { outView = null; }
-    renderOut();
-  }
-  function renderOut() {
-    const el = document.getElementById('out-now'); if (!el) return;
-    const v = outView || { me: null, friends: [], others: [], asks: [] };
-    const asks = (v.asks || []).map((a) => `<div class="card feed-item needs-you"><span class="feed-icon">👋</span><div style="flex:1;min-width:0">
-      <div class="card-title">${esc(a.name)} is out near you</div><div class="card-sub">Up for ${esc(a.activity)}</div>
-      <div class="share-row" style="margin:6px 0 0"><button class="chip-btn" onclick="answerAsk('${esc(a.id)}', true, this)">I’m in</button><button class="chip-btn" onclick="answerAsk('${esc(a.id)}', false, this)">Not now</button></div></div></div>`).join('');
-    if (!v.me) {
-      el.innerHTML = asks + `<div class="card feed-item"><span class="feed-icon">🌴</span><div style="flex:1;min-width:0">
-        <div class="card-title">Out and about?</div><div class="card-sub">See who’s nearby and up for something</div>
-        <div class="share-row" style="margin:6px 0 0;flex-wrap:wrap">${outChips([...new Set([...Object.keys(OUT_ACTS), ...(v.choices || []), ...outPicks])])}</div>
-        <div class="share-row" style="margin:6px 0 0"><input id="out-own" maxlength="40" placeholder="Something else? a hike, skiing, beer at the park…" style="flex:1;min-width:0;border:1.5px solid #e5e5e5;border-radius:12px;padding:8px 10px;font:inherit;font-size:14px" onkeydown="if(event.key==='Enter'){event.preventDefault();addOutAct('out-own',(t)=>{outPicks.add(t);renderOut();})}"><button class="chip-btn" onclick="addOutAct('out-own',(t)=>{outPicks.add(t);renderOut();})">Add</button></div>
-        <div class="card-sub" style="margin-top:6px">How far will you go?</div>
-        <div class="share-row" style="margin:4px 0 0">${[5, 10, 20, 30].map((m) => `<button class="chip-btn" style="${m === outMinutes ? 'background:#ede9fe;border-color:#6c47ff;color:#6c47ff' : ''}" onclick="outMinutes = ${m}; renderOut()">${m} min</button>`).join('')}</div>
-        <label style="display:block;font-size:13px;color:#3a3a3c;margin-top:6px"><input type="checkbox" id="out-new" onchange="document.getElementById('out-adult-row').style.display = this.checked ? 'block' : 'none'"> Open to meeting new people</label>
-        <label id="out-adult-row" style="display:none;font-size:13px;color:#3a3a3c"><input type="checkbox" id="out-adult"> I’m 18 or older</label>
-        <button class="chip-btn" style="margin-top:8px;background:#6c47ff;color:#fff;border-color:#6c47ff" onclick="goOut(this)">I’m out</button>
-        <div class="card-sub" id="out-err"></div></div></div>`;
-      return;
-    }
-    const until = new Date(v.me.until * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    const friends = v.friends.map((f) => `<div class="card feed-item"><span class="feed-icon">💛</span><div style="flex:1;min-width:0">
-      <div class="card-title">${esc(f.name)} is out too · ${esc(f.distance)}</div><div class="card-sub">Up for ${esc(f.up_for)}</div>
-      ${f.asked ? '<div class="card-sub">You said hi</div>' : `<button class="chip-btn" style="margin-top:6px" onclick="reachOut('${esc(f.id)}', this)">Say hi</button>`}</div></div>`).join('');
-    const others = v.others.map((o) => `<div class="card feed-item"><span class="feed-icon">✨</span><div style="flex:1;min-width:0">
-      <div class="card-title">Someone ${esc(o.distance)} away</div><div class="card-sub">Up for ${esc(o.up_for)} too</div>
-      ${o.asked ? '<div class="card-sub">You’re interested — they’ll only know if they are too</div>' : `<button class="chip-btn" style="margin-top:6px" onclick="reachOut('${esc(o.id)}', this)">I’m interested</button>`}</div></div>`).join('');
-    el.innerHTML = asks + `<div class="card feed-item"><span class="feed-icon">🌴</span><div style="flex:1;min-width:0">
-      <div class="card-title">You’re out · up for ${esc((v.me.labels || v.me.up_for).join(', '))}</div>
-      <div class="card-sub">Until ${until}${v.me.minutes ? ` · up to ${v.me.minutes} min away` : ''}${v.me.open_to_new ? ' · open to new people' : ''} · nobody sees where you are, only roughly how far</div>
-      <div class="share-row" style="margin:6px 0 0"><input id="out-more" maxlength="40" placeholder="Up for something else too?" style="flex:1;min-width:0;border:1.5px solid #e5e5e5;border-radius:12px;padding:8px 10px;font:inherit;font-size:14px" onkeydown="if(event.key==='Enter'){event.preventDefault();addOutAct('out-more',(t)=>setOutActs([...outView.me.up_for, t]))}"><button class="chip-btn" onclick="addOutAct('out-more',(t)=>setOutActs([...outView.me.up_for, t]))">Add</button></div>
-      <button class="chip-btn" style="margin-top:6px" onclick="stopOut()">Stop</button></div></div>`
-      + ((v.around || []).length ? `<div class="card feed-item"><span class="feed-icon">📍</span><div style="flex:1;min-width:0">
-        <div class="card-title">Around you, people are up for</div>
-        <div class="share-row" style="margin:6px 0 0;flex-wrap:wrap">${v.around.map((x) => x.yours
-          ? `<span class="chip-btn" style="${pickStyle}">${esc(x.label)}${x.count > 1 ? ' · ' + x.count : ''}</span>`
-          : `<button class="chip-btn" data-act="${esc(x.value)}" onclick="setOutActs([...outView.me.up_for, this.dataset.act])">${esc(x.label)}${x.count > 1 ? ' · ' + x.count : ''} · ＋ me too</button>`).join('')}</div></div></div>` : '')
-      + (friends || others ? friends + others : '<div class="empty-state">Nobody else nearby is out right now — I’ll show them as they are.</div>');
-  }
-  function toggleOut(k) { outPicks.has(k) ? outPicks.delete(k) : outPicks.add(k); renderOut(); }
-  async function goOut(btn) {
-    const err = document.getElementById('out-err');
-    const open = document.getElementById('out-new').checked, adult = document.getElementById('out-adult').checked;
-    if (!outPicks.size) { err.textContent = 'Pick what you’re up for'; return; }
-    if (open && !adult) { err.textContent = 'Meeting new people is for 18 and over'; return; }
-    btn.disabled = true; btn.textContent = 'Finding where you are…';
-    try {
-      const c = await hereNow();
-      const r = await fetch('/api/out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ up_for: [...outPicks], lat: c.latitude, lng: c.longitude, open_to_new: open, adult, minutes: outMinutes }) });
-      if (!r.ok) { err.textContent = (await r.json()).message || 'Couldn’t start'; btn.disabled = false; btn.textContent = 'I’m out'; return; }
-      loadOut(false);
-    } catch (_) { err.textContent = 'Allow location for ButterflAI to see who’s nearby'; btn.disabled = false; btn.textContent = 'I’m out'; }
-  }
-  async function stopOut() { await fetch('/api/out', { method: 'DELETE' }).catch(() => {}); loadOut(false); }
-  async function reachOut(id, btn) {
-    btn.disabled = true;
-    const r = await fetch('/api/out/reach', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).then((x) => x.json()).catch(() => ({}));
-    if (r.event_id) { location.href = '/app/chat?event=' + encodeURIComponent(r.event_id); return; }
-    loadOut(false);
-  }
-  async function answerAsk(id, yes, btn) {
-    btn.disabled = true;
-    const r = await fetch('/api/out/asks/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ yes }) }).then((x) => x.json()).catch(() => ({}));
-    if (r.event_id) { location.href = '/app/chat?event=' + encodeURIComponent(r.event_id); return; }
-    loadOut(false);
-  }
+  // ── 🌴 I'm out: the shared Out and about panel (public/outnow-ui.js — the same on Home and Explore, 🐛 #40) ──
 
   // A spell: an idea ButterflAI imagined for you — ✨ Sounds fun (becomes your wish), Make it a plan, ✕.
   const SPELL_ICON = { nearby: '📍', reconnect: '💛', new: '🌱', wish: '✨' };

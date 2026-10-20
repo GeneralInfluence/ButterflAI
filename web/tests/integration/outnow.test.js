@@ -133,9 +133,12 @@ describe('🌴 I\'m out — who\'s near you now', () => {
     assert.ok(out.purgeOld() >= 1);
     assert.equal(db._raw().prepare('SELECT 1 FROM out_now WHERE user_id = ?').get(me.id), undefined);
   });
+  // The panel moved into public/outnow-ui.js, shared by Home and Explore (🐛 #40).
   test('Home → Feeling has "Out and about?" with the 18+ check', () => {
-    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
-    assert.ok(html.includes('<div id="out-now"></div>') && html.includes('Out and about?') && html.includes('I’m 18 or older') && html.includes("fetch('/api/out'"));
+    const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public', f), 'utf8');
+    const html = read('app/dashboard.html'), ui = read('outnow-ui.js');
+    assert.ok(html.includes('<div id="out-now"></div>') && html.includes('<script src="/outnow-ui.js"></script>'));
+    assert.ok(ui.includes('Out and about?') && ui.includes('I’m 18 or older') && ui.includes("fetch('/api/out'"));
   });
 
   // 🐛 #38 (Sean, 2026-10-20): "I might be going for a hike … skiing … having a beer at a park … I need
@@ -189,7 +192,19 @@ describe('🌴 I\'m out — who\'s near you now', () => {
     assert.equal(r.me.up_for.length, 6);
   });
   test('🐛 #38: Home lets you add your own and shows what people around you are up for', () => {
-    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/outnow-ui.js'), 'utf8');   // shared panel (🐛 #40)
     assert.ok(html.includes('Something else? a hike, skiing, beer at the park') && html.includes('Around you, people are up for') && html.includes("method: 'PATCH'"));
+  });
+
+  // 🐛 #40 (Sean, 2026-10-20): "Out and about should be the same interface. Maybe shorter because it's to
+  // [Explore] as the home screen's feelings area because it's the same idea".
+  test('🐛 #40: Out and about is one shared panel on Home and Explore, shorter on Explore', () => {
+    const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public', f), 'utf8');
+    const home = read('app/dashboard.html'), explore = read('app/explore.html'), ui = read('outnow-ui.js');
+    for (const h of [home, explore]) assert.ok(h.includes('<script src="/outnow-ui.js"></script>') && h.includes('loadOut(true)'));
+    assert.ok(explore.includes('<div id="out-now" data-compact="1"></div>'), 'starts as one line on Explore');
+    assert.ok(ui.includes('el.dataset.compact && !outFormOpen') && ui.includes('function openOutForm'));
+    assert.ok(!home.includes('function renderOut'), 'one copy — not a second one on Home');
+    assert.ok(explore.includes("!['friend_out', 'around', 'go_out'].includes(i.type)"), 'not twice on Explore (the stories leave them to the panel)');
   });
 });

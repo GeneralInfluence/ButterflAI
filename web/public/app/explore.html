@@ -96,6 +96,8 @@
 <div id="map-wrap" hidden><div id="map"></div><div class="legend">When<div class="bar"></div><div class="ends"><span>Today</span><span>2+ weeks</span></div><div style="margin-top:4px;color:#8e8e93">● grey: no date</div></div></div>
 <main id="list-view">
   <div class="stories" id="stories" hidden></div>
+  <!-- Out and about — the same panel as Home's Feeling, starting as one line here (🐛 #40). -->
+  <div id="out-now" data-compact="1"></div>
   <div id="feed"></div>
   <div id="sentinel"></div>
   <div class="status" id="status">Loading…</div>
@@ -108,6 +110,7 @@
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
 
+<script src="/outnow-ui.js"></script>
 <script>
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const feedEl = document.getElementById('feed');
@@ -178,7 +181,11 @@
       const r = await fetch('/api/ideas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seen }) });
       if (r.status === 401) { location.href = '/app/login?next=/app/explore'; return; }
       const d = await r.json();
-      for (const i of d.items || []) { seen.push(i.id); if (i.type === 'idea') feedEl.insertAdjacentHTML('beforeend', cardHtml(i)); else addStory(i); }
+      for (const i of d.items || []) {
+        seen.push(i.id);
+        if (i.type === 'idea') feedEl.insertAdjacentHTML('beforeend', cardHtml(i));
+        else if (!['friend_out', 'around', 'go_out'].includes(i.type)) addStory(i);   // those are in the Out and about panel
+      }
       if (d.done) {
         // Out of ideas: ButterflAI imagines a new batch (with a search of what's on near you).
         if (d.can_imagine_more && !imagining) {
@@ -258,9 +265,10 @@
   new IntersectionObserver((e) => { if (e.some((x) => x.isIntersecting)) loadMore(); }, { rootMargin: '400px' }).observe(document.getElementById('sentinel'));
   // Back to the tab later: start fresh so what changed around you is on top.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && Date.now() - (window._feedAt || 0) > 10 * 60 * 1000) { seen = []; finished = false; feedEl.innerHTML = ''; stories.length = 0; document.getElementById('stories').innerHTML = ''; window._feedAt = Date.now(); loadMore(); }
+    if (document.visibilityState === 'visible' && Date.now() - (window._feedAt || 0) > 10 * 60 * 1000) { seen = []; finished = false; feedEl.innerHTML = ''; stories.length = 0; document.getElementById('stories').innerHTML = ''; window._feedAt = Date.now(); loadMore(); loadOut(true); }
   });
   window._feedAt = Date.now();
+  loadOut(true);   // 🌴 Out and about (and refresh where you are if you're out)
   window.bflyFeedbackState = () => ({ screen: 'explore', shown: seen.slice(0, 60) });
   loadMore();
 </script>

@@ -1146,6 +1146,10 @@ weekdays in the text corrected in code — `fixWeekdays`) and `place`; near-repe
 ButterflAI". **Map (🐛 #43):** Explore has List · Map (Leaflet + OpenStreetMap tiles); places geocoded
 once each (`geocode.js`, Nominatim ≤ 1/s); pins green (today) → purple (2+ weeks), grey with no date;
 `GET /api/ideas/map`. Migration 074. Retro: links checked before this are re-checked.
+**Out and about on Explore (🐛 #40 — "the same interface. Maybe shorter"):** the panel lives in one place,
+`public/outnow-ui.js` (#out-now), loaded by Home and Explore; on Explore (`data-compact`) it starts as
+one line ("Out and about? · I'm out") that opens the same form; Explore's stories no longer repeat
+friends-out / out-now / go-out.
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`
