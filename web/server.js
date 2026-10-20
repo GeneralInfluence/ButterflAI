@@ -1432,6 +1432,11 @@ app.get('/api/admin/trace', requireAdmin, (req, res) => {
   res.json({ trace: rows.reverse(), retention_days: trace.RETENTION_DAYS });
 });
 // Reflections (reflect.js): what the agent noticed looking back — test users only.
+// What the daily consistency sweep found and fixed (sweep.js).
+app.get('/api/admin/sweeps', requireAdmin, (req, res) => {
+  res.json({ checks: require('./sweep').CHECKS.map((c) => ({ name: c.name, about: c.about })), recent: require('./sweep').recent(200) });
+});
+
 // Corrections to what messages were understood as — the eval set's labels (understand.js).
 app.get('/api/admin/understood', requireAdmin, (req, res) => {
   res.json({ corrections: require('./understand').corrections(200) });

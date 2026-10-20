@@ -822,12 +822,12 @@ function toolStatusLine(toolName, input) {
 function openQuestionsFor(userId) {
   try {
     return db._raw().prepare(`
-      SELECT am.id, substr(am.body, 1, 300) AS body, u.name AS from_name
+      SELECT am.id, substr(am.body, 1, 300) AS body, u.name AS from_name, am.from_user AS from_id
       FROM agent_messages am JOIN users u ON u.id = am.from_user
       WHERE am.to_user = ? AND am.kind = 'query' AND am.processed = 0
         AND am.created_at > strftime('%s','now') - 7 * 86400
       ORDER BY am.created_at DESC LIMIT 5`).all(userId)
-      .map((q) => ({ ...q, from_name: String(q.from_name || 'A friend').split(/\s+/)[0] }));
+      .map((q) => ({ ...q, from_name: require('./people').nameFor(userId, q.from_id, { first: true }) }));
   } catch (_) { return []; }
 }
 
@@ -1399,7 +1399,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const senderUser = db.getUser(userId);
       db.storeInboundMessage({
         from_phone: targetUser.phone, from_type: 'user', from_id: targetUser.id,
-        channel: 'agent_query', text: `[Agent query from ${senderUser?.name || userId}'s agent | thread=${msgId} | topic=${topic}] ${agentMsg}`,
+        // Named as the recipient knows the sender (people.js — not a "New user" placeholder).
+        channel: 'agent_query', text: `[Agent query from ${require('./people').nameFor(targetUser.id, userId)}'s agent | thread=${msgId} | topic=${topic}] ${agentMsg}`,
       });
       return { sent: true, message_id: msgId, to: contact.name, note: 'Their agent will respond; watch for reply_received in next turns' };
     }
@@ -1430,7 +1431,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           // executeTool has no `user` in scope — referencing it threw AFTER the reply was
           // stored, so the asker never got it and the model retried (Bam Bam's double
           // reply, 2026-10-08). Resolve the replier locally, as message_agent does.
-          text: `[Agent reply from ${db.getUser(userId)?.name || 'their'}'s agent | thread=${original.thread_id} | topic=${original.topic}] ${replyBody}`,
+          text: `[Agent reply from ${require('./people').nameFor(original.from_user, userId)}'s agent | thread=${original.thread_id} | topic=${original.topic}] ${replyBody}`,
         });
       }
       return { replied: true, reply_id: replyId };

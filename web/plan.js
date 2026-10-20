@@ -46,7 +46,14 @@ function datesOf(e, tz) {
       days: [...new Set(proposals.flatMap((p) => span(p.from, p.to)))], last: proposals[proposals.length - 1].to };
   }
   if (e.date_tbd) return { kind: 'tbd', proposals: [], label: 'Date TBD', days: [] };
-  if (e.flexible_time) return { kind: 'open', proposals: [], label: 'Open invite', days: [] };
+  // An open invite ("come by whenever") is for the night it was made — it ends at 4am the next
+  // morning (🐛 #29, 2026-10-20: Bam Bam's July 16 "80s bar tonight" was still upcoming in October).
+  if (e.flexible_time) {
+    const day = ymd(e.scheduled_at, tz);
+    const [y, m, d] = addDays(day, 1).split('-').map(Number);
+    const end = Math.floor(require('./datetime').zonedWallTimeToUTC(y, m, d, 4, 0, tz).getTime() / 1000);
+    return { kind: 'open', proposals: [], label: `Open invite · ${fmtDay(day)}`, days: [day], start: e.scheduled_at, end };
+  }
   if (e.time_tbd) {   // the day is set, the time isn't (migration 062)
     const day = ymd(e.scheduled_at, tz);
     return { kind: 'set', time_tbd: true, proposals: [], start: e.scheduled_at, end: e.scheduled_at, days: [day], label: `${fmtDay(day)} · time TBD` };
@@ -87,7 +94,7 @@ function planFor(eventId, viewerId) {
   const todo = db._raw().prepare(`SELECT count(*) total, sum(done_at IS NOT NULL AND suggested = 0) done, sum(suggested = 1) suggested,
     sum(suggested = 0) kept FROM event_todos WHERE event_id = ?`).get(e.id);
 
-  const ended = dates.kind === 'set' ? dates.end < t : ['proposed', 'days'].includes(dates.kind) ? (Date.parse(dates.last + 'T23:59:59Z') / 1000) < t - 86400 : false;
+  const ended = ['set', 'open'].includes(dates.kind) ? dates.end < t : ['proposed', 'days'].includes(dates.kind) ? (Date.parse(dates.last + 'T23:59:59Z') / 1000) < t - 86400 : false;
   const stage = e.status === 'cancelled' ? 'cancelled'
     : ended ? 'past'
     : !isHost && mine?.status === 'invited' ? 'invited'

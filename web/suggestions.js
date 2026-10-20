@@ -62,15 +62,15 @@ function create(fromUserId, eventId, changes, { todoId = null } = {}) {
   const id = uuidv4();
   db._raw().prepare('INSERT INTO plan_suggestions (id, event_id, todo_id, from_user_id, changes_json, summary) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id, eventId, todoId, fromUserId, JSON.stringify(changes), summary);
-  const who = first(db.getUser(fromUserId)?.name);
   const to = deciders(eventId, todoId).filter((u) => u !== fromUserId);
   const { inApp } = require('./ripples/notice');
-  for (const u of to) inApp(u, eventId, `💡 ${who} suggests for ${item ? `"${item.text}" (${e.title})` : e.title}: ${summary}. Accept or decline it on the plan, or tell me.`);
+  const { nameFor } = require('./people');
+  for (const u of to) inApp(u, eventId, `💡 ${nameFor(u, fromUserId, { first: true })} suggests for ${item ? `"${item.text}" (${e.title})` : e.title}: ${summary}. Accept or decline it on the plan, or tell me.`);
   return { ok: true, suggested: true, suggestion_id: id, summary, to: to.map((u) => first(db.getUser(u)?.name)),
     message: `Not changed yet — sent as a suggestion to ${to.map((u) => first(db.getUser(u)?.name)).join(' and ') || 'the host'}, who decide${to.length === 1 ? 's' : ''}.` };
 }
 
-const view = (r, viewerId) => ({ id: r.id, event_id: r.event_id, todo_id: r.todo_id, from: r.from_user_id === viewerId ? 'you' : first(db.getUser(r.from_user_id)?.name),
+const view = (r, viewerId) => ({ id: r.id, event_id: r.event_id, todo_id: r.todo_id, from: r.from_user_id === viewerId ? 'you' : require('./people').nameFor(viewerId, r.from_user_id, { first: true }),
   summary: r.summary, status: r.status, at: r.created_at,
   item: r.todo_id ? db._raw().prepare('SELECT text FROM event_todos WHERE id = ?').get(r.todo_id)?.text || null : null,
   can_decide: deciders(r.event_id, r.todo_id).includes(viewerId) });
@@ -98,7 +98,7 @@ function decide(actorId, id, accept) {
   db._raw().prepare('UPDATE plan_suggestions SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?').run(accept ? 'accepted' : 'declined', actorId, now(), id);
   const title = db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(r.event_id)?.title || 'the plan';
   if (r.from_user_id !== actorId) {
-    require('./ripples/notice').inApp(r.from_user_id, r.event_id, `${first(db.getUser(actorId)?.name)} ${accept ? 'accepted' : 'passed on'} your suggestion for ${title}: ${r.summary}.`);
+    require('./ripples/notice').inApp(r.from_user_id, r.event_id, `${require('./people').nameFor(r.from_user_id, actorId, { first: true })} ${accept ? 'accepted' : 'passed on'} your suggestion for ${title}: ${r.summary}.`);
   }
   return { ok: true, status: accept ? 'accepted' : 'declined', summary: r.summary };
 }

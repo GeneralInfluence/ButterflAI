@@ -131,6 +131,9 @@ async function tick(transport = stubTransport) {
     // Apply behavior changes to what already exists, once per existing user (retro.js).
     const retroRuns = await require('./retro').tick();
     if (retroRuns) console.log(`[coord] ran ${retroRuns} retro task(s)`);
+    // The daily consistency sweep: repeats, same-name plans, stale questions, stuck calendar entries (sweep.js).
+    const swept = require('./sweep').run();
+    if (swept && Object.keys(swept).length) console.log('[coord] sweep fixed', JSON.stringify(swept));
     // Connections that stopped working (Google / Apple) — checked daily, owners told (connections.js).
     const checked = await require('./connections').checkAll();
     if (checked) console.log(`[coord] checked ${checked} connection(s)`);

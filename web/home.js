@@ -75,12 +75,12 @@ function feedFor(userId) {
 
   // Questions friends' ButterflAIs asked you that you haven't answered.
   const asked = db._raw().prepare(`
-    SELECT am.id, am.body, am.created_at, am.thread_id, u.name, u.phone FROM agent_messages am JOIN users u ON u.id = am.from_user
+    SELECT am.id, am.body, am.created_at, am.thread_id, am.from_user, u.name, u.phone FROM agent_messages am JOIN users u ON u.id = am.from_user
     WHERE am.to_user = ? AND am.kind = 'query' AND am.processed = 0 AND am.created_at > ?
     ORDER BY am.created_at DESC LIMIT 5`).all(userId, t - 7 * 86400);
   for (const q of asked) {
     if (avoid.findByPhone(myAvoid, q.phone)) continue;
-    items.push({ type: 'question', question_id: q.id, who: firstName(q), text: String(q.body).slice(0, 200), created_at: q.created_at,
+    items.push({ type: 'question', question_id: q.id, who: require('./people').nameFor(userId, q.from_user, { first: true }), text: String(q.body).slice(0, 200), created_at: q.created_at,
       event_id: eventIdOf(q.thread_id), action: 'Answer in chat' });
   }
 

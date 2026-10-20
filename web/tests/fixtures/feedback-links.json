@@ -51,5 +51,9 @@
   "28": {
     "note_starts": "Why are there two Liam's birthday parties",
     "test": "tests/integration/cancelled-plans-gone.test.js › two \"Liam's Birthday Party\", one folded into the other → the list shows one"
+  },
+  "29": {
+    "note_starts": "Why is the '80s bar on California still there",
+    "test": "tests/integration/sweep.test.js › a \"come by tonight\" from months ago is past: off Home, the chat pills and the plan list"
   }
 }

@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1083_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1089_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -995,6 +995,22 @@ Calendar/Contacts scopes) — owner's action.
   notifications — what stopped and the Settings link; one reminder after 3 days; no more.
 - Settings → Connections shows "⚠️ Stopped working since … — Reconnect Google / Reconnect".
 - Tests: `tests/integration/connections.test.js`.
+
+## 27. The daily consistency sweep; open invites end `[2026-10-20]`
+
+🐛 #29 (Sean: "Why is the '80s bar on California still there? … these sweeps through things
+… [aren't] properly implemented yet"). He was right — retros fix one known problem once. Bam
+Bam's July 16 open invite had no date, so it was never "past".
+- **Open invites end** at 4am after the night they were for (`plan.datesOf` kind 'open' has a
+  day and an end) — computed live, so every old one is gone at once.
+- **`web/sweep.js`** runs daily from the coord loop over everyone: Creating repeats, two open
+  same-name plans from one host (combined into the older), questions unanswered > 7 days
+  (closed), calendar entries that gave up while the connection works (retried). Every fix is
+  logged (`sweep_log`, migration 064; `/api/admin/sweeps`). New kinds of drift → a new check +
+  a test in `tests/integration/sweep.test.js`.
+- **Names as the viewer knows them** (`people.nameFor`): agent queries/replies, questions,
+  suggestions and FYIs use the viewer's contact name, never an account placeholder ("New user"
+  — Alexandria never finished sign-up, so Sean's agent said "New's assistant").
 
 ## 26. Rate limits are per person `[2026-10-19]`
 
