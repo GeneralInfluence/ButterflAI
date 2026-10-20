@@ -319,20 +319,8 @@
   </style>
 </head>
 <body>
-  <header>
-    <div class="avatar">🦋</div>
-    <div class="header-info">
-      <h2>ButterflAI</h2>
-      <p id="status-text">Your social assistant</p>
-    </div>
-    <div class="header-actions">
-      <button id="loc-btn" onclick="shareLocation()" title="Share your location" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px;display:none;">📍</button>
-      <a href="/app/dashboard">Dashboard</a>
-      <a href="/app/contacts">Contacts</a>
-      <a href="/app/events">Events</a>
-      <a href="/app/settings">Settings</a>
-    </div>
-  </header>
+  <!-- No page header (owner, 2026-10-20): the pills and the switcher say where you are.
+       Location sharing is in Settings; the agent can still ask for it in a message. -->
 
   <!-- Plan pills (owner, 2026-10-09): chat is organized by the plans you're making —
        not by people or groups like WhatsApp. "All", then one pill per plan. -->
@@ -937,7 +925,7 @@
 
     // ── Location ───────────────────────────────────────────────────────────────
     async function shareLocation() {
-      const btn = document.getElementById('loc-btn');
+      const btn = document.getElementById('loc-btn') || { style: {}, textContent: '', title: '' };
       if (!navigator.geolocation) return;
       btn.textContent = '⏳';
       navigator.geolocation.getCurrentPosition(async pos => {
@@ -956,6 +944,7 @@
     }
 
     async function checkLocationNeeded() {
+      if (!document.getElementById('loc-btn')) return;   // the header (and its 📍) is gone — Settings has it
       try {
         const r = await fetch('/api/user/me');
         if (!r.ok) return;
@@ -1142,12 +1131,11 @@
     [100, 500, 1500].forEach((ms) => setTimeout(fit, ms));   // let the screen settle
   })();
 </script>
+<!-- Home · Plans · Settings (owner, 2026-10-20: the tabs were redundant with the pills and the
+     switcher — Chat, Creating and Events are one place, Plans; People is in Settings). -->
 <nav class="bottom-nav">
   <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
-  <a href="/app/chat" class="active"><span class="tab-icon">💬</span>Chat</a>
-  <a href="/app/creating"><span class="tab-icon">✨</span>Creating</a>
-  <a href="/app/contacts"><span class="tab-icon">👥</span>People</a>
-  <a href="/app/events"><span class="tab-icon">📅</span>Events</a>
+  <a href="/app/chat" class="active" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon">🦋</span>Plans</a>
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
   <script>

@@ -18,3 +18,14 @@
 .plan-modes a.active { background: #fff; color: #6c47ff; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 .plan-modes .count { font-weight: 500; font-size: 12px; color: #6e6e76; }
 .plan-modes a.active .count { color: #8a7fb0; }
+
+/* Plans has no page header (owner, 2026-10-20: the header, the pills and the bottom bar all said
+   which tab you're in). On wide screens the bottom bar shows too, so there's always a way out. */
+@media (min-width: 641px) {
+  .bottom-nav { display: flex !important; position: fixed; bottom: 0; left: 0; right: 0; height: 58px; background: #fff; border-top: 1px solid #e5e5e5;
+    z-index: 100; justify-content: center; gap: 48px; align-items: center; }
+  .bottom-nav a { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; font-weight: 500; color: #888; text-decoration: none; padding: 6px 10px; }
+  .bottom-nav a.active { color: #6c47ff; }
+  .bottom-nav .tab-icon { font-size: 22px; line-height: 1; }
+  body { padding-bottom: 58px; }
+}

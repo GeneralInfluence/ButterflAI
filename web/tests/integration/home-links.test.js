@@ -82,7 +82,8 @@ describe('🐛 #30: a plan\'s details from its chat', () => {
 
 describe('🐛 #32: Creating is its own tab, grouped by plan like the chat', () => {
   test('a Creating tab on every screen, All and a pill per plan, each plan with Details and its chat', () => {
-    for (const f of ['dashboard', 'chat', 'events', 'contacts', 'settings', 'creating']) assert.ok(read(`${f}.html`).includes('<span class="tab-icon">✨</span>Creating</a>'), f);
+    // Since 2026-10-20 the bottom bar is Home · Plans · Settings; Creating is reached from the switcher.
+    for (const f of ['chat', 'events', 'creating']) assert.ok(read(`${f}.html`).includes('<script src="/plan-nav.js"></script>'), f);
     const c = read('creating.html');
     assert.ok(c.includes("PlanNav.pills(document.getElementById('pills'), { page: 'creating'") && c.includes("PlanNav.modes(document.getElementById('modes'), { page: 'creating'"));
     assert.ok(c.includes('📅 Details') && !c.includes('ℹ') && c.includes('I’m on it') && c.includes('Accept') && c.includes('form class="add"'));

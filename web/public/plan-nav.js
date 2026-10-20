@@ -53,5 +53,8 @@
     try { return (await fetch('/api/chat/discussions').then((r) => r.json())).discussions || []; } catch (_) { return []; }
   }
 
+  // The bottom bar's "Plans" opens wherever you last were in Plans (chat / creating / details).
+  try { localStorage.setItem('bfly-plans-last', location.pathname + location.search); } catch (_) {}
+
   window.PlanNav = { pills, modes, discussions, href };
 })();

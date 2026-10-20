@@ -65,7 +65,9 @@ const APP_PAGES = [
   { path: '/app/settings',    name: 'Settings' },
 ];
 
-const BOTTOM_NAV_TABS = ['Home', 'Chat', 'Creating', 'People', 'Events', 'Settings'];   // Creating added 2026-10-20 (🐛 #32)
+// Home · Plans · Settings since 2026-10-20 (owner: the tabs repeated the pills and the switcher;
+// Chat, Creating and Events are one place, Plans; People is in Settings). Was 5, then 6 tabs.
+const BOTTOM_NAV_TABS = ['<span class="tab-icon">🏠</span>Home</a>', '<span class="tab-icon">🦋</span>Plans</a>', '<span class="tab-icon">⚙️</span>Settings</a>'];
 
 // ── PWA meta tag compliance ───────────────────────────────────────────────────
 
@@ -138,7 +140,7 @@ describe('PWA meta tags — all app pages', () => {
 
 // ── Mobile bottom nav ─────────────────────────────────────────────────────────
 
-describe('Mobile bottom nav — 5 tabs on every app page', () => {
+describe('Bottom nav — Home · Plans · Settings on every app page', () => {
   let cookie;
 
   before(async () => {
@@ -146,7 +148,7 @@ describe('Mobile bottom nav — 5 tabs on every app page', () => {
   });
 
   for (const { path, name } of APP_PAGES) {
-    test(`${name}: has bottom-nav with all 5 tabs`, async () => {
+    test(`${name}: has bottom-nav with its 3 tabs`, async () => {
       const res = await request.get(path).set('Cookie', cookie);
       assert.equal(res.status, 200);
       assert.ok(res.text.includes('bottom-nav'), `${name} must have .bottom-nav`);
@@ -1053,4 +1055,24 @@ describe('every page\'s scripts parse', () => {
   for (const f of ['feedback.js', 'name-prompt.js', 'notify-prompt.js', 'update-check.js', 'install-prompt.js']) {
     test(f, () => assert.doesNotThrow(() => new vm.Script(fs.readFileSync(p.join(__dirname, '../../public', f), 'utf8'), { filename: f })));
   }
+});
+
+describe('no redundant headers in Plans (owner, 2026-10-20)', () => {
+  const fs = require('node:fs'), p = require('node:path');
+  const read = (f) => fs.readFileSync(p.join(__dirname, '../../public/app', f), 'utf8');
+  test('Chat, Creating and Events have no page header — the pills and switcher say where you are', () => {
+    for (const f of ['chat.html', 'creating.html', 'events.html']) {
+      assert.ok(!/<header>/.test(read(f)), f);
+      assert.ok(read(f).includes('<a href="/app/chat" class="active" onclick='), `${f}: Plans is the active tab`);
+    }
+    assert.ok(!read('events.html').includes('>Events</h1>'));
+  });
+  test('the bottom bar has just Home, Plans, Settings; People is in Settings; Plans reopens where you were', () => {
+    for (const f of ['dashboard.html', 'chat.html', 'creating.html', 'events.html', 'contacts.html', 'settings.html']) {
+      const nav = read(f).match(/<nav class="bottom-nav">([\s\S]*?)<\/nav>/)[1];
+      assert.equal((nav.match(/<a /g) || []).length, 3, f);
+    }
+    assert.ok(read('settings.html').includes('href="/app/contacts" class="card" id="people-link"'));
+    assert.ok(fs.readFileSync(p.join(__dirname, '../../public/plan-nav.js'), 'utf8').includes("localStorage.setItem('bfly-plans-last'"));
+  });
 });

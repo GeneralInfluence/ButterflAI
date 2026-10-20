@@ -284,22 +284,13 @@
   </style>
 </head>
 <body>
-<header>
-  <a class="logo" href="/app/dashboard">🦋 ButterflAI</a>
-  <nav>
-    <a href="/app/chat">Chat</a>
-    <a href="/app/contacts">Contacts</a>
-    <a href="/app/events">Events</a>
-    <a href="/app/settings">Settings</a>
-  </nav>
-</header>
+
 <!-- The same top as Chat and Creating (plan-nav.js, owner 2026-10-20): plan pills, then the
      switcher Chat · Creating · Details (Calendar on All). -->
-<div id="plan-top" style="position:sticky;top:56px;z-index:9"><nav id="plan-pills" aria-label="Plans"></nav><div id="plan-modes"></div></div>
+<div id="plan-top" style="position:sticky;top:0;z-index:9"><nav id="plan-pills" aria-label="Plans"></nav><div id="plan-modes"></div></div>
 
 <main>
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-    <h1 style="font-size:22px;font-weight:700;color:#1a1a1a;margin:0">Events</h1>
+  <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:12px;">
     <div class="view-toggle">
       <button class="view-btn" id="vbtn-list" onclick="setView('list')">📋 List</button>
       <button class="view-btn active" id="vbtn-cal" onclick="setView('cal')">📅 Calendar</button>
@@ -349,12 +340,11 @@
   </div>
 </main>
 
+<!-- Home · Plans · Settings (owner, 2026-10-20: the tabs were redundant with the pills and the
+     switcher — Chat, Creating and Events are one place, Plans; People is in Settings). -->
 <nav class="bottom-nav">
   <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
-  <a href="/app/chat"><span class="tab-icon">💬</span>Chat</a>
-  <a href="/app/creating"><span class="tab-icon">✨</span>Creating</a>
-  <a href="/app/contacts"><span class="tab-icon">👥</span>People</a>
-  <a href="/app/events" class="active"><span class="tab-icon">📅</span>Events</a>
+  <a href="/app/chat" class="active" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon">🦋</span>Plans</a>
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
 
