@@ -1126,7 +1126,12 @@ from the screen"):** no dating-app integrations. A screenshot (📷 on Quick not
 screenshot from any app → ButterflAI; share_target `screenshot`, sw.js `/pending-shot`) is shrunk in the browser and read
 **once** by `web/screenread.js` into a few facts (app, person, where, into, what was talked about —
 never looks); only those facts join the note; the image is stored nowhere (tested). The true
-floating button over other apps needs a native Android app (iOS allows none) — not built yet.
+floating button over other apps needs a native Android app (iOS allows none) — **owner, 2026-10-20: not
+pursuing it (nor iPhone Shortcuts); focus on how the agent listens and plans, plus screenshots in.**
+**📷 in the chat too:** any message can carry a screenshot (a group chat, a flyer, an event page, a
+dating app) → read the same way, the facts join the message, and the agent plans from it like the
+user's own words (prompt rule SCREENSHOTS; dates as written, never an invented time). iPhone can't
+Share to a web app — there it's 📷 in the chat or Quick note.
 
 ## 12. Research & planning tools `[2026-10-09]`
 

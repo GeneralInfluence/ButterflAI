@@ -404,7 +404,7 @@ contact — name, where they met (`met_via`) and what the user said about them (
 every contact it is the user's alone: never shown to that person, other users or their agents,
 and nobody is messaged (there's usually no number). The note goes to Anthropic like any message
 to the agent.
-A **screenshot** attached to a Quick note (or shared to ButterflAI from any app) is read once by
+A **screenshot** attached to a chat message or a Quick note (or shared to ButterflAI from any app) is read once by
 Anthropic's model into a few facts — the app, the person's name, where they are, what they're
 into, what was talked about; never anyone's looks — and then discarded: **the image is not
 stored** anywhere by ButterflAI. Screenshots can show the other person's profile and messages,

@@ -100,7 +100,7 @@ app.use(cookieParser());
 // else keeps the default.
 const jsonDefault = express.json();
 const jsonFeedback = express.json({ limit: '4mb' });
-app.use((req, res, next) => (['/api/feedback', '/api/quick'].includes(req.path) ? jsonFeedback : jsonDefault)(req, res, next));
+app.use((req, res, next) => (['/api/feedback', '/api/quick', '/api/chat/send'].includes(req.path) ? jsonFeedback : jsonDefault)(req, res, next));
 app.use(express.urlencoded({ extended: true }));
 
 // All /api/* responses must never be cached
@@ -1794,9 +1794,18 @@ app.get('/api/chat/stream', (req, res) => {
 });
 
 // POST /api/chat/send — inbound message from web UI
-app.post('/api/chat/send', webAuth.requireAuth, express.json(), async (req, res) => {
-  const text = req.body?.text?.trim();
-  if (!text) return res.status(400).json({ error: 'text required' });
+// A screenshot can come with a message (a group chat, a flyer, a dating app): read once into
+// facts (screenread.js) that join the message; the image is never stored.
+app.post('/api/chat/send', webAuth.requireAuth, async (req, res) => {
+  let text = String(req.body?.text || '').trim();
+  const image = typeof req.body?.image === 'string' ? req.body.image : null;
+  if (image && !require('./screenread').MEDIA.test(image)) return res.status(400).json({ error: 'That picture can\'t be read' });
+  if (!text && !image) return res.status(400).json({ error: 'text required' });
+  if (image) {
+    sse.push(req.user.id, { role: 'status', text: 'Reading your screenshot…' });
+    const seen = await require('./screenread').read(image);
+    text = [text || 'Here\'s a screenshot.', seen ? `[What was on my screen]\n${seen}` : '[I attached a screenshot, but it couldn\'t be read.]'].join('\n\n').slice(0, 4000);
+  }
 
   try {
     // Store as inbound message and let the agent loop process it

@@ -113,6 +113,31 @@ describe('✍️ Quick note: someone you met on Tinder', () => {
     assert.match(sw, /pending-shot/);
     assert.match(fs.readFileSync(path.join(__dirname, '../../public/app/quick.html'), 'utf8'), /pending-shot/);
   });
+  test('chat takes a screenshot too: a flyer in a plan\'s discussion is read and planned from', async () => {
+    const { cookie, user } = await login('Sean QN6', '+12025340006');
+    screenread._setClient({ messages: { create: async () => ({ content: [{ type: 'text', text: 'Plans: Rocky Horror at the Crest Theatre, Sat Oct 31, 11:59pm, $15' }] }) } });
+    const png = 'data:image/jpeg;base64,' + Buffer.from('flyer').toString('base64');
+    const r = await request.post('/api/chat/send').set('Cookie', cookie).send({ text: 'lets do this', image: png });
+    assert.equal(r.status, 200);
+    const row = db._raw().prepare('SELECT text, intent FROM inbound_messages WHERE from_id = ?').get(user.id);
+    assert.equal(row.intent, null, 'an ordinary message — the agent plans from it');
+    assert.match(row.text, /^lets do this\n\n\[What was on my screen\]\nPlans: Rocky Horror/);
+    assert.match(screenread.PROMPT, /event page or flyer/);
+    assert.match(screenread.PROMPT, /don't work out dates that aren't shown/);
+    assert.equal((await request.post('/api/chat/send').set('Cookie', cookie).send({ text: '', image: 'data:image/svg+xml;base64,PHN2Zz4=' })).status, 400);
+    assert.equal((await request.post('/api/chat/send').set('Cookie', cookie).send({ text: '' })).status, 400);
+  });
+  test('the agent is told what a screenshot block is and to plan from it', () => {
+    const p = agent.buildSystemPrompt({ id: 'x', name: 'Sean', phone: '+1' }, '');
+    assert.match(p, /SCREENSHOTS: "\[What was on my screen\]"/);
+    assert.match(p, /never invent a missing time/);
+    assert.match(p, /Never describe anyone's looks/);
+  });
+  test('chat page has the 📷 button and sends the image', () => {
+    const html = fs.readFileSync(path.join(__dirname, '../../public/app/chat.html'), 'utf8');
+    assert.match(html, /id="shot-btn"/);
+    assert.match(html, /\.\.\.\(image \? \{ image \} : \{\}\)/);
+  });
   test('empty is refused; signed out is refused', async () => {
     const { cookie } = await login('Sean QN2', '+12025340002');
     assert.equal((await request.post('/api/quick').set('Cookie', cookie).send({ text: ' ' })).status, 400);

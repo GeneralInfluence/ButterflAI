@@ -910,7 +910,8 @@ describe('Chat: one discussion at a time', () => {
     assert.ok(html.includes("new URLSearchParams(location.search).get('event')"));
     assert.ok(html.includes("if (topicEvent && r.status === 403) { location.replace('/app/chat'); return; }"));
     // + the calendar day that opened the discussion (🐛 #15, 2026-10-13).
-    assert.ok(html.includes('JSON.stringify(topicEvent ? { text, event_id: topicEvent, ...(topicDay ? { day: topicDay } : {}) } : { text })'));
+    // 2026-10-20: the body can also carry a screenshot; inside a plan it still sends event_id (+ day).
+    assert.ok(html.includes('JSON.stringify({ text, ...(image ? { image } : {}), ...(topicEvent ? { event_id: topicEvent, ...(topicDay ? { day: topicDay } : {}) } : {}) })'));
   });
   // Home's plan cards open the plan summary since 🐛 #26 (2026-10-20); the summary links to the discussion.
   test('Home event cards open the plan summary; Events cards link to the discussion', () => {

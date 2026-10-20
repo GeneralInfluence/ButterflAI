@@ -21,13 +21,14 @@ function client() {
   return _client;
 }
 
-const PROMPT = `This is a screenshot the user took on their own phone, in some app, to tell their ButterflAI (their personal social assistant) about someone they're talking to or something going on.
-Write only the facts that would help plan something or remember this person, as short lines:
+const PROMPT = `This is a screenshot the user took on their own phone, in some app (a dating app, a group chat, a text thread, an event page or flyer, a booking…), to show their ButterflAI (their personal social assistant) someone they're talking to or something going on.
+Write only the facts that would help plan something or remember someone, as short lines:
 - App: which app this is, if you can tell (Tinder, Bumble, Hinge, Feeld, Instagram, Messages…)
 - Person: their name (and age if shown)
 - Where: their town / neighborhood / distance if shown
 - Into: interests, things they mention liking (from their profile or the messages)
-- Talked about: plans, places, days or times mentioned in the conversation, and anything left open (a question waiting for an answer)
+- Plans: any event or plan shown — what, day and date, time, place/address, price, link, who's going or invited (exactly as written; don't work out dates that aren't shown)
+- Talked about: plans, places, days or times mentioned in a conversation, who said what in a few words, and anything left open (a question waiting for an answer)
 Leave a line out if it isn't on screen. Never describe anyone's looks or photos. Don't quote whole messages — a few words at most. If the screenshot doesn't show anything like this, write "Nothing useful on screen."`;
 
 const MEDIA = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/;
