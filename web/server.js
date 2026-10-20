@@ -1683,13 +1683,14 @@ app.post('/api/out/asks/:id', webAuth.requireAuth, express.json(), async (req, r
   return r.error ? res.status(404).json(r) : res.json(r);
 });
 
-// ✨ Spells (spells.js, 🐛 #36): ✨ Sounds nice → a wish · plan → text for ＋ New plan · dismiss.
+// ✨ Spells (spells.js, 🐛 #36): ✨ Sounds fun → a wish · plan → text for ＋ New plan · dismiss.
 app.post('/api/spells/more', webAuth.requireAuth, async (req, res) => {   // 🐛 #37: more ideas to scroll through
   const r = await require('./spells').more(req.user.id);
   return r.error ? res.status(429).json(r) : res.json(r);
 });
-// ✨ Feed (ideafeed.js): a page at a time; the page sends the ids it already showed.
-app.get('/app/feed', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/feed.html')));
+// 🧭 Explore (ideafeed.js): a page at a time; the page sends the ids it already showed.
+app.get('/app/explore', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/explore.html')));
+app.get('/app/feed', (req, res) => res.redirect(301, '/app/explore'));   // its first name
 app.post('/api/ideas', webAuth.requireAuth, express.json({ limit: '200kb' }), (req, res) => {
   res.json(require('./ideafeed').page(req.user.id, { seen: req.body?.seen }));
 });

@@ -115,8 +115,50 @@ describe('✨ Feed', () => {
     assert.equal(r.status, 200);
     assert.ok(Array.isArray(r.body.items));
     assert.notEqual((await request.post('/api/ideas').send({})).status, 200);
-    const page = await request.get('/app/feed').set('Cookie', c);
+    const page = await request.get('/app/explore').set('Cookie', c);
     assert.equal(page.status, 200);
-    assert.ok(page.text.includes('IntersectionObserver') && page.text.includes("fetch('/api/spells/more'") && page.text.includes('<a href="/app/feed" class="active">'));
+    assert.ok(page.text.includes('IntersectionObserver') && page.text.includes("fetch('/api/spells/more'") && page.text.includes('<a href="/app/explore" class="active">'));
+    assert.equal((await request.get('/app/feed').set('Cookie', c)).headers.location, '/app/explore', 'its first name still works');
+  });
+
+  // 🐛 #39 (Sean, 2026-10-20): "We need to have an image there sort of like an Instagram feed … just copy
+  // that except for the sounds nice and make it a plan. Speaking of sounds nice. Is a little bit passive
+  // aggressive? … Sounds fun" — and the tab is named Explore.
+  test('🐛 #39: Instagram-style posts — a picture (the page\'s share image, or a colored tile), ✨ Sounds fun, Make it a plan, Right now as stories', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes('class="post"') && html.includes('aspect-ratio: 1 / 1') && html.includes('class="tile g-'));
+    assert.ok(html.includes('✨ Sounds fun') && !html.includes('Sounds nice'));
+    assert.ok(html.includes('class="stories"') && html.includes('function openStory'));
+    assert.ok(html.includes('referrerpolicy="no-referrer"'), 'the site never learns which page loaded its picture');
+    for (const f of ['dashboard.html', 'explore.html']) assert.ok(!require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8').includes('Sounds nice'), f);
+  });
+  test('🐛 #39: pictures come from the idea\'s link (og:image), looked up once per link, carried to ideas passed on', async () => {
+    const og = require('../../ogimage');
+    const hits = [];
+    og._setLookup(async (h) => [{ address: h === 'evil.test' ? '10.0.0.5' : '93.184.216.34' }]);
+    og._setFetch(async (url) => {
+      hits.push(url);
+      if (url.startsWith('https://short.test')) return { status: 302, ok: false, headers: new Map([['location', 'https://evil.test/x']]) };
+      return { status: 200, ok: true, headers: new Map([['content-type', 'text/html']]), text: async () => '<html><head><meta property="og:image" content="/img/jazz.jpg"></head>' };
+    });
+    const me = mkUser('Sean I'); const friend = mkUser('Friend I');
+    knows(me, friend); knows(friend, me);
+    const id1 = idea(me, { title: 'Jazz at Shea’s' }); idea(me, { title: 'Jazz again', pub: 'Jazz again' });
+    db._raw().prepare("UPDATE spells SET link = 'https://example.com/jazz' WHERE user_id = ?").run(me.id);
+    await spells.fillImages();
+    assert.equal(hits.filter((h) => h === 'https://example.com/jazz').length, 1, 'once per link');
+    assert.equal(spells.forUser(me.id)[0].image, 'https://example.com/img/jazz.jpg');
+    spells.answer(me.id, id1, 'wish');
+    assert.equal(spells.forUser(friend.id)[0].image, 'https://example.com/img/jazz.jpg', 'passed on with its picture');
+    // Never a private address — not directly, not by a redirect.
+    assert.equal(await og.find('https://evil.test/'), null);
+    assert.equal(await og.find('https://short.test/abc'), null);
+    assert.equal(await og.find('http://127.0.0.1/'), null);
+    assert.equal(await og.find('http://[::1]/'), null);
+    assert.equal(await og.find('file:///etc/passwd'), null);
+    assert.equal(await og.find('https://example.com:8080/'), null);
+    assert.equal(og.pick('<meta content="http://x.com/a.png" property="og:image">', new URL('https://x.com')), 'https://x.com/a.png', 'http pictures asked for over https');
+    assert.equal(og.pick('<meta name="twitter:image" content="javascript:alert(1)">', new URL('https://x.com')), null);
+    og._setFetch(null);
   });
 });

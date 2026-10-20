@@ -185,7 +185,7 @@
      switcher — Chat, Creating and Events are one place, Plans; People is in Settings). -->
 <nav class="bottom-nav">
   <a href="/app/dashboard" class="active"><span class="tab-icon">🏠</span>Home</a>
-  <a href="/app/feed"><span class="tab-icon">✨</span>Feed</a>
+  <a href="/app/explore"><span class="tab-icon">🧭</span>Explore</a>
   <a href="/app/chat" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon">🦋</span>Plans</a>
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
@@ -411,13 +411,13 @@
     loadOut(false);
   }
 
-  // A spell: an idea ButterflAI imagined for you — ✨ Sounds nice (becomes your wish), Make it a plan, ✕.
+  // A spell: an idea ButterflAI imagined for you — ✨ Sounds fun (becomes your wish), Make it a plan, ✕.
   const SPELL_ICON = { nearby: '📍', reconnect: '💛', new: '🌱', wish: '✨' };
   function spellHtml(s) {
     return `<div class="card feed-item"><span class="feed-icon">${SPELL_ICON[s.kind] || '✨'}</span><div style="flex:1;min-width:0">
       <div class="card-title">${esc(s.title)}</div>${s.why && s.why !== 'People around you like this' ? `<div class="card-sub">${esc(s.why)}</div>` : ''}${s.passed_on ? `<div class="card-sub">🔁 ${s.liked_by > 1 ? `${s.liked_by} people around you like this` : 'People around you like this'}</div>` : ''}
       ${s.link ? `<a class="card-sub" href="${esc(s.link)}" target="_blank" rel="noopener" style="color:#6c47ff">More ›</a>` : ''}
-      <div class="share-row" style="margin:6px 0 0"><button class="chip-btn" onclick="answerSpell('${esc(s.id)}','wish',this)">✨ Sounds nice</button><button class="chip-btn" onclick="answerSpell('${esc(s.id)}','plan',this)">Make it a plan</button></div>
+      <div class="share-row" style="margin:6px 0 0"><button class="chip-btn" onclick="answerSpell('${esc(s.id)}','wish',this)">✨ Sounds fun</button><button class="chip-btn" onclick="answerSpell('${esc(s.id)}','plan',this)">Make it a plan</button></div>
       </div><button title="Not for me" aria-label="Not for me" style="background:none;border:none;color:#c7c7cc;font-size:16px;cursor:pointer;align-self:flex-start" onclick="answerSpell('${esc(s.id)}','dismiss',this)">✕</button></div>`;
   }
   async function answerSpell(id, answer, btn) {
@@ -501,10 +501,10 @@
     const w = feed.wishes || { mine: [], matches: [] };
     const waitingMatch = w.matches.find((m) => !m.my_answer && m.status === 'open');
     document.getElementById('wish-preview').innerHTML = waitingMatch ? matchHtml(waitingMatch) : '';
-    // Ideas live in their own tab now, the ✨ Feed (owner, 2026-10-20) — Home points there.
+    // Ideas live in their own tab now, 🧭 Explore (owner, 2026-10-20) — Home points there.
     const nIdeas = (feed.spells || []).length;
-    document.getElementById('spell-preview').innerHTML = `<a class="card feed-item" href="/app/feed" style="text-decoration:none;color:inherit"><span class="feed-icon">✨</span><div style="flex:1;min-width:0">
-      <div class="card-title">${nIdeas ? `${nIdeas} idea${nIdeas === 1 ? '' : 's'} for you in your Feed` : 'Ideas around you'}</div><div class="card-sub">What ButterflAI found nearby and what people around you like ›</div></div></a>`;
+    document.getElementById('spell-preview').innerHTML = `<a class="card feed-item" href="/app/explore" style="text-decoration:none;color:inherit"><span class="feed-icon">✨</span><div style="flex:1;min-width:0">
+      <div class="card-title">${nIdeas ? `${nIdeas} idea${nIdeas === 1 ? '' : 's'} for you in Explore` : 'Ideas around you'}</div><div class="card-sub">What ButterflAI found nearby and what people around you like ›</div></div></a>`;
     document.getElementById('my-plans').innerHTML = minePlansHtml((my_plans || []).slice(0, 1));
     document.getElementById('creating').innerHTML = (creating || []).length ? creatingHtml(creating.slice(0, 1), [])
       : (creating_suggestions || []).length ? creatingHtml([], creating_suggestions.slice(0, 1)) : creatingHtml([], []);
@@ -530,7 +530,7 @@
     if (k === 'feeling') {
       const friends = friendsFeeling(items);
       const w = feed.wishes || { mine: [], matches: [] };
-      body = `<a class="card feed-item" href="/app/feed" style="text-decoration:none;color:inherit"><span class="feed-icon">✨</span><div style="flex:1;min-width:0"><div class="card-title">Ideas are in your ✨ Feed</div><div class="card-sub">What ButterflAI found nearby and what people around you like ›</div></div></a>
+      body = `<a class="card feed-item" href="/app/explore" style="text-decoration:none;color:inherit"><span class="feed-icon">✨</span><div style="flex:1;min-width:0"><div class="card-title">Ideas are in 🧭 Explore</div><div class="card-sub">What ButterflAI found nearby and what people around you like ›</div></div></a>
         <h3>✨ Wishes</h3>
         <form class="share-other wish-form" onsubmit="event.preventDefault(); addWish(this);">
           <input name="wish" placeholder="I wish… e.g. learn to salsa, see live music, a cabin weekend" maxlength="200" aria-label="Make a wish">

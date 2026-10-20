@@ -134,6 +134,9 @@ async function tick(transport = stubTransport) {
     // Spells: once a day each person gets a few ideas imagined for them (spells.js).
     const cast = await require('./spells').tick();
     if (cast) console.log(`[coord] imagined ${cast} idea(s)`);
+    // Explore's pictures: each idea's link looked up once for its share image (also fills older ideas).
+    const pics = await require('./spells').fillImages({ limit: 20 });
+    if (pics) console.log(`[coord] found ${pics} idea picture(s)`);
     // Wishes: the agents look for mutual wishes (wishes.js) — new wishes are compared once.
     const wished = await require('./wishes').match();
     if (wished) console.log(`[coord] found ${wished} shared wish(es)`);

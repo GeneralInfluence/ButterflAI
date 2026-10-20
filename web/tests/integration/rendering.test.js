@@ -63,13 +63,14 @@ const APP_PAGES = [
   { path: '/app/events',      name: 'Events' },
   { path: '/app/creating',    name: 'Creating' },   // its own tab since 🐛 #32
   { path: '/app/settings',    name: 'Settings' },
-  { path: '/app/feed',        name: 'Feed' },       // its own tab since 2026-10-20
+  { path: '/app/explore',     name: 'Explore' },    // its own tab since 2026-10-20 (first called Feed)
 ];
 
 // Home · Plans · Settings since 2026-10-20 (owner: the tabs repeated the pills and the switcher;
 // Chat, Creating and Events are one place, Plans; People is in Settings). Was 5, then 6 tabs.
-// Then Home · Feed · Plans · Settings (owner, 2026-10-20: the ideas "should become a feed … their own tab").
-const BOTTOM_NAV_TABS = ['<span class="tab-icon">🏠</span>Home</a>', '<span class="tab-icon">✨</span>Feed</a>', '<span class="tab-icon">🦋</span>Plans</a>', '<span class="tab-icon">⚙️</span>Settings</a>'];
+// Then Home · Explore · Plans · Settings (owner, 2026-10-20: the ideas "should become a feed … their own tab";
+// named Explore the same day).
+const BOTTOM_NAV_TABS = ['<span class="tab-icon">🏠</span>Home</a>', '<span class="tab-icon">🧭</span>Explore</a>', '<span class="tab-icon">🦋</span>Plans</a>', '<span class="tab-icon">⚙️</span>Settings</a>'];
 
 // ── PWA meta tag compliance ───────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ describe('PWA meta tags — all app pages', () => {
 
 // ── Mobile bottom nav ─────────────────────────────────────────────────────────
 
-describe('Bottom nav — Home · Feed · Plans · Settings on every app page', () => {
+describe('Bottom nav — Home · Explore · Plans · Settings on every app page', () => {
   let cookie;
 
   before(async () => {
@@ -1072,9 +1073,9 @@ describe('no redundant headers in Plans (owner, 2026-10-20)', () => {
     }
     assert.ok(!read('events.html').includes('>Events</h1>'));
   });
-  // 4 since the ✨ Feed got its own tab (owner, 2026-10-20) — still no Chat/Creating/Events/People tabs.
-  test('the bottom bar has just Home, Feed, Plans, Settings; People is in Settings; Plans reopens where you were', () => {
-    for (const f of ['dashboard.html', 'chat.html', 'creating.html', 'events.html', 'contacts.html', 'settings.html', 'feed.html']) {
+  // 4 since Explore got its own tab (owner, 2026-10-20) — still no Chat/Creating/Events/People tabs.
+  test('the bottom bar has just Home, Explore, Plans, Settings; People is in Settings; Plans reopens where you were', () => {
+    for (const f of ['dashboard.html', 'chat.html', 'creating.html', 'events.html', 'contacts.html', 'settings.html', 'explore.html']) {
       const nav = read(f).match(/<nav class="bottom-nav">([\s\S]*?)<\/nav>/)[1];
       assert.equal((nav.match(/<a /g) || []).length, 4, f);
     }

@@ -91,5 +91,9 @@
   "38": {
     "note_starts": "I want to be able to add to the out and about",
     "test": "tests/integration/outnow.test.js › 🐛 #38: a skier meets a snowboarder, a hiker hears that people around are up for beer at the park, me too"
+  },
+  "39": {
+    "note_starts": "We need to have an image there sort of like an Instagram feed",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #39: Instagram-style posts — a picture (the page's share image, or a colored tile), ✨ Sounds fun, Make it a plan, Right now as stories"
   }
 }

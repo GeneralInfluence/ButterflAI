@@ -1117,7 +1117,7 @@ and deleted when the outing ends; avoid lists both ways; meeting new people need
   unknown words only meet the same words. While out: "Around you, people are up for …" (counts of
   people you could already see) with "＋ me too" (`PATCH /api/out`), and "Up for something else too?".
 
-## 33. ✨ Feed — its own tab `[2026-10-20]`
+## 33. 🧭 Explore — its own tab `[2026-10-20]`
 
 Owner: "these suggestions should become a feed, a social feed, and should have their own tab along the
 bottom … never-ending … constantly being populated with stuff that Butterfly has found in their area or
@@ -1129,6 +1129,14 @@ public ideas in your town (public titles, most liked first). Answering one found
 yours (`spells.adopt`, `pool:<id>`). At the end the page asks `spells.more` for a new batch (web
 search), up to `MAX_PER_DAY` = 80 a day (~2–5¢ each), then "that's everything for now". Reopening the
 tab after 10 min starts fresh. Home's Feeling now points to the Feed instead of listing ideas.
+**Named Explore** (owner, same day — "Feeling" on Home stays: "I feel like doing this"); `/app/explore`,
+`/app/feed` redirects; bar **Home · Explore · Plans · Settings**. **Instagram-style (🐛 #39):** Right now
+is a row of story bubbles (tap → a sheet); ideas are posts — header (ButterflAI · Happening near you /
+For you / Found around you), a square picture, ✨ Sounds fun (was "Sounds nice" — owner: a bit
+passive-aggressive) · Make it a plan · More, the 🔁 likes line, caption. Pictures: the link's og:image
+(`web/ogimage.js` — public addresses only, also after redirects; ≤ 512 KB, 6 s; https only;
+`spells.image`, migration 073; `spells.fillImages` once per link, after each batch, from the page and the
+coord loop — which also fills older ideas), else a colored tile with the idea on it.
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`

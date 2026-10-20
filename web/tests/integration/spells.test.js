@@ -81,8 +81,8 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
     assert.equal(await spells.generate(sean), 1);
     assert.equal(await spells.generate(sean), 0, 'not twice in a day');
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
-    // Since 2026-10-20 the ideas themselves are in the ✨ Feed tab; Home's Feeling points there.
-    assert.ok(html.includes('<div id="spell-preview"></div>') && html.includes('href="/app/feed"') && html.includes('for you in your Feed'));
+    // Since 2026-10-20 the ideas themselves are in the Explore tab; Home's Feeling points there.
+    assert.ok(html.includes('<div id="spell-preview"></div>') && html.includes('href="/app/explore"') && html.includes('for you in Explore'));
     const home = html.slice(html.indexOf('id="sec-feeling"'), html.indexOf('id="sec-creating"'));
     assert.ok(!home.includes("quickShare('Free tonight'"), 'the quick shares moved to the full Feeling view');
     assert.equal(require('../../home').feedFor(sean.id).summary.feeling.line, '1 idea for you');
@@ -166,9 +166,10 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
     for (const x of spells.forUser(a.id)) spells.answer(a.id, x.id, 'wish');
     assert.equal(spells.forUser(b.id).length, 3);
   });
-  // Ideas moved from Home to their own ✨ Feed tab (owner, 2026-10-20); the feed asks for more as you scroll.
+  // Ideas moved from Home to their own tab, Explore (owner, 2026-10-20); it asks for more as you scroll.
+  // The "how it spreads" line went with the Instagram-style redesign (🐛 #39) — the 🔁 line on each post says it.
   test('🐛 #37: the Feed imagines more and says how Sounds nice spreads', () => {
-    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/feed.html'), 'utf8');
-    assert.ok(html.includes("fetch('/api/spells/more'") && html.includes('without your name') && html.includes('people around you like this'));
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes("fetch('/api/spells/more'") && html.includes('people around you like this'));
   });
 });

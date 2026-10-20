@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ButterflAI">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <meta name="theme-color" content="#6c47ff">
+  <title>ButterflAI — Explore</title>
+  <!-- 🧭 Explore (owner, 2026-10-20: "these suggestions should become a feed, a social feed … their own
+       tab along the bottom … never-ending … constantly being populated with stuff that Butterfly has
+       found in their area or other people are up to"; named Explore; 🐛 #39: "an image there sort of
+       like an Instagram feed … just copy that except for the sounds nice and make it a plan").
+       ideafeed.js serves it a page at a time: Right now as a row of stories, then picture posts. -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f7; color: #1c1c1e; min-height: 100vh; }
+    header { background: #fff; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; padding: 0 16px; height: 52px; gap: 12px; position: sticky; top: 0; z-index: 10; }
+    .logo { font-size: 20px; font-weight: 700; }
+    header .sub { font-size: 13px; color: #8e8e93; }
+    header nav { margin-left: auto; display: flex; gap: 20px; }
+    header nav a { font-size: 14px; color: #6c47ff; text-decoration: none; font-weight: 500; }
+    main { max-width: 600px; margin: 0 auto; padding: 12px 16px 32px; }
+    /* Right now: a row of stories along the top */
+    .stories { display: flex; gap: 14px; overflow-x: auto; padding: 4px 2px 12px; scrollbar-width: none; }
+    .stories::-webkit-scrollbar { display: none; }
+    .story { flex: 0 0 auto; width: 70px; text-align: center; background: none; border: none; font: inherit; cursor: pointer; color: #1c1c1e; }
+    .story .ring { width: 64px; height: 64px; border-radius: 50%; padding: 3px; background: linear-gradient(45deg, #f59e0b, #ef4444, #6c47ff); margin: 0 auto; }
+    .story .face { width: 100%; height: 100%; border-radius: 50%; background: #fff; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+    .story .name { font-size: 11px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 200; display: flex; align-items: flex-end; justify-content: center; }
+    .sheet { background: #fff; width: 100%; max-width: 600px; border-radius: 18px 18px 0 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); }
+    /* Posts, Instagram-style: header, picture, actions, caption */
+    .post { background: #fff; border-radius: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 16px; overflow: hidden; }
+    .post-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+    .avatar { width: 34px; height: 34px; border-radius: 50%; background: #ede9fe; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .who { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; }
+    .who small { display: block; font-weight: 400; color: #8e8e93; font-size: 12px; }
+    .pic { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #f2f2f7; overflow: hidden; }
+    .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .tile { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 28px; text-align: center; color: #fff; }
+    .tile .big { font-size: 72px; line-height: 1; }
+    .tile .t { font-size: 24px; font-weight: 700; line-height: 1.25; text-shadow: 0 1px 2px rgba(0,0,0,.15); }
+    .g-nearby { background: linear-gradient(135deg, #6c47ff, #ec4899); }
+    .g-new { background: linear-gradient(135deg, #10b981, #3b82f6); }
+    .g-reconnect { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+    .g-wish { background: linear-gradient(135deg, #a78bfa, #6c47ff); }
+    .actions { display: flex; align-items: center; gap: 8px; padding: 10px 12px 2px; flex-wrap: wrap; }
+    .act { border: 1px solid #e5e5e5; background: #fff; color: #1c1c1e; border-radius: 999px; padding: 8px 14px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .act.on { background: #ede9fe; border-color: #6c47ff; color: #6c47ff; }
+    .act.link { margin-left: auto; border: none; color: #6c47ff; font-weight: 500; text-decoration: none; padding: 8px 4px; }
+    .liked { font-size: 14px; font-weight: 600; padding: 6px 12px 0; }
+    .caption { font-size: 14px; line-height: 1.4; padding: 4px 12px 14px; }
+    .caption b { font-weight: 600; }
+    .caption span { color: #3a3a3c; }
+    .x { background: none; border: none; color: #8e8e93; font-size: 18px; cursor: pointer; padding: 4px; }
+    .sub { font-size: 13px; color: #8e8e93; margin-top: 3px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .chip { border: 1px solid #e5e5e5; background: #fff; color: #1c1c1e; border-radius: 999px; padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; }
+    .chip.static { cursor: default; }
+    .status { text-align: center; color: #8e8e93; font-size: 14px; padding: 18px 8px 30px; }
+    #sentinel { height: 1px; }
+    .bottom-nav { display: none; }
+    @media (max-width: 640px) {
+      header nav { display: none; }
+      body main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 32px); }
+      .bottom-nav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 58px; background: #fff; border-top: 1px solid #e5e5e5;
+        z-index: 100; justify-content: space-around; align-items: center; padding-bottom: env(safe-area-inset-bottom); }
+      .bottom-nav a { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; font-weight: 500; color: #888; text-decoration: none; min-width: 48px; padding: 6px 2px; border-radius: 8px; }
+      .bottom-nav a.active { color: #6c47ff; }
+      .bottom-nav .tab-icon { font-size: 22px; line-height: 1; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <span class="logo">🧭 Explore</span>
+  <nav><a href="/app/dashboard">Home</a><a href="/app/chat">Plans</a><a href="/app/settings">Settings</a></nav>
+</header>
+<main>
+  <div class="stories" id="stories" hidden></div>
+  <div id="feed"></div>
+  <div id="sentinel"></div>
+  <div class="status" id="status">Loading…</div>
+</main>
+
+<nav class="bottom-nav">
+  <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
+  <a href="/app/explore" class="active"><span class="tab-icon">🧭</span>Explore</a>
+  <a href="/app/chat" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon">🦋</span>Plans</a>
+  <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
+</nav>
+
+<script>
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const feedEl = document.getElementById('feed');
+  const statusEl = document.getElementById('status');
+  const ICON = { nearby: '📍', reconnect: '💛', new: '🌱', wish: '✨', friend_out: '🌴', around: '📍', go_out: '🌴', share: '💬', public_plan: '🎉' };
+  const FROM = { nearby: 'Happening near you', new: 'Something new', reconnect: 'For you', wish: 'One of your wishes' };
+  let seen = [];
+  let loading = false, finished = false, imagining = false;
+  const stories = [];
+
+  // Right now → a story bubble; tapping opens it in a sheet.
+  function storyLabel(i) {
+    if (i.type === 'friend_out') return i.title.split(' ')[0];
+    if (i.type === 'share') return i.title.split(':')[0];
+    if (i.type === 'around') return 'Out now';
+    if (i.type === 'go_out') return 'I’m out';
+    return i.title;
+  }
+  function addStory(i) {
+    stories.push(i);
+    const el = document.getElementById('stories');
+    el.hidden = false;
+    el.insertAdjacentHTML('beforeend', `<button class="story" onclick="openStory(${stories.length - 1})"><div class="ring"><div class="face">${ICON[i.type] || '✨'}</div></div><div class="name">${esc(storyLabel(i))}</div></button>`);
+  }
+  function openStory(n) {
+    const i = stories[n];
+    const link = i.type === 'public_plan' ? i.url : '/app/dashboard#feeling';
+    const bg = document.createElement('div');
+    bg.className = 'sheet-bg';
+    bg.onclick = (e) => { if (e.target === bg) bg.remove(); };
+    bg.innerHTML = `<div class="sheet"><div class="who" style="font-size:17px">${ICON[i.type] || '✨'} ${esc(i.title)}</div>${i.sub ? `<div class="sub">${esc(i.sub)}</div>` : ''}
+      ${(i.chips || []).length ? `<div class="row">${i.chips.map((c) => `<span class="chip static">${esc(c)}</span>`).join('')}</div>` : ''}
+      <div class="row"><a class="chip" style="background:#6c47ff;border-color:#6c47ff;color:#fff" href="${esc(link)}">${i.type === 'go_out' ? 'I’m out ›' : i.type === 'public_plan' ? 'See the plan ›' : 'Open ›'}</a><button class="chip" onclick="this.closest('.sheet-bg').remove()">Close</button></div></div>`;
+    document.body.appendChild(bg);
+  }
+
+  function picHtml(i) {
+    const tile = `<div class="tile g-${esc(i.kind || 'new')}"><div class="big">${ICON[i.kind] || '✨'}</div><div class="t">${esc(i.title)}</div></div>`;
+    if (!i.image) return `<div class="pic">${tile}</div>`;
+    // The site's own picture; if it won't load, the colored tile instead.
+    return `<div class="pic"><img src="${esc(i.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.innerHTML=this.parentNode.dataset.tile"></div>`.replace('<div class="pic">', `<div class="pic" data-tile="${esc(tile)}">`);
+  }
+  function cardHtml(i) {
+    const liked = i.liked_by ? (i.liked_by > 1 ? `🔁 ${i.liked_by} people around you like this` : '🔁 Someone around you likes this') : i.passed_on ? '🔁 People around you like this' : '';
+    const from = i.around ? 'Found around you' : FROM[i.kind] || 'For you';
+    const why = i.why && !/^(People around you like this|Found around you)$/.test(i.why) ? i.why : '';
+    return `<article class="post" data-id="${esc(i.id)}">
+      <div class="post-head"><div class="avatar">${ICON[i.kind] || '✨'}</div><div class="who">ButterflAI<small>${esc(from)}</small></div>
+        <button class="x" title="Not for me" aria-label="Not for me" onclick="answer('${esc(i.id)}','dismiss',this)">✕</button></div>
+      ${picHtml(i)}
+      <div class="actions"><button class="act" onclick="answer('${esc(i.id)}','wish',this)">✨ Sounds fun</button><button class="act" onclick="answer('${esc(i.id)}','plan',this)">Make it a plan</button>
+        ${i.link ? `<a class="act link" href="${esc(i.link)}" target="_blank" rel="noopener">More ›</a>` : ''}</div>
+      ${liked ? `<div class="liked">${liked}</div>` : ''}
+      <div class="caption"><b>${esc(i.title)}</b>${why ? ` <span>${esc(why)}</span>` : ''}</div>
+    </article>`;
+  }
+
+  async function loadMore() {
+    if (loading || finished) return;
+    loading = true;
+    try {
+      const r = await fetch('/api/ideas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seen }) });
+      if (r.status === 401) { location.href = '/app/login?next=/app/explore'; return; }
+      const d = await r.json();
+      for (const i of d.items || []) { seen.push(i.id); if (i.type === 'idea') feedEl.insertAdjacentHTML('beforeend', cardHtml(i)); else addStory(i); }
+      if (d.done) {
+        // Out of ideas: ButterflAI imagines a new batch (with a search of what's on near you).
+        if (d.can_imagine_more && !imagining) {
+          imagining = true;
+          statusEl.textContent = '✨ Imagining more for you…';
+          const m = await fetch('/api/spells/more', { method: 'POST' }).then((x) => x.json()).catch(() => ({}));
+          imagining = false;
+          loading = false;
+          if (m.made) return loadMore();
+        }
+        finished = true;
+        statusEl.textContent = seen.length ? 'That’s everything for now — more as people around you add theirs, and new ideas tomorrow.' : 'Nothing yet — ideas show up here as ButterflAI finds them.';
+      } else statusEl.textContent = '';
+    } catch (_) { statusEl.textContent = 'Couldn’t load — pull to try again.'; }
+    loading = false;
+    if (!finished && (d_visible())) loadMore();
+  }
+  function d_visible() { const r = document.getElementById('sentinel').getBoundingClientRect(); return r.top < innerHeight + 400; }
+
+  async function answer(id, ans, btn) {
+    const card = btn.closest('.post');
+    btn.disabled = true;
+    const r = await fetch('/api/spells/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: ans }) }).then((x) => x.json()).catch(() => ({}));
+    if (ans === 'plan' && r.text) {
+      const p = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: r.text }) }).then((x) => x.json()).catch(() => null);
+      if (p && p.ts) { location.href = '/app/chat?new=' + encodeURIComponent(p.ts); return; }
+    }
+    if (ans === 'dismiss') { card.remove(); return; }
+    if (ans === 'wish') {
+      btn.classList.add('on');
+      btn.textContent = r.passed_on ? '✨ Kept · passed on' : '✨ Kept as a wish';
+    }
+  }
+
+  new IntersectionObserver((e) => { if (e.some((x) => x.isIntersecting)) loadMore(); }, { rootMargin: '400px' }).observe(document.getElementById('sentinel'));
+  // Back to the tab later: start fresh so what changed around you is on top.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - (window._feedAt || 0) > 10 * 60 * 1000) { seen = []; finished = false; feedEl.innerHTML = ''; stories.length = 0; document.getElementById('stories').innerHTML = ''; window._feedAt = Date.now(); loadMore(); }
+  });
+  window._feedAt = Date.now();
+  window.bflyFeedbackState = () => ({ screen: 'explore', shown: seen.slice(0, 60) });
+  loadMore();
+</script>
+<script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
+<script src="/update-check.js"></script>
+<script src="/feedback.js"></script>
+<script src="/notify-prompt.js"></script>
+<script src="/name-prompt.js"></script>
+</body>
+</html>

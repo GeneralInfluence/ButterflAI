@@ -7,7 +7,7 @@
  * Once a day per person (coord loop), a short model call — with web search for what's on near them —
  * imagines a few ideas ("spells"): something happening nearby, reconnecting with a friend they
  * haven't seen in a while, something new that widens their circle, something from their wishes.
- * Each can become a wish (✨ Sounds nice — then mutual-wish matching starts, wishes.js), a plan (＋),
+ * Each can become a wish (✨ Sounds fun — then mutual-wish matching starts, wishes.js), a plan (＋),
  * or be dismissed (remembered, so similar ones stop).
  *
  * Privacy (PRIVACY.md "Spells"): built ONLY from the person's own conversation, plans and wishes, and
@@ -15,7 +15,7 @@
  * their own plans, never anyone on their avoid list (checked in code). Private-mode messages are never
  * read. Kept 7 days.
  *
- * 🐛 #37 — passing ideas on: ✨ Sounds nice on a public idea (something on nearby, something new) also
+ * 🐛 #37 — passing ideas on: ✨ Sounds fun on a public idea (something on nearby, something new) also
  * passes it on, without the person's name, to people associated with them in the same town — friends
  * and people they've made plans with — as "people around you like this"; and ideas liked around them
  * shape what ButterflAI imagines next for everyone nearby. Only the idea's public title (no one named)
@@ -32,7 +32,7 @@ const EVERY = 20 * 3600;
 const KINDS = ['nearby', 'reconnect', 'new', 'wish'];
 const PUBLIC_KINDS = ['nearby', 'new'];   // the only ideas that spread (no one's friends or wishes)
 const PER_BATCH = 8;
-const MAX_PER_DAY = 80;                    // the daily batch + more as the ✨ Feed is scrolled (10 batches)
+const MAX_PER_DAY = 80;                    // the daily batch + more as the 🧭 Explore is scrolled (10 batches)
 const ECHOES_PER_DAY = 3;                  // passed-on ideas one person receives a day
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -137,6 +137,7 @@ async function generate(user, { force = false, more = false } = {}) {
     if (dup) { db._raw().prepare('UPDATE spells SET echoes = ? WHERE id = ?').run(dup.echoes, sid); db._raw().prepare('DELETE FROM spells WHERE id = ?').run(dup.id); }
     made++;
   }
+  if (made) fillImages().catch(() => {});   // pictures for the new ideas, in the background
   return made;
 }
 
@@ -211,21 +212,22 @@ function echo(fromUserId, spell) {
     }
     const today = db._raw().prepare("SELECT count(*) n FROM spells WHERE user_id = ? AND source = 'echo' AND created_at > ?").get(u.id, now() - 86400).n;
     if (today >= ECHOES_PER_DAY) continue;
-    db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, source, origin_id, echoes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'echo', ?, 1)`).run(uuidv4(), u.id, spell.kind, spell.public_title, 'People around you like this', spell.link, now() + KEEP_DAYS * 86400, spell.public_title, spell.id);
+    const img = db._raw().prepare('SELECT image, image_checked FROM spells WHERE id = ?').get(spell.id) || {};
+    db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, source, origin_id, echoes, image, image_checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'echo', ?, 1, ?, ?)`).run(uuidv4(), u.id, spell.kind, spell.public_title, 'People around you like this', spell.link, now() + KEEP_DAYS * 86400, spell.public_title, spell.id, img.image || null, img.image_checked || 0);
     sent++;
   }
   return sent;
 }
 
 const view = (s) => ({ id: s.id, kind: s.kind, title: s.title, why: s.why, link: s.link, status: s.status,
-  passed_on: s.source === 'echo' || s.echoes > 0, liked_by: s.echoes || undefined, can_spread: !!s.public_title && PUBLIC_KINDS.includes(s.kind) });
+  image: s.image || null, passed_on: s.source === 'echo' || s.echoes > 0, liked_by: s.echoes || undefined, can_spread: !!s.public_title && PUBLIC_KINDS.includes(s.kind) });
 function forUser(userId) {
   return db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND status = 'new' AND expires_at > ? ORDER BY CASE kind WHEN 'nearby' THEN 0 WHEN 'reconnect' THEN 1 WHEN 'wish' THEN 2 ELSE 3 END, echoes DESC, created_at DESC")
     .all(userId, now()).map(view);
 }
 
-/** ✨ Sounds nice → your wish (matching starts) · plan → the ＋ New plan text · dismiss → remembered. */
+/** ✨ Sounds fun → your wish (matching starts) · plan → the ＋ New plan text · dismiss → remembered. */
 function answer(userId, id, ans) {
   const s = db._raw().prepare('SELECT * FROM spells WHERE id = ? AND user_id = ?').get(id, userId);
   if (!s) return { error: 'NOT_FOUND' };
@@ -250,7 +252,26 @@ function purgeOld() {
   return db._raw().prepare("DELETE FROM spells WHERE (status != 'dismissed' AND expires_at < ?) OR (status = 'dismissed' AND created_at < ?)").run(now(), now() - 60 * 86400).changes;
 }
 
-/** A public idea from someone in your town, seen in your ✨ Feed: becomes yours (passed on) so you can answer it. */
+/** Pictures for ideas with a link (Explore, 🐛 #39): the page's share image, looked up once per link. */
+let _filling = false;
+async function fillImages({ limit = 12 } = {}) {
+  if (_filling) return 0;
+  _filling = true;
+  let n = 0;
+  try {
+    const rows = db._raw().prepare(`SELECT id, link FROM spells WHERE link IS NOT NULL AND image_checked = 0 AND status IN ('new', 'kept')
+      ORDER BY created_at DESC LIMIT ?`).all(limit);
+    for (const r of rows) {
+      const known = db._raw().prepare('SELECT image FROM spells WHERE link = ? AND image_checked = 1 AND image IS NOT NULL LIMIT 1').get(r.link);
+      const img = known ? known.image : await require('./ogimage').find(r.link);
+      db._raw().prepare('UPDATE spells SET image = ?, image_checked = 1 WHERE link = ? AND image_checked = 0').run(img, r.link);
+      if (img) n++;
+    }
+  } catch (err) { console.warn('[spells] images:', err.message); } finally { _filling = false; }
+  return n;
+}
+
+/** A public idea from someone in your town, seen in your 🧭 Explore: becomes yours (passed on) so you can answer it. */
 function adopt(userId, originId) {
   const o = db._raw().prepare('SELECT * FROM spells WHERE id = ?').get(originId);
   const me = db.getUser(userId), from = o && db.getUser(o.user_id);
@@ -260,9 +281,9 @@ function adopt(userId, originId) {
   if (have) return have.id;
   const likes = db._raw().prepare("SELECT count(DISTINCT user_id) n FROM spells WHERE lower(public_title) = lower(?) AND status = 'kept'").get(o.public_title).n;
   const id = uuidv4();
-  db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, source, origin_id, echoes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'echo', ?, ?)`).run(id, userId, o.kind, o.public_title, 'Found around you', o.link, now() + KEEP_DAYS * 86400, o.public_title, o.id, likes);
+  db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, source, origin_id, echoes, image, image_checked)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'echo', ?, ?, ?, ?)`).run(id, userId, o.kind, o.public_title, 'Found around you', o.link, now() + KEEP_DAYS * 86400, o.public_title, o.id, likes, o.image, o.image_checked);
   return id;
 }
 
-module.exports = { generate, more, tick, forUser, answer, adopt, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
+module.exports = { generate, more, tick, forUser, answer, adopt, fillImages, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
