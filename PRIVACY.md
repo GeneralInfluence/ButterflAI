@@ -397,6 +397,14 @@ Anyone else is shown anonymously, and only if both chose "open to meeting new pe
 mutual, and only then are first names shared. Avoid lists apply both ways. No dating-app data is
 read — those apps can't be connected.
 
+## Quick notes about people met elsewhere `[2026-10-20]`
+
+A Quick note ("talking to Sarah on Tinder, she's in Kings Beach") is saved as the user's own
+contact — name, where they met (`met_via`) and what the user said about them (`about`). Like
+every contact it is the user's alone: never shown to that person, other users or their agents,
+and nobody is messaged (there's usually no number). The note goes to Anthropic like any message
+to the agent.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

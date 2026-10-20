@@ -63,6 +63,12 @@ async function handleShare(request) {
   try {
     const fd = await request.formData();
     const files = fd.getAll('contacts');
+    // Text or a link shared from another app (Tinder, Instagram…) → Quick note (2026-10-20).
+    if (!files.some((f) => f instanceof File && f.size)) {
+      const q = new URLSearchParams();
+      for (const k of ['title', 'text', 'url']) { const v = fd.get(k); if (v) q.set(k, String(v).slice(0, 1500)); }
+      if ([...q.keys()].length) return Response.redirect('/app/quick?' + q.toString(), 303);
+    }
     let vcf = '';
     for (const f of files) { if (f instanceof File) vcf += await f.text() + '\n'; }
     if (vcf.trim()) {

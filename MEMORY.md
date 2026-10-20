@@ -1108,6 +1108,19 @@ everyone got 429 and the chat's 2-second retries kept it used up. Now limits key
 streams), /health and /api/version are never limited, and the chat's stream reconnect backs
 off 2s → 60s. Test: `tests/integration/rate-limit.test.js`.
 
+## 31. ✍️ Quick note: someone you're talking to elsewhere `[2026-10-20]`
+
+Owner: "on Tinder … hit their butterfly icon … I'm talking to Sarah, she's over in Kings Beach.
+I don't have her number … save it as one of your contacts and then put some wishes and plans
+around it." A web app can't draw over other apps (that's a native Android app; iOS allows no
+overlays), so: `/app/quick` (a text box) → `POST /api/quick` → queued with intent `capture`; the
+agent saves the person with `add_contact` (**phone optional**; `met_via`, `about` — migration
+070; same name without a number = same person, details appended), adds one wish, makes a plan
+only if asked, and never messages them (no number → `how_to_reach` says so). Reached by the
+app icon's long-press shortcut (manifest `shortcuts`), Share from any app (share_target now
+takes title/text/url; sw.js sends text to Quick note, vCards still go to import), or an iPhone
+Shortcut on Back Tap/Action button. Test: `tests/integration/quick-note.test.js`.
+
 ## 12. Research & planning tools `[2026-10-09]`
 
 - **Web search + reading pages:** Claude's built-in `web_search_20250305` / `web_fetch_20250910`

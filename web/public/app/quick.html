@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ButterflAI">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <meta name="theme-color" content="#6c47ff">
+  <title>ButterflAI — Quick note</title>
+  <!-- Quick note (owner, 2026-10-20): from inside Tinder or any app — "I'm talking to Sarah,
+       she's in Kings Beach, I don't have her number". Opened from the app icon's long-press
+       shortcut, Share → ButterflAI, or an iPhone Shortcut. Your ButterflAI saves the person,
+       what they're into, and an idea; it never messages them. -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f7; color: #1c1c1e; min-height: 100vh; }
+    main { max-width: 520px; margin: 0 auto; padding: 20px 16px 32px; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #8e8e93; margin-bottom: 14px; line-height: 1.4; }
+    textarea { width: 100%; min-height: 140px; border: 1.5px solid #e5e5e5; border-radius: 12px; padding: 12px; font: inherit; font-size: 16px; background: #fff; resize: vertical; }
+    textarea:focus { outline: none; border-color: #6c47ff; }
+    .row { display: flex; gap: 10px; margin-top: 12px; }
+    button, .btn { flex: 1; border: none; border-radius: 12px; padding: 13px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; text-align: center; text-decoration: none; }
+    .primary { background: #6c47ff; color: #fff; }
+    .primary:disabled { opacity: .5; }
+    .secondary { background: #fff; color: #1c1c1e; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    #done { display: none; background: #fff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 14px; margin-top: 14px; font-size: 15px; line-height: 1.45; }
+    #reply { margin-top: 6px; color: #3a3a3c; white-space: pre-wrap; }
+    .hint { font-size: 12px; color: #8e8e93; margin-top: 16px; line-height: 1.45; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>✍️ Quick note</h1>
+  <p class="sub">Who are you talking to, and what are they into? I'll save them (no number needed) and think of something you'd both enjoy. I never message them.</p>
+  <textarea id="text" placeholder="Talking to Sarah on Tinder — she's in Kings Beach, loves paddleboarding and tacos"></textarea>
+  <div class="row">
+    <a class="btn secondary" href="/app/dashboard">Close</a>
+    <button class="primary" id="save">Save</button>
+  </div>
+  <div id="done">✓ Got it. <div id="reply">Saving…</div>
+    <div class="row"><a class="btn secondary" id="chat" href="/app/chat">Open chat</a><button class="secondary" id="another">Another</button></div>
+  </div>
+  <p class="hint">Getting here fast: on Android, long-press the ButterflAI icon → Quick note, or Share from any app → ButterflAI. On iPhone, make a Shortcut that opens butterflai.social/app/quick and put it on Back Tap or the Action button.</p>
+</main>
+<script>
+  const textEl = document.getElementById('text');
+  const saveEl = document.getElementById('save');
+  const doneEl = document.getElementById('done');
+  const replyEl = document.getElementById('reply');
+  const params = new URLSearchParams(location.search);
+  const shared = [params.get('title'), params.get('text'), params.get('url')].filter(Boolean).join(' ');
+  if (shared) textEl.value = shared;
+  textEl.focus();
+
+  async function waitForReply(since) {
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const r = await fetch('/api/chat/messages?since=' + (since - 5));
+        const d = await r.json();
+        const bot = (d.messages || []).filter((m) => m.role === 'assistant').pop();
+        if (bot) { replyEl.textContent = bot.text; return; }
+      } catch (e) {}
+    }
+    replyEl.textContent = 'Still working — the answer will be in your chat.';
+  }
+
+  saveEl.addEventListener('click', async () => {
+    const text = textEl.value.trim();
+    if (!text) { textEl.focus(); return; }
+    saveEl.disabled = true;
+    try {
+      const r = await fetch('/api/quick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      if (r.status === 401) { location.href = '/app/login?next=' + encodeURIComponent('/app/quick'); return; }
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Could not save');
+      doneEl.style.display = 'block';
+      replyEl.textContent = 'Saving…';
+      waitForReply(d.ts);
+    } catch (e) { alert(e.message); }
+    saveEl.disabled = false;
+  });
+  document.getElementById('another').addEventListener('click', () => { textEl.value = ''; doneEl.style.display = 'none'; textEl.focus(); });
+</script>
+<script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
+<script src="/update-check.js"></script>
+</body>
+</html>

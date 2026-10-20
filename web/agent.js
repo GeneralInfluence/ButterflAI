@@ -123,15 +123,17 @@ async function convertProposal(proposalId, eventId) {
 const TOOL_DEFINITIONS = [
   {
     name: 'add_contact',
-    description: 'Add or update a contact in the user\'s address book. Use this whenever the user mentions someone by name and provides a phone number, or asks to add/save a contact. Gate 1 only — does NOT message them.',
+    description: 'Add or update a contact in the user\'s address book — with a phone number, or without one (someone they met on a dating app or out and about). Gate 1 only — does NOT message them.',
     input_schema: {
       type: 'object',
       properties: {
         name:  { type: 'string', description: 'Contact\'s full name or nickname' },
-        phone: { type: 'string', description: 'Phone number (any format — will be normalized)' },
+        phone: { type: 'string', description: 'Phone number if known (any format) — leave out if they don\'t have it' },
+        met_via: { type: 'string', description: 'Where they met / how they talk: "Tinder", "Bumble", "Feeld", "at Kings Beach"…' },
+        about: { type: 'string', description: 'What the user said about them: where they are, what they\'re into ("in Kings Beach, loves paddleboarding")' },
         notes: { type: 'string', description: 'Any extra context the user provided (optional)' },
       },
-      required: ['name', 'phone'],
+      required: ['name'],
     },
   },
   {
@@ -967,8 +969,11 @@ function describeContact(c) {
   const optedOut = !!(c.phone && db.isOptedOut(c.phone));
   return {
     id: c.id, name: c.name, nickname: c.nickname || undefined, phone: c.phone,
+    met_via: c.met_via || undefined, about: c.about || undefined,
     on_butterflai: onButterflai,
-    how_to_reach: onButterflai
+    how_to_reach: !c.phone
+      ? 'No number yet — ButterflAI cannot reach them; your user talks to them themselves (e.g. on the dating app).'
+      : onButterflai
       ? 'On ButterflAI — to ask or tell them anything, use send_logistics_sms (they get it in the app).'
       : optedOut
         ? 'Opted out of texts from ButterflAI — cannot be messaged.'
@@ -1094,11 +1099,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const contactId = db.upsertContact({
         invited_by_user_id: userId,
         name: toolInput.name,
-        phone: toolInput.phone,
+        phone: toolInput.phone || null,
         notes: toolInput.notes,
+        met_via: toolInput.met_via ? String(toolInput.met_via).slice(0, 60) : null,
+        about: toolInput.about ? String(toolInput.about).slice(0, 400) : null,
         tier: 0,
       });
-      return { added: true, contact_id: contactId, name: toolInput.name };
+      return { added: true, contact_id: contactId, name: toolInput.name, phone: toolInput.phone ? 'saved' : 'none yet — ButterflAI can\'t message them until your user has their number' };
     }
 
     case 'update_contact': {
@@ -2999,6 +3006,13 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
     }
   }
   // They tapped ＋ New plan (🐛 #34): make the plan from these words now — no long discussion.
+  // A Quick note from inside another app (2026-10-20 — "I'm on Tinder talking to Sarah, she's in
+  // Kings Beach, I don't have her number"): save the person, what they're into, and some ideas.
+  if (msg.intent === 'capture') {
+    planRouted = true;
+    const last = messages[messages.length - 1];
+    messages[messages.length - 1] = { role: 'user', content: `${typeof last.content === 'string' ? last.content : msg.text}\n\n[ButterflAI — not from the user] Your user sent this as a Quick note, likely from inside another app (a dating app, Instagram…), about someone they're talking to. 1) Save that person with add_contact — name, met_via (the app or place), about (where they are, what they're into); no phone is fine (if one is already a contact with that name, it's the same person). 2) If it suggests something they'd enjoy together, add one wish with manage_wishes (e.g. "Paddleboarding at Kings Beach with Sarah"). Only create a plan if your user asked for one. 3) Reply in one or two lines: who you saved and the idea. Never message the person — you have no way to, and dating is the user's to do.` };
+  }
   if (msg.intent === 'new_plan') {
     planRouted = true;   // it's a new plan by definition; no routing guess needed
     const last = messages[messages.length - 1];

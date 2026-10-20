@@ -1628,6 +1628,17 @@ app.get('/api/questions/:id', webAuth.requireAuth, (req, res) => {
 // ＋ New plan (🐛 #34, 2026-10-20): "I can create something new … without having to go to the chat
 // and have a long discussion, and … there should be some prompt to the AI where it understands
 // that I've hit that button." Queued like a chat message, marked new_plan; the agent creates it.
+// ✍️ Quick note (2026-10-20): from inside another app — "talking to Sarah on Tinder, she's in Kings
+// Beach…". Queued with intent capture: the agent saves the person, what they're into, and a wish.
+app.post('/api/quick', webAuth.requireAuth, express.json(), (req, res) => {
+  const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim().slice(0, 2000);
+  if (!text) return res.status(400).json({ error: 'Say who and what' });
+  db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text, intent: 'capture' });
+  sse.push(req.user.id, { role: 'status', text: 'Saving that…' });
+  res.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
+});
+app.get('/app/quick', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/quick.html')));
+
 app.post('/api/plans/new', webAuth.requireAuth, express.json(), (req, res) => {
   const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
   if (!text) return res.status(400).json({ error: 'Say what the plan is' });

@@ -194,9 +194,17 @@ module.exports = {
    * If a contact with this phone already exists for this user, updates name/tier.
    * Returns the contact id.
    */
-  upsertContact({ invited_by_user_id, name, phone, notes, tier = 0 }) {
+  upsertContact({ invited_by_user_id, name, phone, notes, tier = 0, met_via = null, about = null }) {
     const { v4: uuidv4 } = require('uuid');
     const normalizedPhone = phone ? toE164(phone) : null;
+    // Someone without a number yet (met on a dating app — 2026-10-20): the same name is the same person.
+    if (!normalizedPhone) {
+      const same = db.prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone IS NULL AND lower(name) = lower(?)').get(invited_by_user_id, String(name || '').trim());
+      if (same) {
+        if (met_via || about) db.prepare(`UPDATE contacts SET met_via = COALESCE(?, met_via), about = CASE WHEN ? IS NULL THEN about WHEN about IS NULL THEN ? ELSE about || ' · ' || ? END, updated_at = strftime('%s','now') WHERE id = ?`).run(met_via, about, about, about, same.id);
+        return same.id;
+      }
+    }
     if (normalizedPhone) {
       const existing = db.prepare(
         'SELECT * FROM contacts WHERE invited_by_user_id = ? AND phone = ?'
@@ -210,9 +218,9 @@ module.exports = {
     }
     const id = uuidv4();
     db.prepare(`
-      INSERT INTO contacts (id, invited_by_user_id, name, phone, tier)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, invited_by_user_id, name, normalizedPhone, tier);
+      INSERT INTO contacts (id, invited_by_user_id, name, phone, tier, met_via, about)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, invited_by_user_id, name, normalizedPhone, tier, met_via, about);
     return id;
   },
 
@@ -473,7 +481,7 @@ module.exports = {
       text,
       event_id || null,
       context_day && /^\d{4}-\d{2}-\d{2}$/.test(context_day) ? context_day : null,
-      intent === 'new_plan' ? 'new_plan' : null,
+      ['new_plan', 'capture'].includes(intent) ? intent : null,
     );
   },
 
