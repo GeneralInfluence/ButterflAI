@@ -383,8 +383,16 @@ Once a day ButterflAI suggests a few ideas to a person (`spells.js`). They are b
 that person's own recent messages (never private-mode ones), their own plans and wishes, and public
 web search results for their city — **never from other people's conversations**. A friend is named
 only if they're in the person's own plans, and never someone on their avoid list (checked in code).
-Ideas are kept 7 days; dismissed ones are remembered for 60 days so similar ideas stop. Nothing is
-sent to anyone else.
+Ideas are kept 7 days; dismissed ones are remembered for 60 days so similar ideas stop.
+**Passing ideas on (🐛 #37, 2026-10-20):** when someone taps ✨ Sounds nice on an idea about something
+happening near them or something new to try, that idea — its public title only (no person named; the
+model writes it and avoid-listed names are checked in code), link included — is passed on to people
+associated with them in the same town (friends who saved each other; people they've made plans with
+in the last 180 days), shown as "People around you like this" with a count, **never who**. Ideas about
+friends or wishes never spread. Avoid lists apply both ways; at most 3 passed-on ideas a day each.
+Ideas liked around someone (titles only, no names) also shape what ButterflAI imagines for them. With
+few people around, someone could guess who liked an idea — the owner accepted that ("they don't
+necessarily know that it's from me").
 
 ## I'm out (who's near you now) `[2026-10-20]`
 
@@ -394,7 +402,10 @@ The location is rounded to about 1 km, kept only while they're out, and deleted 
 ends or they tap Stop. Friends (people who have each other saved) see each other's first name.
 Anyone else is shown anonymously, and only if both chose "open to meeting new people" (which needs
 "I'm 18 or older") and are up for the same thing; interest reaches the other person only if it's
-mutual, and only then are first names shared. Avoid lists apply both ways. No dating app is
+mutual, and only then are first names shared. Avoid lists apply both ways. People can add their own
+activities ("skiing", "beer at the park"); while out, "Around you, people are up for" shows the
+activities of people they could already see (friends, and others open to new people) as counts — no
+one named. No dating app is
 connected; ButterflAI only sees what a person chooses to screenshot into a Quick note.
 
 ## Quick notes about people met elsewhere `[2026-10-20]`

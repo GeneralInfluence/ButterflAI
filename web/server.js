@@ -1670,6 +1670,10 @@ app.post('/api/out/refresh', webAuth.requireAuth, express.json(), (req, res) => 
   return r.error ? res.status(400).json(r) : res.json(r);
 });
 app.delete('/api/out', webAuth.requireAuth, (req, res) => res.json(require('./outnow').stop(req.user.id)));
+app.patch('/api/out', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./outnow').setUpFor(req.user.id, req.body?.up_for);
+  return r.error ? res.status(400).json(r) : res.json(r);
+});
 app.post('/api/out/reach', webAuth.requireAuth, express.json(), async (req, res) => {
   const r = await require('./outnow').reach(req.user.id, String(req.body?.id || ''), { activity: req.body?.activity });
   return r.error ? res.status(400).json(r) : res.json(r);
@@ -1680,6 +1684,10 @@ app.post('/api/out/asks/:id', webAuth.requireAuth, express.json(), async (req, r
 });
 
 // ✨ Spells (spells.js, 🐛 #36): ✨ Sounds nice → a wish · plan → text for ＋ New plan · dismiss.
+app.post('/api/spells/more', webAuth.requireAuth, async (req, res) => {   // 🐛 #37: more ideas to scroll through
+  const r = await require('./spells').more(req.user.id);
+  return r.error ? res.status(429).json(r) : res.json(r);
+});
 app.post('/api/spells/:id', webAuth.requireAuth, express.json(), (req, res) => {
   const r = require('./spells').answer(req.user.id, String(req.params.id), String(req.body?.answer || ''));
   return r.error ? res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r) : res.json(r);

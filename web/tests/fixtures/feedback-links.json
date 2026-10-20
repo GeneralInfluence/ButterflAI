@@ -83,5 +83,13 @@
   "36": {
     "note_starts": "So the free tonight free this weekend",
     "test": "tests/integration/spells.test.js › built from your own plans, friends, wishes and words (+ a web search for what's on near you)"
+  },
+  "37": {
+    "note_starts": "So I like some of these suggestions",
+    "test": "tests/integration/spells.test.js › 🐛 #37: ✨ Sounds nice passes a public idea on — no name — to friends and plan-mates in town, never friends/wish ideas, avoid lists both ways"
+  },
+  "38": {
+    "note_starts": "I want to be able to add to the out and about",
+    "test": "tests/integration/outnow.test.js › 🐛 #38: a skier meets a snowboarder, a hiker hears that people around are up for beer at the park, me too"
   }
 }

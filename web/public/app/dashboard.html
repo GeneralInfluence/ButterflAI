@@ -315,6 +315,23 @@
   let outMinutes = 20;   // how far they'll go (owner: "willing to drive 5–10 minutes")
   const OUT_ACTS = { coffee: '☕ Coffee', drink: '🍺 A drink', dinner: '🍽️ Dinner', hang: '🏖️ Hang out' };
   let outView = null;
+  // 🐛 #38: your own activities ("a hike", "skiing", "beer at the park") next to the four presets.
+  const outLabel = (a) => OUT_ACTS[a] || a;
+  const pickStyle = 'background:#ede9fe;border-color:#6c47ff;color:#6c47ff';
+  function outChips(list) {
+    return list.map((k) => `<button class="chip-btn" style="${outPicks.has(k) ? pickStyle : ''}" data-act="${esc(k)}" onclick="toggleOut(this.dataset.act)">${esc(outLabel(k))}</button>`).join('');
+  }
+  function addOutAct(inputId, then) {
+    const el = document.getElementById(inputId);
+    const t = (el.value || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (!t) { el.focus(); return; }
+    el.value = '';
+    then(t);
+  }
+  async function setOutActs(list) {
+    await fetch('/api/out', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ up_for: list }) }).catch(() => {});
+    loadOut(false);
+  }
   function hereNow() {
     return new Promise((ok, no) => navigator.geolocation ? navigator.geolocation.getCurrentPosition((p) => ok(p.coords), no, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }) : no(new Error('no location')));
   }
@@ -336,7 +353,8 @@
     if (!v.me) {
       el.innerHTML = asks + `<div class="card feed-item"><span class="feed-icon">🌴</span><div style="flex:1;min-width:0">
         <div class="card-title">Out and about?</div><div class="card-sub">See who’s nearby and up for something</div>
-        <div class="share-row" style="margin:6px 0 0">${Object.entries(OUT_ACTS).map(([k, l]) => `<button class="chip-btn${outPicks.has(k) ? ' picked' : ''}" style="${outPicks.has(k) ? 'background:#ede9fe;border-color:#6c47ff;color:#6c47ff' : ''}" onclick="toggleOut('${k}')">${l}</button>`).join('')}</div>
+        <div class="share-row" style="margin:6px 0 0;flex-wrap:wrap">${outChips([...new Set([...Object.keys(OUT_ACTS), ...(v.choices || []), ...outPicks])])}</div>
+        <div class="share-row" style="margin:6px 0 0"><input id="out-own" maxlength="40" placeholder="Something else? a hike, skiing, beer at the park…" style="flex:1;min-width:0;border:1.5px solid #e5e5e5;border-radius:12px;padding:8px 10px;font:inherit;font-size:14px" onkeydown="if(event.key==='Enter'){event.preventDefault();addOutAct('out-own',(t)=>{outPicks.add(t);renderOut();})}"><button class="chip-btn" onclick="addOutAct('out-own',(t)=>{outPicks.add(t);renderOut();})">Add</button></div>
         <div class="card-sub" style="margin-top:6px">How far will you go?</div>
         <div class="share-row" style="margin:4px 0 0">${[5, 10, 20, 30].map((m) => `<button class="chip-btn" style="${m === outMinutes ? 'background:#ede9fe;border-color:#6c47ff;color:#6c47ff' : ''}" onclick="outMinutes = ${m}; renderOut()">${m} min</button>`).join('')}</div>
         <label style="display:block;font-size:13px;color:#3a3a3c;margin-top:6px"><input type="checkbox" id="out-new" onchange="document.getElementById('out-adult-row').style.display = this.checked ? 'block' : 'none'"> Open to meeting new people</label>
@@ -353,9 +371,15 @@
       <div class="card-title">Someone ${esc(o.distance)} away</div><div class="card-sub">Up for ${esc(o.up_for)} too</div>
       ${o.asked ? '<div class="card-sub">You’re interested — they’ll only know if they are too</div>' : `<button class="chip-btn" style="margin-top:6px" onclick="reachOut('${esc(o.id)}', this)">I’m interested</button>`}</div></div>`).join('');
     el.innerHTML = asks + `<div class="card feed-item"><span class="feed-icon">🌴</span><div style="flex:1;min-width:0">
-      <div class="card-title">You’re out · up for ${esc(v.me.up_for.map((a) => OUT_ACTS[a]).join(', '))}</div>
+      <div class="card-title">You’re out · up for ${esc((v.me.labels || v.me.up_for).join(', '))}</div>
       <div class="card-sub">Until ${until}${v.me.minutes ? ` · up to ${v.me.minutes} min away` : ''}${v.me.open_to_new ? ' · open to new people' : ''} · nobody sees where you are, only roughly how far</div>
+      <div class="share-row" style="margin:6px 0 0"><input id="out-more" maxlength="40" placeholder="Up for something else too?" style="flex:1;min-width:0;border:1.5px solid #e5e5e5;border-radius:12px;padding:8px 10px;font:inherit;font-size:14px" onkeydown="if(event.key==='Enter'){event.preventDefault();addOutAct('out-more',(t)=>setOutActs([...outView.me.up_for, t]))}"><button class="chip-btn" onclick="addOutAct('out-more',(t)=>setOutActs([...outView.me.up_for, t]))">Add</button></div>
       <button class="chip-btn" style="margin-top:6px" onclick="stopOut()">Stop</button></div></div>`
+      + ((v.around || []).length ? `<div class="card feed-item"><span class="feed-icon">📍</span><div style="flex:1;min-width:0">
+        <div class="card-title">Around you, people are up for</div>
+        <div class="share-row" style="margin:6px 0 0;flex-wrap:wrap">${v.around.map((x) => x.yours
+          ? `<span class="chip-btn" style="${pickStyle}">${esc(x.label)}${x.count > 1 ? ' · ' + x.count : ''}</span>`
+          : `<button class="chip-btn" data-act="${esc(x.value)}" onclick="setOutActs([...outView.me.up_for, this.dataset.act])">${esc(x.label)}${x.count > 1 ? ' · ' + x.count : ''} · ＋ me too</button>`).join('')}</div></div></div>` : '')
       + (friends || others ? friends + others : '<div class="empty-state">Nobody else nearby is out right now — I’ll show them as they are.</div>');
   }
   function toggleOut(k) { outPicks.has(k) ? outPicks.delete(k) : outPicks.add(k); renderOut(); }
@@ -390,7 +414,7 @@
   const SPELL_ICON = { nearby: '📍', reconnect: '💛', new: '🌱', wish: '✨' };
   function spellHtml(s) {
     return `<div class="card feed-item"><span class="feed-icon">${SPELL_ICON[s.kind] || '✨'}</span><div style="flex:1;min-width:0">
-      <div class="card-title">${esc(s.title)}</div>${s.why ? `<div class="card-sub">${esc(s.why)}</div>` : ''}
+      <div class="card-title">${esc(s.title)}</div>${s.why && s.why !== 'People around you like this' ? `<div class="card-sub">${esc(s.why)}</div>` : ''}${s.passed_on ? `<div class="card-sub">🔁 ${s.liked_by > 1 ? `${s.liked_by} people around you like this` : 'People around you like this'}</div>` : ''}
       ${s.link ? `<a class="card-sub" href="${esc(s.link)}" target="_blank" rel="noopener" style="color:#6c47ff">More ›</a>` : ''}
       <div class="share-row" style="margin:6px 0 0"><button class="chip-btn" onclick="answerSpell('${esc(s.id)}','wish',this)">✨ Sounds nice</button><button class="chip-btn" onclick="answerSpell('${esc(s.id)}','plan',this)">Make it a plan</button></div>
       </div><button title="Not for me" aria-label="Not for me" style="background:none;border:none;color:#c7c7cc;font-size:16px;cursor:pointer;align-self:flex-start" onclick="answerSpell('${esc(s.id)}','dismiss',this)">✕</button></div>`;
@@ -398,11 +422,25 @@
   async function answerSpell(id, answer, btn) {
     if (btn) btn.disabled = true;
     const r = await fetch('/api/spells/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer }) }).then((x) => x.json()).catch(() => ({}));
+    if (answer === 'wish' && r.passed_on) showToast('✨ Kept as a wish — and passed on to people around you, without your name');
     if (answer === 'plan' && r.text) {   // straight into ＋ New plan, already filled in
       const p = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: r.text }) }).then((x) => x.json()).catch(() => null);
       if (p && p.ts) { location.href = '/app/chat?new=' + encodeURIComponent(p.ts); return; }
     }
     loadFeed();
+  }
+  function showToast(text) {
+    const t = document.createElement('div');
+    t.textContent = text;
+    t.style.cssText = 'position:fixed;left:16px;right:16px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:60;background:#1c1c1e;color:#fff;border-radius:12px;padding:12px 14px;font-size:14px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.2)';
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+  }
+  async function moreSpells(btn) {
+    btn.disabled = true; btn.textContent = '✨ Imagining…';
+    const r = await fetch('/api/spells/more', { method: 'POST' }).then((x) => x.json()).catch(() => ({}));
+    if (r.error) { btn.textContent = r.message || 'Try again later'; return; }
+    await loadFeed();
   }
   function matchHtml(m) {
     const who = m.who ? esc(m.who) : 'Someone near you';
@@ -488,7 +526,9 @@
     if (k === 'feeling') {
       const friends = friendsFeeling(items);
       const w = feed.wishes || { mine: [], matches: [] };
-      body = `${(feed.spells || []).length ? `<h3>✨ ButterflAI imagines…</h3>${feed.spells.map(spellHtml).join('')}` : ''}
+      body = `<h3>✨ ButterflAI imagines…</h3>${(feed.spells || []).map(spellHtml).join('')}
+        <button class="chip-btn" id="more-spells" style="margin:4px 0 6px" onclick="moreSpells(this)">✨ More ideas</button>
+        <p class="hint" style="margin-top:0">✨ Sounds nice keeps an idea as your wish. Ideas about things happening near you are also passed on to friends and people you make plans with in your town — without your name — so good ideas spread.</p>
         <h3>✨ Wishes</h3>
         <form class="share-other wish-form" onsubmit="event.preventDefault(); addWish(this);">
           <input name="wish" placeholder="I wish… e.g. learn to salsa, see live music, a cabin weekend" maxlength="200" aria-label="Make a wish">

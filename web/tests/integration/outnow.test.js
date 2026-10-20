@@ -137,4 +137,59 @@ describe('🌴 I\'m out — who\'s near you now', () => {
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
     assert.ok(html.includes('<div id="out-now"></div>') && html.includes('Out and about?') && html.includes('I’m 18 or older') && html.includes("fetch('/api/out'"));
   });
+
+  // 🐛 #38 (Sean, 2026-10-20): "I might be going for a hike … skiing … having a beer at a park … I need
+  // to be able to add categories and the butterfly needs to consolidate those categories so overlap is
+  // found and people are aware of the opportunities around them".
+  test('🐛 #38: your own activities, sorted into kinds so overlap is found', () => {
+    assert.ok(out.overlaps('beer at the park', 'drink'), 'a beer at the park is a drink');
+    assert.ok(!out.overlaps('beer at the park', 'Hike to Eagle Lake'), 'both outside, but not the same thing');
+    assert.ok(out.overlaps('be outside', 'Hike to Eagle Lake'), 'just "outside" meets anything outdoors');
+    assert.ok(!out.overlaps('skiing', 'beer at the park'));
+    assert.ok(out.overlaps('skiing', 'snowboarding at Northstar'));
+    assert.ok(out.overlaps('dinner', 'Tacos'));
+    assert.ok(!out.overlaps('skiing', 'coffee'));
+    assert.ok(out.overlaps('underwater basket weaving', 'Underwater basket weaving'), 'unknown → the same words meet');
+    assert.ok(!out.overlaps('underwater basket weaving', 'knitting'));
+    assert.equal(out.labelOf('skiing'), '⛷️ skiing');
+    assert.equal(out.labelOf('drink'), '🍺 a drink');
+  });
+  test('🐛 #38: a skier meets a snowboarder, a hiker hears that people around are up for beer at the park, me too', async () => {
+    base += 5;
+    const me = mkUser('Sean K'); const kim = mkUser('Kim K'); const pat = mkUser('Pat K'); const lee = mkUser('Lee K');
+    friends(me, kim); friends(me, pat);
+    out.goOut(me.id, { up_for: ['skiing'], ...spot() });
+    out.goOut(kim.id, { up_for: ['snowboarding'], ...spot(0.01) });
+    out.goOut(pat.id, { up_for: ['beer at the park'], ...spot(0.01) });
+    out.goOut(lee.id, { up_for: ['beer at the park'], ...spot(0.01) });   // not a friend, not open to new → not counted
+    let v = out.nearby(me.id);
+    assert.deepEqual(v.friends.map((f) => [f.name, f.up_for]).sort(), [['Kim', '⛷️ snowboarding'], ['Pat', '🍺 beer at the park']]);
+    assert.deepEqual(v.around.map((a) => [a.label, a.count, a.yours]).sort(), [['⛷️ snowboarding', 1, true], ['🍺 beer at the park', 1, false]]);
+    assert.deepEqual(v.choices, ['skiing'], 'what you added is offered next time');
+    // ＋ me too, from the app.
+    const c = await cookieFor(me);
+    const r = await request.patch('/api/out').set('Cookie', c).send({ up_for: ['skiing', 'beer at the park'] });
+    assert.equal(r.status, 200);
+    v = out.nearby(me.id);
+    assert.deepEqual(v.me.labels, ['⛷️ skiing', '🍺 beer at the park']);
+    assert.ok(v.around.every((a) => a.yours));
+    // Saying hi carries the activity they share, in their words.
+    const reached = await out.reach(me.id, v.friends.find((f) => f.name === 'Kim').id);
+    assert.equal(reached.status, 'asked');
+    assert.match(notices(kim).at(-1), /up for ⛷️ skiing/);
+    const yes = await out.answer(kim.id, out.nearby(kim.id).asks[0].id, true);
+    assert.match(db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(yes.event_id).title, /^Skiing with Kim/);
+  });
+  test('🐛 #38: own activities are trimmed, capped and not duplicated', () => {
+    base += 5;
+    const me = mkUser('Sean T');
+    const r = out.goOut(me.id, { up_for: ['  a   hike ', 'a hike', 'x'.repeat(80), 'drink', '1', '2', '3', '4'], ...spot() });
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.me.up_for.slice(0, 3), ['a hike', 'x'.repeat(40), 'drink']);
+    assert.equal(r.me.up_for.length, 6);
+  });
+  test('🐛 #38: Home lets you add your own and shows what people around you are up for', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
+    assert.ok(html.includes('Something else? a hike, skiing, beer at the park') && html.includes('Around you, people are up for') && html.includes("method: 'PATCH'"));
+  });
 });

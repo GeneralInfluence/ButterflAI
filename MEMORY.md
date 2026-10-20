@@ -1099,6 +1099,24 @@ names + a plan to meet ("somewhere public"). Safety: rough distance only; locati
 and deleted when the outing ends; avoid lists both ways; meeting new people needs "I'm 18 or older";
 "Not now" tells nobody. Test: `tests/integration/outnow.test.js`.
 
+## 32. Ideas spread; your own activities when out `[2026-10-20]`
+
+- **🐛 #37 — Spells like a repost:** 8 ideas a day (two of each kind) and **✨ More ideas** (another
+  batch, never repeats, ≤ 32 a day). ✨ Sounds nice on a public idea (nearby / new) passes its
+  `public_title` (written by the model with no one named) on to `spells.associates` — friends who
+  saved each other + people in plans together (180 days) — in the same town (city or ≤ 80 km), as
+  "🔁 People around you like this · N" (`source = 'echo'`, `echoes`; migration 072), ≤ 3 a day each,
+  avoid lists both ways; liking a passed-on idea passes it on again. Ideas liked around someone feed
+  their next batch ("Liked lately by people around them") — people nearby influence each other.
+  Ideas about friends or wishes never spread.
+- **🐛 #38 — I'm out, your own activities:** add anything ("a hike", "skiing", "beer at the park";
+  ≤ 6, 40 chars; remembered as chips, `out_activity_choices`, migration 071). `outnow.kindsOf` sorts
+  them into kinds by keywords (coffee, drink, food, hang, hike, snow, water, bike, active, music,
+  games, outdoors) so overlap is found: snowboarding meets skiing, beer at the park meets a drink;
+  "outdoors" alone ("be outside") meets any outdoor thing, but a skier and a hiker don't match;
+  unknown words only meet the same words. While out: "Around you, people are up for …" (counts of
+  people you could already see) with "＋ me too" (`PATCH /api/out`), and "Up for something else too?".
+
 ## 26. Rate limits are per person `[2026-10-19]`
 
 The app went "completely unresponsive": every request reached us from Fly's proxy address, so

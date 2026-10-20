@@ -86,4 +86,87 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
     assert.ok(!home.includes("quickShare('Free tonight'"), 'the quick shares moved to the full Feeling view');
     assert.equal(require('../../home').feedFor(sean.id).summary.feeling.line, '1 idea for you');
   });
+
+  // 🐛 #37 (Sean, 2026-10-20): "more suggestions that I'd be able to scroll through … when it says sounds
+  // nice, I want that to be sort of like a retweet or a repost where there are other people that are
+  // somehow associated with me … more likely to see it … they don't necessarily know that it's from me.
+  // But still we influence each other's algorithm".
+  test('🐛 #37: eight ideas a day, ✨ More ideas adds more (never repeats), up to a daily limit', async () => {
+    const sean = mkUser('Sean M');
+    const batch = (p) => ['nearby', 'nearby', 'reconnect', 'reconnect', 'new', 'new', 'wish', 'wish'].map((k, i) => ({ kind: k, title: `${p} idea ${i}`, why: 'w' }));
+    let seen = model(batch('First'));
+    assert.equal(await spells.generate(sean, { force: true }), 8);
+    assert.match(seen[0].messages[0].content, /Imagine 8 ideas, two of each kind/);
+    seen = model([...batch('First').slice(0, 2), ...batch('Second')]);
+    const r = await spells.more(sean.id);
+    assert.equal(r.made, 8, 'the two repeats are skipped');
+    assert.match(seen[0].messages[0].content, /Ideas they already have \(don't repeat\): First idea 0/);
+    assert.equal(spells.forUser(sean.id).length, 16, 'More adds to today\'s; nothing replaced');
+    model(batch('Third')); await spells.more(sean.id);
+    model(batch('Fourth')); await spells.more(sean.id);
+    model(batch('Fifth'));
+    assert.equal((await spells.more(sean.id)).error, 'ENOUGH');
+  });
+  test('🐛 #37: ✨ Sounds nice passes a public idea on — no name — to friends and plan-mates in town, never friends/wish ideas, avoid lists both ways', async () => {
+    const sean = mkUser('Sean E'); const kim = mkUser('Kim E'); const pat = mkUser('Pat E'); const far = mkUser('Far E'); const julie = mkUser('Julie E'); const stranger = mkUser('Stranger E');
+    db._raw().prepare("UPDATE users SET city = 'Boston' WHERE id = ?").run(far.id);
+    for (const u of [kim, far, julie]) { knows(sean, u); knows(u, sean); }          // friends (saved each other)
+    const e = (await planops.create(pat.id, { title: 'Pat bbq', scheduled_at: new Date(Date.now() + 86400e3).toISOString(), contact_ids: [knows(pat, sean)] })).eventId;
+    planops.respond(db._raw().prepare('SELECT id FROM event_invitations WHERE event_id = ?').get(e).id, 'accepted', { by: 'guest', phone: sean.phone });   // a plan-mate
+    require('../../avoid').addAvoid(julie.id, db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(julie.id, sean.phone).id);
+    model([{ kind: 'nearby', title: 'Jazz at Shea’s Thursday with Kim?', public_title: 'Jazz at Shea’s Thursday', why: 'You love jazz', link: 'https://example.com/jazz' },
+      { kind: 'reconnect', title: 'Lunch with Kim?', public_title: 'Lunch with Kim', why: 'x' },
+      { kind: 'new', title: 'Salsa class', why: 'no public title → never spreads' }]);
+    await spells.generate(sean, { force: true });
+    const mine = spells.forUser(sean.id);
+    const jazz = mine.find((x) => x.kind === 'nearby');
+    const r = spells.answer(sean.id, jazz.id, 'wish');
+    assert.equal(r.passed_on, 2);
+    const got = (u) => spells.forUser(u.id);
+    for (const u of [kim, pat]) {
+      const [x] = got(u);
+      assert.equal(x.title, 'Jazz at Shea’s Thursday', 'the public title — nobody named');
+      assert.ok(x.passed_on && x.liked_by === 1 && x.why === 'People around you like this');
+      assert.equal(x.link, 'https://example.com/jazz');
+      assert.ok(!JSON.stringify(x).includes('Sean'));
+    }
+    assert.equal(got(far).length, 0, 'another town');
+    assert.equal(got(julie).length, 0, 'avoid lists');
+    assert.equal(got(stranger).length, 0, 'not associated');
+    assert.equal(spells.answer(sean.id, mine.find((x) => x.kind === 'reconnect').id, 'wish').passed_on, 0, 'ideas about friends never spread');
+    assert.equal(spells.answer(sean.id, mine.find((x) => x.kind === 'new').id, 'wish').passed_on, 0);
+    // Kim likes it too → passed on from Kim; Pat already has it → it counts one more person.
+    knows(kim, pat); knows(pat, kim);
+    spells.answer(kim.id, got(kim)[0].id, 'wish');
+    assert.equal(got(pat)[0].liked_by, 2);
+    assert.equal(got(pat).length, 1, 'not twice');
+    // And it shapes what ButterflAI imagines next for people around them.
+    const seen = model([]);
+    await spells.generate(pat, { force: true });
+    assert.match(seen[0].messages[0].content, /Liked lately by people around them \(anonymous[^\n]*Jazz at Shea’s Thursday/);
+    assert.ok(!seen[0].messages[0].content.includes('Jazz at Shea’s Thursday with Kim'));
+  });
+  test('🐛 #37: an idea passed on to you and the same idea imagined for you are one card, with the count', async () => {
+    const a = mkUser('A Dup'); const b = mkUser('B Dup'); knows(a, b); knows(b, a);
+    model([{ kind: 'nearby', title: 'Bluegrass at Jason’s', public_title: 'Bluegrass at Jason’s', why: 'x' }]);
+    await spells.generate(a, { force: true });
+    spells.answer(a.id, spells.forUser(a.id)[0].id, 'wish');
+    model([{ kind: 'nearby', title: 'Bluegrass at Jason’s with A?', public_title: 'Bluegrass at Jason’s', why: 'You love live music' }]);
+    await spells.generate(b, { force: true });
+    const list = spells.forUser(b.id);
+    assert.equal(list.length, 1);
+    assert.equal(list[0].title, 'Bluegrass at Jason’s with A?');
+    assert.ok(list[0].passed_on && list[0].liked_by === 1);
+  });
+  test('🐛 #37: no more than three passed-on ideas a day for anyone', async () => {
+    const a = mkUser('A Cap'); const b = mkUser('B Cap'); knows(a, b); knows(b, a);
+    model([1, 2, 3, 4].map((i) => ({ kind: 'nearby', title: `Show ${i} with B?`, public_title: `Show ${i}`, why: 'x' })));
+    await spells.generate(a, { force: true });
+    for (const x of spells.forUser(a.id)) spells.answer(a.id, x.id, 'wish');
+    assert.equal(spells.forUser(b.id).length, 3);
+  });
+  test('🐛 #37: Home has ✨ More ideas and says how Sounds nice spreads', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
+    assert.ok(html.includes("fetch('/api/spells/more'") && html.includes('without your name') && html.includes('people around you like this'));
+  });
 });
