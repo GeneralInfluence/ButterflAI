@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1152_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1153_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -1089,7 +1089,9 @@ Owner (at Lake Tahoe; dating apps can't be connected — no APIs, automating the
 and ButterflAI never writes as the person): "hey, there's a few potential connections around. You
 could reach out to somebody and just have a drink…". `web/outnow.js` (migration 068): say you're out
 and what you're up for (coffee / a drink / dinner / hang out) with your phone's location (only while
-the app is open; refreshed when you open it; ends in ~4h or Stop). **Near you now** (≤ 15 km): friends
+the app is open; refreshed when you open it; ends in ~4h or Stop). **How far you'll go** is set per outing
+(5 · 10 · 20 · 30 min ≈ km; default 20; migration 069) and two people meet only within BOTH reaches (the
+~1 km is only how roughly location is stored). **Near you now**: friends
 (saved each other) by name → **Say hi** → they tap I'm in → a plan for the two; others, only when BOTH
 are open to new people and up for the same thing → anonymous ("Someone ~2 mi away", a per-viewer
 token, never their account) → **I'm interested** reaches them only if they're interested too → first

@@ -111,6 +111,20 @@ describe('🌴 I\'m out — who\'s near you now', () => {
     await out.answer(bam.id, out.nearby(bam.id).asks[0].id, false);
     assert.equal(notices(me).length, before, 'Bam\'s "Not now" tells Sean nothing');
   });
+  test('how far you\'ll go is yours to set — two people meet only within BOTH reaches', () => {
+    base += 5;
+    const me = mkUser('Sean R'); const near = mkUser('Near R'); const mid = mkUser('Mid R');
+    friends(me, near); friends(me, mid);
+    out.goOut(me.id, { up_for: ['drink'], ...spot(), minutes: 10 });          // ≤ 10 km
+    out.goOut(near.id, { up_for: ['drink'], ...spot(0.05) });                  // ~5.5 km, default 20 min
+    out.goOut(mid.id, { up_for: ['drink'], ...spot(0.12) });                   // ~13 km
+    assert.deepEqual(out.nearby(me.id).friends.map((f) => f.name), ['Near']);
+    out.goOut(me.id, { up_for: ['drink'], ...spot(), minutes: 30 });
+    assert.deepEqual(out.nearby(me.id).friends.map((f) => f.name).sort(), ['Mid', 'Near']);
+    out.goOut(mid.id, { up_for: ['drink'], ...spot(0.12), minutes: 5 });
+    assert.deepEqual(out.nearby(me.id).friends.map((f) => f.name), ['Near'], 'Mid only goes 5 min');
+    assert.equal(out.mine(me.id).minutes, '30');
+  });
   test('Stop (or the outing ending) deletes your location', () => {
     base += 5;
     const me = mkUser('Sean O6');

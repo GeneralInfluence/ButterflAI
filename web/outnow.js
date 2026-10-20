@@ -19,7 +19,9 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 
-const RADIUS_KM = 15;
+const RADIUS_KM = 15;   // the default reach (~15–20 min drive)
+// How far they'll go, chosen per outing (owner, 2026-10-20): minutes away → km (rough, for driving).
+const REACH = { 5: 5, 10: 10, 20: 20, 30: 30 };
 const ACTIVITIES = { coffee: '☕ coffee', drink: '🍺 a drink', dinner: '🍽️ dinner', hang: '🏖️ hanging out' };
 const now = () => Math.floor(Date.now() / 1000);
 // Someone nearby you don't know is a token only you can use (not their account id).
@@ -36,15 +38,16 @@ function km(a, b) {
 function band(k) { const mi = k * 0.621; return mi < 1 ? 'under a mile' : mi < 3 ? '~2 mi' : mi < 7 ? '~5 mi' : '~10 mi'; }
 
 /** I'm out (or still out — the location refreshes whenever the app opens). */
-function goOut(userId, { up_for = [], lat, lng, hours = 4, open_to_new = false, adult = false }) {
+function goOut(userId, { up_for = [], lat, lng, hours = 4, open_to_new = false, adult = false, minutes = 20 }) {
   const acts = (Array.isArray(up_for) ? up_for : []).filter((a) => ACTIVITIES[a]);
   if (!acts.length) return { error: 'UP_FOR', message: 'Pick what you’re up for.' };
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return { error: 'LOCATION', message: 'Need your location to find people nearby.' };
   if (open_to_new && !adult) return { error: 'ADULT', message: 'Meeting new people is for 18 and over.' };
   const until = now() + Math.max(1, Math.min(12, Number(hours) || 4)) * 3600;
-  db._raw().prepare(`INSERT INTO out_now (user_id, up_for, lat, lng, open_to_new, until, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET up_for = excluded.up_for, lat = excluded.lat, lng = excluded.lng, open_to_new = excluded.open_to_new, until = excluded.until, updated_at = excluded.updated_at`)
-    .run(userId, JSON.stringify(acts), round(lat), round(lng), open_to_new ? 1 : 0, until, now());
+  const maxKm = REACH[Number(minutes)] || RADIUS_KM;
+  db._raw().prepare(`INSERT INTO out_now (user_id, up_for, lat, lng, open_to_new, until, updated_at, max_km) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET up_for = excluded.up_for, lat = excluded.lat, lng = excluded.lng, open_to_new = excluded.open_to_new, until = excluded.until, updated_at = excluded.updated_at, max_km = excluded.max_km`)
+    .run(userId, JSON.stringify(acts), round(lat), round(lng), open_to_new ? 1 : 0, until, now(), maxKm);
   return { ok: true, me: mine(userId) };
 }
 /** Only refresh where you are (opening the app while out). */
@@ -61,7 +64,7 @@ function stop(userId) {
 function row(userId) { return db._raw().prepare('SELECT * FROM out_now WHERE user_id = ? AND until > ?').get(userId, now()); }
 function mine(userId) {
   const r = row(userId);
-  return r ? { up_for: JSON.parse(r.up_for), until: r.until, open_to_new: !!r.open_to_new } : null;
+  return r ? { up_for: JSON.parse(r.up_for), until: r.until, open_to_new: !!r.open_to_new, minutes: Object.keys(REACH).find((m) => REACH[m] === r.max_km) || null } : null;
 }
 
 function savedEach(a, b) {
@@ -85,7 +88,7 @@ function nearby(userId) {
   const out = { me: mine(userId), friends: [], others: [], asks: asksFor(userId) };
   for (const r of db._raw().prepare('SELECT * FROM out_now WHERE user_id != ? AND until > ?').all(userId, now())) {
     const k = km(me, r);
-    if (k > RADIUS_KM) continue;
+    if (k > Math.min(me.max_km || RADIUS_KM, r.max_km || RADIUS_KM)) continue;   // within BOTH people's reach
     const u = db.getUser(r.user_id);
     if (!u || avoided(meU, u)) continue;
     const acts = JSON.parse(r.up_for);
@@ -172,4 +175,4 @@ function purgeOld() {
   return ended.length;
 }
 
-module.exports = { goOut, refresh, stop, nearby, reach, answer, purgeOld, mine, ACTIVITIES, RADIUS_KM, _km: km };
+module.exports = { goOut, refresh, stop, nearby, reach, answer, purgeOld, mine, ACTIVITIES, RADIUS_KM, REACH, _km: km };

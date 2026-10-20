@@ -312,6 +312,7 @@
   }
   // ── 🌴 I'm out: who's near you now (outnow.js, owner 2026-10-20) ──
   let outPicks = new Set(['drink']);
+  let outMinutes = 20;   // how far they'll go (owner: "willing to drive 5–10 minutes")
   const OUT_ACTS = { coffee: '☕ Coffee', drink: '🍺 A drink', dinner: '🍽️ Dinner', hang: '🏖️ Hang out' };
   let outView = null;
   function hereNow() {
@@ -336,6 +337,8 @@
       el.innerHTML = asks + `<div class="card feed-item"><span class="feed-icon">🌴</span><div style="flex:1;min-width:0">
         <div class="card-title">Out and about?</div><div class="card-sub">See who’s nearby and up for something</div>
         <div class="share-row" style="margin:6px 0 0">${Object.entries(OUT_ACTS).map(([k, l]) => `<button class="chip-btn${outPicks.has(k) ? ' picked' : ''}" style="${outPicks.has(k) ? 'background:#ede9fe;border-color:#6c47ff;color:#6c47ff' : ''}" onclick="toggleOut('${k}')">${l}</button>`).join('')}</div>
+        <div class="card-sub" style="margin-top:6px">How far will you go?</div>
+        <div class="share-row" style="margin:4px 0 0">${[5, 10, 20, 30].map((m) => `<button class="chip-btn" style="${m === outMinutes ? 'background:#ede9fe;border-color:#6c47ff;color:#6c47ff' : ''}" onclick="outMinutes = ${m}; renderOut()">${m} min</button>`).join('')}</div>
         <label style="display:block;font-size:13px;color:#3a3a3c;margin-top:6px"><input type="checkbox" id="out-new" onchange="document.getElementById('out-adult-row').style.display = this.checked ? 'block' : 'none'"> Open to meeting new people</label>
         <label id="out-adult-row" style="display:none;font-size:13px;color:#3a3a3c"><input type="checkbox" id="out-adult"> I’m 18 or older</label>
         <button class="chip-btn" style="margin-top:8px;background:#6c47ff;color:#fff;border-color:#6c47ff" onclick="goOut(this)">I’m out</button>
@@ -351,7 +354,7 @@
       ${o.asked ? '<div class="card-sub">You’re interested — they’ll only know if they are too</div>' : `<button class="chip-btn" style="margin-top:6px" onclick="reachOut('${esc(o.id)}', this)">I’m interested</button>`}</div></div>`).join('');
     el.innerHTML = asks + `<div class="card feed-item"><span class="feed-icon">🌴</span><div style="flex:1;min-width:0">
       <div class="card-title">You’re out · up for ${esc(v.me.up_for.map((a) => OUT_ACTS[a]).join(', '))}</div>
-      <div class="card-sub">Until ${until}${v.me.open_to_new ? ' · open to new people' : ''} · nobody sees where you are, only roughly how far</div>
+      <div class="card-sub">Until ${until}${v.me.minutes ? ` · up to ${v.me.minutes} min away` : ''}${v.me.open_to_new ? ' · open to new people' : ''} · nobody sees where you are, only roughly how far</div>
       <button class="chip-btn" style="margin-top:6px" onclick="stopOut()">Stop</button></div></div>`
       + (friends || others ? friends + others : '<div class="empty-state">Nobody else nearby is out right now — I’ll show them as they are.</div>');
   }
@@ -364,7 +367,7 @@
     btn.disabled = true; btn.textContent = 'Finding where you are…';
     try {
       const c = await hereNow();
-      const r = await fetch('/api/out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ up_for: [...outPicks], lat: c.latitude, lng: c.longitude, open_to_new: open, adult }) });
+      const r = await fetch('/api/out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ up_for: [...outPicks], lat: c.latitude, lng: c.longitude, open_to_new: open, adult, minutes: outMinutes }) });
       if (!r.ok) { err.textContent = (await r.json()).message || 'Couldn’t start'; btn.disabled = false; btn.textContent = 'I’m out'; return; }
       loadOut(false);
     } catch (_) { err.textContent = 'Allow location for ButterflAI to see who’s nearby'; btn.disabled = false; btn.textContent = 'I’m out'; }

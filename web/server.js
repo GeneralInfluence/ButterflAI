@@ -1641,7 +1641,7 @@ const publicNearby = (v) => ({ ...v, others: v.others.map(({ _user, ...o }) => o
 app.get('/api/out', webAuth.requireAuth, (req, res) => res.json(publicNearby(require('./outnow').nearby(req.user.id))));
 app.post('/api/out', webAuth.requireAuth, express.json(), (req, res) => {
   const b = req.body || {};
-  const r = require('./outnow').goOut(req.user.id, { up_for: b.up_for, lat: Number(b.lat), lng: Number(b.lng), hours: b.hours, open_to_new: b.open_to_new === true, adult: b.adult === true });
+  const r = require('./outnow').goOut(req.user.id, { up_for: b.up_for, lat: Number(b.lat), lng: Number(b.lng), hours: b.hours, open_to_new: b.open_to_new === true, adult: b.adult === true, minutes: b.minutes });
   return r.error ? res.status(400).json(r) : res.json(r);
 });
 app.post('/api/out/refresh', webAuth.requireAuth, express.json(), (req, res) => {

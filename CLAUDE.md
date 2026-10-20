@@ -4,7 +4,7 @@ Social ButterflAI: personal social agent. Agent does the logistical labor of fri
 
 **Prod:** https://butterflai.social / https://butterflai.fly.dev  
 **Stack:** Node/Express + SQLite on Fly.io. SMS via Twilio. Agent loop in `web/agent.js`.  
-**Tests:** `cd web && npm test` — run before every commit. 1152 passing. Never skip or delete tests.  
+**Tests:** `cd web && npm test` — run before every commit. 1153 passing. Never skip or delete tests.  
 **Deploy:** push to main → CI tests → auto-deploy (requires `FLY_API_TOKEN` in GitHub secrets).
 
 ---
