@@ -197,6 +197,8 @@
     #todo-list .t { flex: 1; min-width: 0; }
     .todo-x { background: none; border: none; color: #c7c7cc; font-size: 16px; cursor: pointer; padding: 0 4px; }
     #todo-list .det { display: block; font-size: 12px; color: #6e6e76; }
+    #todo-list li.focus, #todo-ideas .focus, #todo-suggested .focus { background: #ede9fe; border-radius: 8px; }
+    .ask-pin { background: #ede9fe; color: #1c1c1e; font-size: 14px; padding: 10px 14px; border-bottom: 1px solid #e5e5e5; flex-shrink: 0; }
     #todo-list .onit { font-size: 12px; padding: 2px 9px; }
     #todo-ideas { padding: 2px 14px; }
     #todo-ideas .idea { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 13px; color: #1c1c1e; }
@@ -449,6 +451,11 @@
     const topicEvent = new URLSearchParams(location.search).get('event');
     // The calendar day that opened this discussion (🐛 #15) — sent with each message so the
     // agent knows "a massage" means that day.
+    // Opened from Home for one thing (🐛 #26): a Creating item (?todo=), the suggestions
+    // (?focus=suggestions) or a friend's question (?ask=) — shown, not left to find.
+    const focusTodo = new URLSearchParams(location.search).get('todo');
+    const focusSuggestions = new URLSearchParams(location.search).get('focus') === 'suggestions';
+    const askId = new URLSearchParams(location.search).get('ask');
     const topicDay = /^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get('day') || '') ? new URLSearchParams(location.search).get('day') : null;
 
     // What this screen was showing, for the feedback button (feedback.js): the plan in view
@@ -489,6 +496,8 @@
     // ── The plan's to-do list ───────────────────────────────────────────────────
     let todoOpen = false;
     try { todoOpen = localStorage.getItem('bfly-todo-open') === '1'; } catch (_) {}
+    if (focusTodo || focusSuggestions) todoOpen = true;
+    let focused = false;
     async function loadTodos() {
       if (!topicEvent || topicEvent === 'general') return;
       const bar = document.getElementById('todo-bar');
@@ -521,7 +530,22 @@
           ? '<button type="button" class="tpill accept">Accept</button><button type="button" class="tpill decline">No</button>'
           : '<span style="flex:0 0 auto;font-size:12px;color:#8e8e93">waiting</span><button type="button" class="todo-x withdraw" aria-label="Take back">✕</button>'}</div>`).join('') : '';
       bar.hidden = false;
+      // Highlight what Home sent them here for — once.
+      if (!focused && (focusTodo || focusSuggestions)) {
+        focused = true;
+        const el = focusTodo ? document.querySelector(`#todo-list [data-id="${CSS.escape(focusTodo)}"]`) : (document.getElementById('todo-ideas').firstElementChild || document.getElementById('todo-suggested').firstElementChild);
+        if (el) { el.classList.add('focus'); el.scrollIntoView({ block: 'center' }); }
+      }
     }
+    // A friend's ButterflAI question opened from Home: pinned on top of the chat.
+    if (askId) fetch('/api/questions/' + encodeURIComponent(askId)).then((r) => (r.ok ? r.json() : null)).then((q) => {
+      if (!q) return;
+      const pin = document.createElement('div');
+      pin.className = 'ask-pin';
+      pin.textContent = `❓ ${q.who}'s ButterflAI asked: ${q.text}${q.answered ? ' (answered)' : ' — reply here and I\'ll answer for you.'}`;
+      const bar = document.getElementById('todo-bar');
+      bar.parentNode.insertBefore(pin, bar.nextSibling);
+    }).catch(() => {});
     async function todoCall(method, url, body) {
       await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).catch(() => {});
       loadTodos();

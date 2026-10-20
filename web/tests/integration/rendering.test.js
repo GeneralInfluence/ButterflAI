@@ -909,8 +909,9 @@ describe('Chat: one discussion at a time', () => {
     // + the calendar day that opened the discussion (🐛 #15, 2026-10-13).
     assert.ok(html.includes('JSON.stringify(topicEvent ? { text, event_id: topicEvent, ...(topicDay ? { day: topicDay } : {}) } : { text })'));
   });
-  test('Home event cards and Events cards link to the discussion', () => {
-    assert.ok(read('dashboard.html').includes('href="/app/chat?event=${esc(i.event_id)}"'));
+  // Home's plan cards open the plan summary since 🐛 #26 (2026-10-20); the summary links to the discussion.
+  test('Home event cards open the plan summary; Events cards link to the discussion', () => {
+    assert.ok(read('dashboard.html').includes('const href = `/app/events?event=${esc(i.event_id)}`;'));
     assert.ok(read('events.html').includes('💬 Discussion'));
   });
 });
@@ -937,7 +938,8 @@ describe('Events: plan summary opened from Home', () => {
   });
   test('Home: invites and plan icons open the summary', () => {
     assert.ok(home.includes('href="/app/events?event=${esc(i.event_id)}"'));
-    assert.ok(home.includes("location.href='/app/events?event=${esc(i.event_id)}'"));
+    // Since 🐛 #26 the whole plan card opens the summary (was: only its icon).
+    assert.ok(home.includes('const href = `/app/events?event=${esc(i.event_id)}`;'));
     assert.ok(!home.includes('/app/events?invite='));
   });
 });
@@ -982,7 +984,8 @@ describe('Still going? (avoid-list heads-up)', () => {
     assert.ok(ev.includes('>Still going</button>') && ev.includes('>Not going</button>'));
   });
   test("Home: a guest's plan that needs them opens its summary", () => {
-    assert.ok(home.includes("i.role !== 'host' && i.action ? `/app/events?event=${esc(i.event_id)}`"));
+    // Every plan card opens its summary since 🐛 #26 (guests and hosts alike).
+    assert.ok(home.includes('const href = `/app/events?event=${esc(i.event_id)}`;'));
   });
 });
 

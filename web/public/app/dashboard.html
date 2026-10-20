@@ -238,11 +238,11 @@
            i.out && i.out.length ? `${names(i.out.map(esc))} out` : '',
            ...(i.deferring || []).map((d) => `${esc(d.who)}: whatever ${names(d.to.map(esc))} decide${d.to.length === 1 && d.to[0] !== 'you' ? 's' : ''}`)].filter(Boolean).join(' · ') || 'you\'re hosting'
         : 'with ' + esc(i.host);
-      // The card opens that plan's discussion in chat (2026-10-09); its icon opens the plan's
-      // summary on the Events tab (2026-10-12).
-      // A guest asked "Still going?" answers on the plan's summary (2026-10-13).
-      const href = i.role !== 'host' && i.action ? `/app/events?event=${esc(i.event_id)}` : `/app/chat?event=${esc(i.event_id)}`;
-      return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="${href}"><span class="feed-icon" role="link" aria-label="Plan summary" title="Plan summary" onclick="event.preventDefault();event.stopPropagation();location.href='/app/events?event=${esc(i.event_id)}'">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
+      // The card opens the plan's summary — dates, people, suggestions, Creating, what needs
+      // doing, and a button into its discussion (🐛 #26, 2026-10-20: the chat opened at the
+      // latest message and "I have to go and find the relevant information"). Was the chat.
+      const href = `/app/events?event=${esc(i.event_id)}`;
+      return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="${href}"><span class="feed-icon">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
     }
     // "Did you make it?" after a plan (2026-10-13): answered right here.
     if (i.type === 'checkin') return `<div class="card feed-item needs-you"><span class="feed-icon">🦋</span><div style="flex:1;min-width:0">
@@ -250,7 +250,8 @@
       <div class="share-row" style="margin:8px 0 0"><button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', true)">Yes</button>
       <button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', false)">No</button>
       <button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', null)">Skip</button></div></div></div>`;
-    const chatLink = (i) => i.event_id ? `/app/chat?event=${esc(i.event_id)}` : '/app/chat';
+    // A question opens the chat with the question pinned on top (🐛 #26).
+    const chatLink = (i) => (i.event_id ? `/app/chat?event=${esc(i.event_id)}&ask=${esc(i.question_id)}` : `/app/chat?ask=${esc(i.question_id)}`);
     if (i.type === 'question') return `<a class="card feed-item needs-you" href="${chatLink(i)}"><span class="feed-icon">❓</span><div><div class="card-title">${esc(i.who)} asked</div><div class="card-sub">${esc(i.text)}</div>${action(i)}</div></a>`;
     // A friend's share can become a plan you host with them (event-map #5, 2026-10-13).
     if (i.type === 'plan') return `<div class="card feed-item"><span class="feed-icon">🟢</span><div style="flex:1;min-width:0"><div class="card-title">${esc(i.who)}: ${esc(i.text)}</div><div class="card-sub">until ${when(i.until)}</div>
@@ -264,16 +265,24 @@
   // Yours first, then anything unassigned (anyone can take it), then suggestions waiting
   // to be kept, per plan (2026-10-12).
   function creatingHtml(list, suggestions) {
-    const sug = (suggestions || []).map(s => `<a class="card feed-item" href="/app/chat?event=${esc(s.event_id)}"><span class="feed-icon">💡</span><div>
+    // Each opens the plan's chat with the thing itself highlighted in its Creating bar (🐛 #26).
+    const sug = (suggestions || []).map(s => `<a class="card feed-item" href="/app/chat?event=${esc(s.event_id)}&focus=suggestions"><span class="feed-icon">💡</span><div>
       <div class="card-title">${s.count} suggestion${s.count === 1 ? '' : 's'} for ${esc(s.title)}</div><div class="card-sub">Keep the ones you want</div></div></a>`).join('');
     if ((!list || !list.length) && !sug) return '<div class="empty-state">Nothing to do right now. Open a plan\'s chat to add what needs doing.</div>';
     return (list || []).map(i => `<div class="card feed-item"><span class="feed-icon">✨</span><div style="flex:1;min-width:0">
-      <a href="/app/chat?event=${esc(i.event_id)}" style="text-decoration:none;color:inherit"><div class="card-title">${esc(i.text)}</div>
-      <div class="card-sub">${esc(i.title)}${i.at ? ' · ' + whenFor(i) : ''} · ${i.who === 'you' ? 'yours' : 'anyone can take it'}</div></a>
-      <button type="button" class="feed-action" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit" onclick="doneTodo('${esc(i.todo_id)}')">✓ Done</button></div></div>`).join('') + sug;
+      <a href="/app/chat?event=${esc(i.event_id)}&todo=${esc(i.todo_id)}" style="text-decoration:none;color:inherit"><div class="card-title">${esc(i.text)}</div>
+      <div class="card-sub">${esc(i.title)}${i.at ? ' · ' + whenFor(i) : ''} · ${i.who === 'you' ? 'you\'re on it' : 'nobody\'s on it yet'}</div></a>
+      ${i.who === 'you'
+        // An action, not a status: "✓ Done" read as "it's done" (🐛 #26 — the massages weren't).
+        ? `<button type="button" class="feed-action" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit" onclick="doneTodo('${esc(i.todo_id)}')">☐ Mark done</button>`
+        : `<button type="button" class="feed-action" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit" onclick="joinTodo('${esc(i.todo_id)}')">I'm on it</button>`}</div></div>`).join('') + sug;
   }
   async function answerCheckin(id, attended) {
     await fetch('/api/attendance/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attended }) }).catch(() => {});
+    loadFeed();
+  }
+  async function joinTodo(id) {
+    await fetch('/api/todos/' + encodeURIComponent(id) + '/join', { method: 'POST' }).catch(() => {});
     loadFeed();
   }
   async function doneTodo(id) {

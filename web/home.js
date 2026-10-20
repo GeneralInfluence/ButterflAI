@@ -80,7 +80,7 @@ function feedFor(userId) {
     ORDER BY am.created_at DESC LIMIT 5`).all(userId, t - 7 * 86400);
   for (const q of asked) {
     if (avoid.findByPhone(myAvoid, q.phone)) continue;
-    items.push({ type: 'question', who: firstName(q), text: String(q.body).slice(0, 200), created_at: q.created_at,
+    items.push({ type: 'question', question_id: q.id, who: firstName(q), text: String(q.body).slice(0, 200), created_at: q.created_at,
       event_id: eventIdOf(q.thread_id), action: 'Answer in chat' });
   }
 

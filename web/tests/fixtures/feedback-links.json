@@ -39,5 +39,9 @@
   "25": {
     "note_starts": "You locked it into just Friday which destroys all the Saturday events",
     "test": "tests/integration/date-range.test.js › the agent's exact call (tentative false, when \"… through …\") → both days, confirmed"
+  },
+  "26": {
+    "note_starts": "Why does it say that the spas the massages for Friday is done",
+    "test": "tests/integration/home-links.test.js › a plan card opens its summary (dates, people, suggestions, Creating, what needs doing)"
   }
 }

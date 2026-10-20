@@ -1609,6 +1609,14 @@ app.post('/api/understood/:id/undo', webAuth.requireAuth, express.json(), (req, 
   res.json(r);
 });
 
+// A question a friend's ButterflAI asked you (pinned in chat when opened from Home, 🐛 #26). Yours only.
+app.get('/api/questions/:id', webAuth.requireAuth, (req, res) => {
+  const q = db._raw().prepare(`SELECT am.body, am.processed, u.name FROM agent_messages am JOIN users u ON u.id = am.from_user
+    WHERE am.id = ? AND am.to_user = ? AND am.kind = 'query'`).get(String(req.params.id), req.user.id);
+  if (!q) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ who: String(q.name || 'A friend').split(/\s+/)[0], text: String(q.body).replace(/^\[[^\]]*\]\s*/, '').slice(0, 400), answered: !!q.processed });
+});
+
 // GET /api/plans — every plan you're in, as one object each (plan.js). The calendar and
 // Home read these instead of re-deriving stage / dates / people (owner, 2026-10-12).
 app.get('/api/plans', webAuth.requireAuth, (req, res) => {

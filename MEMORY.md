@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1074_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1079_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -965,6 +965,16 @@ items.
 October 24" → read as Friday, and setting a date dropped the range. Now `datetime.resolveRange`
 reads ranges in words ("… through …", "Oct 23-24"), and the agent can't shrink a multi-day plan
 to one day without dropping the range on purpose (`WOULD_DROP_DAYS`). Test: `date-range.test.js`. No timed reminders exist yet — the agent no longer offers them. Test: `lock-in.test.js`.
+
+## 24c. Home opens the thing itself `[2026-10-20]`
+
+🐛 #26: "when I click on a suggestion or on the event it takes me to the chat but then I have
+to go and find the relevant information"; and "✓ Done" on a Creating item read as "it's done".
+Home's plan cards open the plan summary (Events) — not the chat. Creating items open the plan's
+chat with that item highlighted in the open Creating bar (`?todo=`); suggestions with them
+highlighted (`?focus=suggestions`); a friend's question with it pinned on top (`?ask=`,
+`/api/questions/:id`, the person asked only). The button is "☐ Mark done" on items you're on,
+"I'm on it" otherwise. Test: `home-links.test.js`.
 
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 
