@@ -120,7 +120,7 @@ function planFor(eventId, viewerId) {
       ? 'Lock in the plan — tell your agent the final details' : null;
 
   return {
-    id: e.id, title: e.title, what: e.activity_type, can_edit: canEditIt, my_role: myRole,
+    id: e.id, title: e.title, what: e.activity_type, can_edit: canEditIt, my_role: myRole, created_at: e.created_at,
     cohosts: invitations.filter((i) => i.role === 'cohost' && i.status !== 'declined').map((i) => first(i.name)), place: e.venue_name || null, notes: e.notes || null,
     host: { name: first(host?.name), is_you: isHost }, role: isHost ? 'host' : 'guest',
     invitation: mine ? { id: mine.id, status: mine.status, going: mine.status === 'accepted' && (!!mine.going || !e.tentative), must_ask: !!mine.needs_owner_decision && mine.status !== 'declined',

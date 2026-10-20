@@ -2984,6 +2984,12 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       if (understood.note) messages[messages.length - 1] = { role: 'user', content: `${msg.text}\n\n${understood.note}` };
     }
   }
+  // They tapped ＋ New plan (🐛 #34): make the plan from these words now — no long discussion.
+  if (msg.intent === 'new_plan') {
+    planRouted = true;   // it's a new plan by definition; no routing guess needed
+    const last = messages[messages.length - 1];
+    messages[messages.length - 1] = { role: 'user', content: `${typeof last.content === 'string' ? last.content : msg.text}\n\n[ButterflAI — not from the user] Your user tapped ＋ New plan in the app and wrote the message above. Create the plan now with create_social_event: a short title, what it is, the people they named (look them up; invite them with contact_ids), and the date only in their words (when) — no date given means date TBD, tentative. If it's clearly the same as one of their open plans, say so and use that one instead. Then reply in one or two lines: what you set up, and the one thing still open (if any). Don't start a long discussion.` };
+  }
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;

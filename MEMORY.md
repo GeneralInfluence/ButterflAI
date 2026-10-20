@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1127_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1131_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -995,7 +995,12 @@ List/Calendar toggle is small and plain so it isn't mistaken for the switcher.
 **Then (owner, same day): "a lot of messy and redundant information".** The bottom bar is
 **Home · Plans · Settings** — Chat, Creating and Events are one place, Plans (it reopens where you
 last were, `bfly-plans-last`); People & groups is in Settings. Plans pages have no page header:
-just the plan pills and the switcher (location sharing is in Settings). Every app page's inline scripts are parsed by
+just the plan pills and the switcher (location sharing is in Settings).
+**＋ New plan (🐛 #34):** a ＋ shares the right-edge pill with 🐛 on every screen → "What's the
+plan?" (starters: Dinner, Drinks, Hangout, Party, Trip) → `POST /api/plans/new` queues the
+words with `inbound_messages.intent = 'new_plan'` (migration 065); the agent is told the user
+tapped ＋ and creates the plan at once (no routing guess, no long discussion); the chat opens
+the new plan's discussion when it appears (`/app/chat?new=<ts>`). Every app page's inline scripts are parsed by
 a test (a stray "});" once blanked the chat).
 
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`

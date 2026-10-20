@@ -13,9 +13,16 @@
   window.__bflyFeedback = true;
 
   const css = `
-    #bfly-fb-tab { position: fixed; right: 0; top: 58%; z-index: 9000; border: none; cursor: pointer;
-      background: #6c47ff; color: #fff; border-radius: 12px 0 0 12px; padding: 10px 7px; font-size: 17px; line-height: 1;
-      box-shadow: 0 2px 10px rgba(0,0,0,.2); opacity: .85; }
+    /* ＋ New plan and 🐛 Ideas & bugs share one pill on the right edge (🐛 #34, 2026-10-20). */
+    #bfly-side { position: fixed; right: 0; top: 52%; z-index: 9000; display: flex; flex-direction: column; background: #6c47ff;
+      border-radius: 12px 0 0 12px; box-shadow: 0 2px 10px rgba(0,0,0,.2); opacity: .9; overflow: hidden; }
+    #bfly-side button { border: none; cursor: pointer; background: none; color: #fff; padding: 9px 8px; font-size: 17px; line-height: 1; font-family: inherit; }
+    #bfly-new { font-size: 22px !important; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,.35) !important; }
+    #bfly-fb-tab { }
+    #bfly-new-sheet { position: fixed; inset: 0; z-index: 9500; background: rgba(0,0,0,.35); display: flex; align-items: flex-end; justify-content: center; }
+    #bfly-new-sheet[hidden] { display: none; }
+    #bfly-new-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+    #bfly-new-chips button { border: 1px solid #e5e5e5; background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 14px; font-family: inherit; cursor: pointer; }
     #bfly-fb-sheet { position: fixed; inset: 0; z-index: 9500; background: rgba(0,0,0,.35); display: flex; align-items: flex-end; justify-content: center; }
     #bfly-fb-sheet[hidden] { display: none; }
     #bfly-fb-card { background: #fff; width: 100%; max-width: 520px; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
@@ -35,9 +42,45 @@
     #bfly-fb-done { font-size: 15px; color: #6c47ff; padding: 8px 0; }`;
   const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style);
 
+  const side = document.createElement('div');
+  side.id = 'bfly-side';
+  const plus = document.createElement('button');
+  plus.id = 'bfly-new'; plus.type = 'button'; plus.textContent = '＋'; plus.title = 'New plan'; plus.setAttribute('aria-label', 'Start a new plan');
   const tab = document.createElement('button');
   tab.id = 'bfly-fb-tab'; tab.type = 'button'; tab.textContent = '🐛';   // a caterpillar on most phones: help it become a butterfly
   tab.title = 'Ideas & bugs'; tab.setAttribute('aria-label', 'Send feedback about this screen');
+  side.append(plus, tab);
+  // ＋ New plan: say what it is in a line; your ButterflAI makes it (told you tapped ＋ — 🐛 #34).
+  const newSheet = document.createElement('div');
+  newSheet.id = 'bfly-new-sheet'; newSheet.hidden = true;
+  newSheet.innerHTML = `<div id="bfly-fb-card" role="dialog" aria-label="New plan">
+      <div id="bfly-fb-label">＋ New plan</div>
+      <h3>What's the plan?</h3>
+      <div id="bfly-new-chips">${['🍽️ Dinner', '🍻 Drinks', '🏡 Hangout', '🎉 Party', '🏕️ Trip'].map((c) => `<button type="button">${c}</button>`).join('')}</div>
+      <textarea id="bfly-new-text" maxlength="1000" placeholder="e.g. Dinner with Allie and Bam next Friday"></textarea>
+      <div id="bfly-fb-actions" style="margin-top:10px"><button type="button" id="bfly-new-cancel">Cancel</button><button type="button" id="bfly-new-go" style="background:#6c47ff;color:#fff">Make it</button></div>
+    </div>`;
+  const newText = () => newSheet.querySelector('#bfly-new-text');
+  plus.addEventListener('click', () => { newSheet.hidden = false; setTimeout(() => newText().focus(), 50); });
+  newSheet.addEventListener('click', (e) => { if (e.target === newSheet) newSheet.hidden = true; });
+  newSheet.querySelector('#bfly-new-cancel').addEventListener('click', () => { newSheet.hidden = true; });
+  newSheet.querySelector('#bfly-new-chips').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const word = b.textContent.replace(/^\S+\s/, '');
+    const t = newText(); t.value = t.value.trim() ? t.value : `${word} with `; t.focus(); t.setSelectionRange(t.value.length, t.value.length);
+  });
+  newSheet.querySelector('#bfly-new-go').addEventListener('click', async () => {
+    const go = newSheet.querySelector('#bfly-new-go');
+    const text = newText().value.trim();
+    if (!text) { newText().focus(); return; }
+    go.disabled = true; go.textContent = 'Making it…';
+    try {
+      const r = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      if (!r.ok) throw new Error();
+      const { ts } = await r.json();
+      location.href = '/app/chat?new=' + encodeURIComponent(ts);   // the chat opens the new plan once it exists
+    } catch (_) { go.disabled = false; go.textContent = 'Make it'; }
+  });
   const sheet = document.createElement('div');
   sheet.id = 'bfly-fb-sheet'; sheet.hidden = true;
   const TEMPLATE = `<div id="bfly-fb-card" role="dialog" aria-label="Feedback">
@@ -48,8 +91,8 @@
       <div id="bfly-fb-actions"><button type="button" id="bfly-fb-cancel">Cancel</button><button type="button" id="bfly-fb-send">Send</button></div>
     </div>`;
   sheet.innerHTML = TEMPLATE;
-  document.addEventListener('DOMContentLoaded', () => { document.body.append(tab, sheet); });
-  if (document.readyState !== 'loading') document.body.append(tab, sheet);
+  document.addEventListener('DOMContentLoaded', () => { document.body.append(side, sheet, newSheet); });
+  if (document.readyState !== 'loading') document.body.append(side, sheet, newSheet);
 
   let shot = null;
   function loadLib() {
@@ -64,7 +107,7 @@
     const canvas = await window.html2canvas(document.body, {
       x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight,
       scale: Math.min(1, 720 / window.innerWidth), logging: false, useCORS: true, backgroundColor: '#ffffff',
-      ignoreElements: (el) => el.id === 'bfly-fb-tab' || el.id === 'bfly-fb-sheet',
+      ignoreElements: (el) => el.id === 'bfly-side' || el.id === 'bfly-fb-sheet' || el.id === 'bfly-new-sheet',
     });
     return canvas.toDataURL('image/jpeg', 0.6);
   }

@@ -464,6 +464,22 @@
     // The plan you're in was cancelled or combined (🐛 #27, 2026-10-20: "it said that it did it
     // but I was still on that pill") → back to All. Only once we'd seen it as a pill.
     let pillWasThere = false;
+    // Came from ＋ New plan (🐛 #34): when the plan made after that moment shows up, open its discussion.
+    const newPlanSince = Number(new URLSearchParams(location.search).get('new')) || 0;
+    async function openNewPlan() {
+      try {
+        const { discussions } = await fetch('/api/chat/discussions').then((r) => r.json());
+        const fresh = (discussions || []).filter((d) => d.mine && d.created_at >= newPlanSince - 5).sort((a, b) => b.created_at - a.created_at)[0];
+        if (fresh) { location.replace('/app/chat?event=' + encodeURIComponent(fresh.event_id)); return true; }
+      } catch (_) {}
+      return false;
+    }
+    if (newPlanSince) {   // show it's working, and look for the plan for up to a minute
+      pendingSince = newPlanSince; typingEl.classList.add('visible');
+      let tries = 0;
+      const look = async () => { if (await openNewPlan() || ++tries > 30) return; setTimeout(look, 2000); };
+      setTimeout(look, 1500);
+    }
     async function loadPills() {
       try {
         const { discussions } = await fetch('/api/chat/discussions').then((r) => r.json());
@@ -616,6 +632,7 @@
           if (emptyEl.parentNode) emptyEl.remove();
           appendMessage('bot', data.text, data.ts, true, data.kind);
         } else if (data.role === 'assistant') {
+          if (newPlanSince) openNewPlan();
           loadTodos();   // the agent may have changed the plan's to-dos
           if (topicEvent) loadPills();   // …or cancelled / combined this plan (🐛 #27)
           pendingSince = 0;

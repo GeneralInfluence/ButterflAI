@@ -82,7 +82,8 @@ describe('feedback from any screen', () => {
     assert.equal(lib.status, 200);
     const js = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/feedback.js'), 'utf8');
     assert.ok(js.includes("What didn't you like, or what should change?") && js.includes('Include this screenshot'));
-    assert.ok(js.includes("ignoreElements: (el) => el.id === 'bfly-fb-tab'"), 'the tab itself is not in the screenshot');
+    // The tab sits in the side pill with ＋ New plan since 🐛 #34 (2026-10-20); neither is in the screenshot.
+    assert.ok(js.includes("ignoreElements: (el) => el.id === 'bfly-side'"), 'the tab itself is not in the screenshot');
     // 2026-10-12 (owner): the tab is a bug, not a thumbs down; the sheet says it's for ideas too.
     assert.ok(js.includes("tab.textContent = '🐛'"), 'tab shows the bug');
     assert.ok(js.includes('🐛 Ideas &amp; bugs'), 'sheet is labelled Ideas & bugs');

@@ -71,5 +71,9 @@
   "33": {
     "note_starts": "Why does details have this little line on the left hand side",
     "test": "tests/integration/home-links.test.js › a \"Details\" button next to the plan's pill opens its summary (which links back to the discussion)"
+  },
+  "34": {
+    "note_starts": "I don't see an easy way to create a new event",
+    "test": "tests/integration/new-plan.test.js › the agent is told the user tapped ＋ New plan, and creates it — no routing guess, no long discussion"
   }
 }

@@ -1625,6 +1625,17 @@ app.get('/api/questions/:id', webAuth.requireAuth, (req, res) => {
   res.json({ who: String(q.name || 'A friend').split(/\s+/)[0], text: String(q.body).replace(/^\[[^\]]*\]\s*/, '').slice(0, 400), answered: !!q.processed });
 });
 
+// ＋ New plan (🐛 #34, 2026-10-20): "I can create something new … without having to go to the chat
+// and have a long discussion, and … there should be some prompt to the AI where it understands
+// that I've hit that button." Queued like a chat message, marked new_plan; the agent creates it.
+app.post('/api/plans/new', webAuth.requireAuth, express.json(), (req, res) => {
+  const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  if (!text) return res.status(400).json({ error: 'Say what the plan is' });
+  db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text, intent: 'new_plan' });
+  sse.push(req.user.id, { role: 'status', text: 'Making the plan…' });
+  res.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
+});
+
 // GET /api/plans — every plan you're in, as one object each (plan.js). The calendar and
 // Home read these instead of re-deriving stage / dates / people (owner, 2026-10-12).
 app.get('/api/plans', webAuth.requireAuth, (req, res) => {
