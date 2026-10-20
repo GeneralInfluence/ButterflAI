@@ -553,6 +553,16 @@ const TASKS = [
     },
   },
   {
+    id: '2026-10-20-names-from-inviters',
+    added: Date.UTC(2026, 9, 20) / 1000,
+    kind: 'internal',
+    about: 'Owner, 2026-10-20: "you should be able to use the name from the person who invited them" — an account still named "New user" takes the name whoever invited it saved (Alexandria → "Alexandria Spargo"); they can change it in Settings.',
+    run(user) {
+      const n = require('./people').fillName(user);
+      return n ? `named ${n}` : 'kept';
+    },
+  },
+  {
     id: '2026-10-20-using-it-means-signed-up',
     added: Date.UTC(2026, 9, 20) / 1000,
     kind: 'internal',

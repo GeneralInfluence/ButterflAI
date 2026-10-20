@@ -68,3 +68,33 @@ describe('sign-up is just your name', () => {
     assert.equal(task.run(db.getUser(idle)), 'not using it');
   });
 });
+
+describe('the name the person who invited them saved', () => {
+  test('Sean saved her as Alexandria Spargo and invited her to a plan → her first login already has that name, no prompt', async () => {
+    const seanId = uuidv4();
+    db._raw().prepare("INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'Sean I', '+12025340010', 'complete')").run(seanId);
+    const cid = db.upsertContact({ invited_by_user_id: seanId, name: 'Alexandria Spargo', phone: '+12025340011', tier: 1 });
+    const planops = require('../../planops');
+    const e = (await planops.create(seanId, { title: 'Rocky Horror', contact_ids: [cid] })).eventId;
+    assert.ok(e);
+    const cookie = await login('+12025340011');
+    const me = (await request.get('/api/user/me').set('Cookie', cookie)).body;
+    assert.deepEqual([me.name, me.needs_name], ['Alexandria Spargo', false]);
+    // …and she can change it any time
+    await request.patch('/api/user/me').set('Cookie', cookie).send({ name: 'Alex' });
+    assert.equal((await request.get('/api/user/me').set('Cookie', cookie)).body.name, 'Alex');
+  });
+  test('an existing "New user" gets it too (retro, and on next open); nobody knowing the name → asked', async () => {
+    const hostId = uuidv4();
+    db._raw().prepare("INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'Host I', '+12025340012', 'complete')").run(hostId);
+    db.upsertContact({ invited_by_user_id: hostId, name: 'Bammy', phone: '+12025340013', tier: 1 });
+    const id = uuidv4();
+    db._raw().prepare("INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'New user', '+12025340013', 'complete')").run(id);
+    const task = require('../../retro').TASKS.find((t) => t.id === '2026-10-20-names-from-inviters');
+    assert.equal(task.run(db.getUser(id)), 'named Bammy');
+    const nobody = uuidv4();
+    db._raw().prepare("INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'New user', '+12025340014', 'complete')").run(nobody);
+    assert.equal(task.run(db.getUser(nobody)), 'kept');
+    assert.equal(require('../../people').knownName('+12025340014'), null);
+  });
+});

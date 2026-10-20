@@ -1884,6 +1884,8 @@ app.post('/api/user/location', webAuth.requireAuth, express.json(), async (req, 
 
 // GET /api/user/me — current user profile
 app.get('/api/user/me', webAuth.requireAuth, (req, res) => {
+  // Still on a placeholder? Take the name people already know them by (people.fillName).
+  if (require('./people').fillName(req.user)) req.user = db.getUser(req.user.id);
   const { id, name, nickname, also_known_as, phone, city, lat, lng, share_location, test_user } = req.user;
   res.json({ id, name, nickname, also_known_as, phone, city, lat, lng,
     needs_name: require('./people').PLACEHOLDER.test(String(name || '').trim()) || !String(name || '').trim(),   // name-prompt.js

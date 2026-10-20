@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1091_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1093_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -1023,6 +1023,11 @@ its name once on whatever screen it opens (`public/name-prompt.js`, `needs_name`
 "Finish setup" banner are gone (`/app/onboarding` → Home). Retro: everyone in a plan or with a
 chat counts as signed up. SMS-first sign-up (onboarding.js) is unchanged. Test:
 `signup-name.test.js`.
+**The name people already know them by** (owner, same day: "use the name from the person who
+invited them … she should already have the name Alex"): an account on a placeholder takes the
+inviter's saved name — the contact on their first invitation, else the most common saved name
+for that number (`people.knownName` / `fillName`, at first login, on `/api/user/me`, and a
+retro). The prompt only appears when nobody knows the name; Settings → Edit changes it.
 
 ## 26. Rate limits are per person `[2026-10-19]`
 

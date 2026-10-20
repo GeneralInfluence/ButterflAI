@@ -159,6 +159,8 @@ function verifyOtpHandler(req, res) {
     // name-prompt.js on the first screen they open (2026-10-20: Alexandria stayed "New user").
     const id = uuidv4();
     db.createUser({ id, phone, name: 'New user', onboarding_state: 'complete' });
+    // The name whoever invited them saved, if any — they can change it in Settings (2026-10-20).
+    require('./people').fillName(db.getUser(id));
     user = db.getUser(id);
   }
 
