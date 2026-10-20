@@ -4,7 +4,7 @@
  * knows how to get back and forth very easily").
  *
  *   Row 1 (pills):    All · <a pill per plan>          — which plan; you stay on the same tab
- *   Row 2 (switcher): 💬 Chat · ✨ Creating · ℹ︎ Details — the same plan, another view
+ *   Row 2 (switcher): 💬 Chat · ✨ Creating · 📅 Details — the same plan, another view
  *                     (on All: 💬 Chat · ✨ Creating · 📅 Calendar)
  *
  * PlanNav.pills(el, { page, eventId, discussions })  — Creating and Events (Chat has its own
@@ -34,7 +34,7 @@
     const draw = (count, waiting) => {
       el.innerHTML = `<nav class="plan-modes" aria-label="${plan ? 'This plan' : 'Everything'}">`
         + tab('chat', '💬 Chat') + tab('creating', '✨ Creating', (count ? ` <span class="count">${esc(count)}</span>` : '') + (waiting ? `<span class="dot" title="${waiting} new to look at" aria-label="${waiting} new to look at"></span>` : ''))
-        + tab('events', plan ? 'ℹ︎ Details' : '📅 Calendar') + '</nav>';
+        + tab('events', plan ? '📅 Details' : '📅 Calendar') + '</nav>';
       el.hidden = false;
     };
     draw('');

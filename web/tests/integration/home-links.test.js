@@ -72,7 +72,9 @@ describe('🐛 #30: a plan\'s details from its chat', () => {
     // Since 2026-10-20 it's the shared switcher (plan-nav.js): Chat · Creating · Details.
     const nav = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/plan-nav.js'), 'utf8');
     assert.ok(chat.includes("PlanNav.modes(document.getElementById('todo-bar'), { page: 'chat', eventId: topicEvent"));
-    assert.ok(nav.includes("tab('events', plan ? 'ℹ︎ Details' : '📅 Calendar')") && nav.includes("events: '/app/events'"));
+    // 📅 like the Events tab, not "ℹ︎" (🐛 #33: it showed as a thin line on the left).
+    assert.ok(nav.includes("tab('events', plan ? '📅 Details' : '📅 Calendar')") && nav.includes("events: '/app/events'"));
+    assert.ok(!nav.includes('ℹ'), 'no info glyph');
     assert.ok(!chat.includes("info.textContent = 'ℹ︎ Details'"), 'no longer among the pills');
     assert.ok(read('events.html').includes('💬 Discussion'));
   });
@@ -83,7 +85,7 @@ describe('🐛 #32: Creating is its own tab, grouped by plan like the chat', () 
     for (const f of ['dashboard', 'chat', 'events', 'contacts', 'settings', 'creating']) assert.ok(read(`${f}.html`).includes('<span class="tab-icon">✨</span>Creating</a>'), f);
     const c = read('creating.html');
     assert.ok(c.includes("PlanNav.pills(document.getElementById('pills'), { page: 'creating'") && c.includes("PlanNav.modes(document.getElementById('modes'), { page: 'creating'"));
-    assert.ok(c.includes('ℹ︎ Details') && c.includes('I’m on it') && c.includes('Accept') && c.includes('form class="add"'));
+    assert.ok(c.includes('📅 Details') && !c.includes('ℹ') && c.includes('I’m on it') && c.includes('Accept') && c.includes('form class="add"'));
   });
   test('the page is served to signed-in people', async () => {
     const u = { phone: '+12025370999' };

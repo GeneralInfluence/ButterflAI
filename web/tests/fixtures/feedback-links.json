@@ -67,5 +67,9 @@
   "32": {
     "note_starts": "I think the creating section needs to be its own tab",
     "test": "tests/integration/home-links.test.js › a Creating tab on every screen, All and a pill per plan, each plan with Details and its chat"
+  },
+  "33": {
+    "note_starts": "Why does details have this little line on the left hand side",
+    "test": "tests/integration/home-links.test.js › a \"Details\" button next to the plan's pill opens its summary (which links back to the discussion)"
   }
 }
