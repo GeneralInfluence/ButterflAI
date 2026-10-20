@@ -619,7 +619,7 @@
           .map(e => ({ ...e, _isInvite: true, title: e.title, status: e.rsvp_status }))
       : [];
     const filtered = [
-      ...allEvents.filter(e => tab === 'upcoming' ? (e.scheduled_at||0) >= now : (e.scheduled_at||0) < now),
+      ...allEvents.filter(e => e.status !== 'cancelled').filter(e => tab === 'upcoming' ? (e.scheduled_at||0) >= now : (e.scheduled_at||0) < now),
       ...pastInvites,
     ];
     filtered.sort((a, b) => tab === 'upcoming' ? (a.scheduled_at||0) - (b.scheduled_at||0) : (b.scheduled_at||0) - (a.scheduled_at||0));

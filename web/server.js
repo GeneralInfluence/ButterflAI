@@ -2250,7 +2250,9 @@ app.post('/api/events', webAuth.requireAuth, async (req, res) => {
 
 app.get('/api/events/:userId', webAuth.requireAuth, (req, res) => {
   if (!sameUser(req, res, req.params.userId)) return;
-  const events = multiparty.getEventsByHost(req.params.userId);
+  // Not cancelled / combined plans (🐛 #28, 2026-10-20: a Liam's Birthday Party folded into the
+  // real one on Oct 12 still showed in the Events list, as "two Liam's birthday parties").
+  const events = multiparty.getEventsByHost(req.params.userId).filter((e) => e.status !== 'cancelled');
   // Attach RSVP summary to each event so host can see who accepted/declined
   const prog = todos.progressFor(events.map((e) => e.id));
   const withRsvp = events.map(e => ({

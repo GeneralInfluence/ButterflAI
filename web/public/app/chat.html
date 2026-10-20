@@ -449,6 +449,11 @@
     // ?event=<id> → show only that plan's discussion (2026-10-09). New messages still
     // appear live while you talk; messages you send here belong to that plan.
     const topicEvent = new URLSearchParams(location.search).get('event');
+    if (new URLSearchParams(location.search).get('gone')) setTimeout(() => {
+      const t = document.createElement('div'); t.className = 'ask-pin'; t.textContent = 'That plan was cancelled (or combined into another) — you\'re back in All.';
+      const bar = document.getElementById('todo-bar'); bar.parentNode.insertBefore(t, bar.nextSibling);
+      history.replaceState(null, '', '/app/chat');
+    }, 0);
     // The calendar day that opened this discussion (🐛 #15) — sent with each message so the
     // agent knows "a massage" means that day.
     // Opened from Home for one thing (🐛 #26): a Creating item (?todo=), the suggestions
@@ -467,10 +472,18 @@
     });
 
     // Plan pills along the top: "All" + one per plan.
+    // The plan you're in was cancelled or combined (🐛 #27, 2026-10-20: "it said that it did it
+    // but I was still on that pill") → back to All. Only once we'd seen it as a pill.
+    let pillWasThere = false;
     async function loadPills() {
       try {
         const { discussions } = await fetch('/api/chat/discussions').then((r) => r.json());
         const el = document.getElementById('topic-pills');
+        if (topicEvent && topicEvent !== 'general') {
+          const here = (discussions || []).some((d) => d.event_id === topicEvent);
+          if (here) pillWasThere = true;
+          else if (pillWasThere) { location.replace('/app/chat?gone=1'); return; }
+        }
         if (!discussions || !discussions.length) return;
         const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
         el.innerHTML = `<a class="tpill${topicEvent ? '' : ' active'}" href="/app/chat">All</a>`
@@ -686,6 +699,7 @@
           appendMessage('bot', data.text, data.ts, true, data.kind);
         } else if (data.role === 'assistant') {
           loadTodos();   // the agent may have changed the plan's to-dos
+          if (topicEvent) loadPills();   // …or cancelled / combined this plan (🐛 #27)
           pendingSince = 0;
           agentStatusEl.textContent = '';
           typingEl.classList.remove('visible');

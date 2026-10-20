@@ -43,5 +43,13 @@
   "26": {
     "note_starts": "Why does it say that the spas the massages for Friday is done",
     "test": "tests/integration/home-links.test.js › a plan card opens its summary (dates, people, suggestions, Creating, what needs doing)"
+  },
+  "27": {
+    "note_starts": "When I asked to delete the hot tub event it said that it did it",
+    "test": "tests/integration/cancelled-plans-gone.test.js › the pills drop it, and the chat leaves a pill that disappeared (with a note)"
+  },
+  "28": {
+    "note_starts": "Why are there two Liam's birthday parties",
+    "test": "tests/integration/cancelled-plans-gone.test.js › two \"Liam's Birthday Party\", one folded into the other → the list shows one"
   }
 }
