@@ -1,0 +1,20 @@
+/* plan-nav.css — the same top of Chat, Creating and Events (owner, 2026-10-20: "the interface
+   along the top should all look similar, so a person knows how to get back and forth").
+   Row 1: plan pills (round chips) — which plan. Row 2: the switcher (a segmented control,
+   visibly different from the pills) — Chat · Creating · Details for that plan. */
+.plan-pills { display: flex; gap: 8px; padding: 8px 12px; overflow-x: auto; background: #fff; border-bottom: 1px solid #e5e5e5; flex-shrink: 0; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.plan-pills::-webkit-scrollbar { display: none; }
+.plan-pills[hidden] { display: none; }
+.tpill { flex-shrink: 0; height: 32px; display: inline-flex; align-items: center; gap: 4px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid #e5e5e5; background: #fff; color: #3a3a3c; font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; max-width: 220px; font-family: inherit; }
+.tpill span { overflow: hidden; text-overflow: ellipsis; }
+.tpill.active { background: #6c47ff; border-color: #6c47ff; color: #fff; font-weight: 600; }
+.tpill .tent { font-size: 11px; opacity: .75; }
+.plan-modes-wrap { background: #fff; border-bottom: 1px solid #e5e5e5; padding: 6px 12px; flex-shrink: 0; }
+.plan-modes { display: flex; gap: 3px; background: #f2f2f7; border-radius: 10px; padding: 3px; }
+.plan-modes a { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 4px; height: 30px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; color: #3a3a3c; text-decoration: none; white-space: nowrap; padding: 0 4px; }
+.plan-modes .dot { width: 7px; height: 7px; border-radius: 50%; background: #6c47ff; flex-shrink: 0; }
+.plan-modes a.active { background: #fff; color: #6c47ff; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.plan-modes .count { font-weight: 500; font-size: 12px; color: #6e6e76; }
+.plan-modes a.active .count { color: #8a7fb0; }

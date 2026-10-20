@@ -903,7 +903,7 @@ describe('Chat: one discussion at a time', () => {
   // organized by plans, not people/groups): "All" + one pill per plan.
   test('chat shows plan pills (All + each plan), reads ?event=, falls back on 403, sends within the plan', () => {
     const html = read('chat.html');
-    assert.ok(html.includes('<nav id="topic-pills" aria-label="Plans" hidden></nav>'));
+    assert.ok(html.includes('<nav id="topic-pills" class="plan-pills" aria-label="Plans" hidden></nav>'));   // shared style (plan-nav.css) since 2026-10-20
     assert.ok(html.includes("fetch('/api/chat/discussions')") && html.includes('href="/app/chat">All</a>'));
     assert.ok(html.includes("new URLSearchParams(location.search).get('event')"));
     assert.ok(html.includes("if (topicEvent && r.status === 403) { location.replace('/app/chat'); return; }"));

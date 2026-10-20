@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/plan-nav.css">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ButterflAI">
@@ -335,13 +336,11 @@
 
   <!-- Plan pills (owner, 2026-10-09): chat is organized by the plans you're making —
        not by people or groups like WhatsApp. "All", then one pill per plan. -->
-  <nav id="topic-pills" aria-label="Plans" hidden></nav>
+  <nav id="topic-pills" class="plan-pills" aria-label="Plans" hidden></nav>
   <!-- The plan's to-do list (owner, 2026-10-12): everyone in the plan sees and edits it. -->
-  <section id="todo-bar" hidden>
-    <!-- What you're doing about this plan, under its pill (🐛 #30/#31, 2026-10-20): Creating,
-         and Details (the plan summary, which has 💬 Discussion back). -->
-    <div id="plan-row"><a id="plan-creating" href="#">✨ Creating ›</a><a id="plan-details" class="tpill" href="#">ℹ︎ Details</a></div>
-  </section>
+  <!-- The switcher under the pills — Chat · Creating · Details for this plan (plan-nav.js), the
+       same on Chat, Creating and Events (owner, 2026-10-20). -->
+  <div id="todo-bar" hidden></div>
 
   <div id="messages">
     <div class="empty" id="empty-state">
@@ -380,7 +379,8 @@
     </div>
   </div>
 
-  <script>
+  <script src="/plan-nav.js"></script>
+<script>
     const messagesEl = document.getElementById('messages');
     const inputEl    = document.getElementById('msg-input');
     const sendBtn    = document.getElementById('send-btn');
@@ -511,19 +511,8 @@
     // ── The plan's to-do list ───────────────────────────────────────────────────
     // Creating has its own tab now (🐛 #32, 2026-10-20: "let's have a new tab just for what we're
     // creating together"); in a plan's chat, its row links there and to Details, with the count.
-    async function loadTodos() {
-      if (!topicEvent || topicEvent === 'general') return;
-      const bar = document.getElementById('todo-bar');
-      const link = document.getElementById('plan-creating');
-      link.href = '/app/creating?event=' + encodeURIComponent(topicEvent) + (topicDay ? '&day=' + topicDay : '');
-      document.getElementById('plan-details').href = '/app/events?event=' + encodeURIComponent(topicEvent) + (topicDay ? '&day=' + topicDay : '');
-      bar.hidden = false;
-      try {
-        const r = await fetch('/api/events/' + encodeURIComponent(topicEvent) + '/todos'); if (!r.ok) return;
-        const data = await r.json();
-        const kept = data.todos.filter(t => !t.suggested), waiting = (data.suggestions || []).filter(x => x.can_decide).length + data.todos.filter(t => t.suggested).length;
-        link.textContent = `✨ Creating${kept.length ? ` ${data.progress.done}/${data.progress.total}` : ''}${waiting ? ` · ${waiting} to look at` : ''} ›`;
-      } catch (_) {}
+    function loadTodos() {
+      PlanNav.modes(document.getElementById('todo-bar'), { page: 'chat', eventId: topicEvent, day: topicDay });
     }
     // A friend's ButterflAI question opened from Home: pinned on top of the chat.
     if (askId) fetch('/api/questions/' + encodeURIComponent(askId)).then((r) => (r.ok ? r.json() : null)).then((q) => {

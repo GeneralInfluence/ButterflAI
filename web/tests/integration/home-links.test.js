@@ -69,8 +69,10 @@ describe('🐛 #30: a plan\'s details from its chat', () => {
   // 🐛 #31: not among the pills — under them, next to Creating (what you're doing about this plan).
   test('a "Details" button next to the plan\'s pill opens its summary (which links back to the discussion)', () => {
     const chat = read('chat.html');
-    assert.ok(chat.includes('<div id="plan-row"><a id="plan-creating" href="#">✨ Creating ›</a><a id="plan-details" class="tpill" href="#">ℹ︎ Details</a></div>'));
-    assert.ok(chat.includes("document.getElementById('plan-details').href = '/app/events?event=' + encodeURIComponent(topicEvent)"));
+    // Since 2026-10-20 it's the shared switcher (plan-nav.js): Chat · Creating · Details.
+    const nav = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/plan-nav.js'), 'utf8');
+    assert.ok(chat.includes("PlanNav.modes(document.getElementById('todo-bar'), { page: 'chat', eventId: topicEvent"));
+    assert.ok(nav.includes("tab('events', plan ? 'ℹ︎ Details' : '📅 Calendar')") && nav.includes("events: '/app/events'"));
     assert.ok(!chat.includes("info.textContent = 'ℹ︎ Details'"), 'no longer among the pills');
     assert.ok(read('events.html').includes('💬 Discussion'));
   });
@@ -80,9 +82,8 @@ describe('🐛 #32: Creating is its own tab, grouped by plan like the chat', () 
   test('a Creating tab on every screen, All and a pill per plan, each plan with Details and its chat', () => {
     for (const f of ['dashboard', 'chat', 'events', 'contacts', 'settings', 'creating']) assert.ok(read(`${f}.html`).includes('<span class="tab-icon">✨</span>Creating</a>'), f);
     const c = read('creating.html');
-    assert.ok(c.includes("fetch('/api/chat/discussions')") && c.includes('href="/app/creating">All</a>') && c.includes('/app/creating?event=${encodeURIComponent(p.event_id)}'));
+    assert.ok(c.includes("PlanNav.pills(document.getElementById('pills'), { page: 'creating'") && c.includes("PlanNav.modes(document.getElementById('modes'), { page: 'creating'"));
     assert.ok(c.includes('ℹ︎ Details') && c.includes('I’m on it') && c.includes('Accept') && c.includes('form class="add"'));
-    assert.ok(read('chat.html').includes("link.href = '/app/creating?event=' + encodeURIComponent(topicEvent)"));
   });
   test('the page is served to signed-in people', async () => {
     const u = { phone: '+12025370999' };
@@ -92,5 +93,26 @@ describe('🐛 #32: Creating is its own tab, grouped by plan like the chat', () 
     assert.equal(r.status, 200);
     assert.ok(r.text.includes('ButterflAI — Creating'));
     assert.equal((await request.get('/app/creating')).status, 302, 'login first');
+  });
+});
+
+describe('the same top on Chat, Creating and Events (owner, 2026-10-20)', () => {
+  const fs = require('node:fs'), pth = require('node:path');
+  const nav = fs.readFileSync(pth.join(__dirname, '../../public/plan-nav.js'), 'utf8');
+  test('all three use the shared pills style and the Chat · Creating · Details switcher', () => {
+    for (const f of ['chat', 'creating', 'events']) {
+      const h = read(`${f}.html`);
+      assert.ok(h.includes('<link rel="stylesheet" href="/plan-nav.css">') && h.includes('<script src="/plan-nav.js"></script>'), f);
+      assert.ok(h.includes(`PlanNav.modes(`) && h.includes(`page: '${f === 'events' ? 'events' : f}'`), f);
+    }
+    assert.ok(read('events.html').includes("PlanNav.pills(document.getElementById('plan-pills'), { page: 'events'"));
+  });
+  test('the switcher always stays on the same plan; on All it\'s Chat · Creating · Calendar', () => {
+    assert.ok(nav.includes("const href = (page, eventId, day) => BASE[page] + (real(eventId) ? '?event='"));
+    assert.ok(nav.includes("tab('chat', '💬 Chat') + tab('creating', '✨ Creating'"));
+  });
+  test('the switcher looks different from the plan pills (segmented control vs round chips)', () => {
+    const css = fs.readFileSync(pth.join(__dirname, '../../public/plan-nav.css'), 'utf8');
+    assert.ok(css.includes('.plan-modes { display: flex; gap: 3px; background: #f2f2f7; border-radius: 10px;') && css.includes('.tpill { flex-shrink: 0; height: 32px;') && css.includes('border-radius: 999px'));
   });
 });

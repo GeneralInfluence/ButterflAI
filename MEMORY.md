@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1121_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1124_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -984,7 +984,14 @@ Events · People · Settings): All + one pill per plan (`/api/chat/discussions`,
 each plan's items (lead/team, details, I'm on it, check off), suggestions (Accept / No),
 ButterflAI's suggestions (Keep), add — plus ℹ︎ Details and 💬 for the plan. In a plan's chat the
 row under the pills links to it ("✨ Creating 0/2 · 2 to look at ›") and to ℹ︎ Details; Home's
-Creating items/suggestions open it highlighted. Every app page's inline scripts are parsed by
+Creating items/suggestions open it highlighted.
+**The same top on Chat, Creating and Events** (owner, same day: "keep this pills interface for
+the creating tab, the chat tab, and the events or calendar tab … the details and creating pills
+should be visually distinctive from the event pills"): `public/plan-nav.js` + `plan-nav.css`.
+Row 1: plan pills (round chips, All + each plan; tapping keeps you on the same tab). Row 2: the
+switcher, a segmented control — 💬 Chat · ✨ Creating (0/2, a dot when something's waiting) ·
+ℹ︎ Details — always for the same plan; on All it's Chat · Creating · 📅 Calendar. Events' own
+List/Calendar toggle is small and plain so it isn't mistaken for the switcher. Every app page's inline scripts are parsed by
 a test (a stray "});" once blanked the chat).
 
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`

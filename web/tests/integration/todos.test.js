@@ -103,13 +103,15 @@ describe('plan to-dos', () => {
   test('pages: to-do bar in the plan\'s chat, on Events cards, and on Home', () => {
     const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8');
     // The list lives in its own tab since 🐛 #32 (2026-10-20); a plan's chat links to it.
-    assert.ok(read('chat.html').includes('<section id="todo-bar" hidden>') && read('chat.html').includes('id="plan-creating"'));
+    // …through the switcher under the pills (plan-nav.js) since 2026-10-20.
+    assert.ok(read('chat.html').includes('<div id="todo-bar" hidden></div>') && read('chat.html').includes("PlanNav.modes(document.getElementById('todo-bar'), { page: 'chat'"));
     assert.ok(read('creating.html').includes('Suggested by ButterflAI'));
     assert.ok(read('events.html').includes('function todoLine(e)') && read('events.html').includes('function checkTodo('));
     // Home = Feeling · Creating · Happenings (owner, 2026-10-12)
     const dash = read('dashboard.html');
     assert.ok(dash.indexOf('<h2>Feeling</h2>') < dash.indexOf('<h2>Creating</h2>') && dash.indexOf('<h2>Creating</h2>') < dash.indexOf('<h2>Happenings</h2>'));
     assert.ok(dash.includes('function creatingHtml(list, suggestions)') && dash.includes('async function doneTodo('));
-    assert.ok(read('chat.html').includes('✨ Creating') && read('events.html').includes('✨ Creating'));
+    // "✨ Creating" in the chat is the shared switcher now (plan-nav.js, 2026-10-20).
+    assert.ok(require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/plan-nav.js'), 'utf8').includes('✨ Creating') && read('events.html').includes('✨ Creating'));
   });
 });
