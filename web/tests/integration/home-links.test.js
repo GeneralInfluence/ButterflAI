@@ -64,9 +64,12 @@ describe('🐛 #26: Home opens the thing itself', () => {
 });
 
 describe('🐛 #30: a plan\'s details from its chat', () => {
+  // 🐛 #31: not among the pills — under them, next to Creating (what you're doing about this plan).
   test('a "Details" button next to the plan\'s pill opens its summary (which links back to the discussion)', () => {
     const chat = read('chat.html');
-    assert.ok(chat.includes("info.textContent = 'ℹ︎ Details'") && chat.includes("info.href = '/app/events?event=' + encodeURIComponent(current.event_id)"));
+    assert.ok(chat.includes('<div id="plan-row"><button type="button" id="todo-toggle" aria-expanded="false"></button><a id="plan-details" class="tpill" href="#">ℹ︎ Details</a></div>'));
+    assert.ok(chat.includes("document.getElementById('plan-details').href = '/app/events?event=' + encodeURIComponent(topicEvent)"));
+    assert.ok(!chat.includes("info.textContent = 'ℹ︎ Details'"), 'no longer among the pills');
     assert.ok(read('events.html').includes('💬 Discussion'));
   });
 });

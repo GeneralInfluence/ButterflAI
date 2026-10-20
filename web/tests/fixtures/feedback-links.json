@@ -59,5 +59,9 @@
   "30": {
     "note_starts": "I want to be able to get to the event details from this screen",
     "test": "tests/integration/home-links.test.js › a \"Details\" button next to the plan's pill opens its summary (which links back to the discussion)"
+  },
+  "31": {
+    "note_starts": "This is good but I think that it should go next to the creating tab",
+    "test": "tests/integration/home-links.test.js › a \"Details\" button next to the plan's pill opens its summary (which links back to the discussion)"
   }
 }

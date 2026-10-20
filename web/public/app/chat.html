@@ -188,7 +188,9 @@
     .tpill-edit { cursor: pointer; font-size: 14px; padding: 0 10px; }
     #todo-bar { background: #fff; border-bottom: 1px solid #e5e5e5; flex-shrink: 0; max-height: 45vh; overflow-y: auto; }
     #todo-bar[hidden], #todo-body[hidden] { display: none; }
-    #todo-toggle { width: 100%; text-align: left; background: none; border: none; padding: 8px 14px; font-size: 13px; font-weight: 600; color: #3a3a3c; font-family: inherit; cursor: pointer; }
+    #plan-row { display: flex; align-items: center; gap: 8px; padding-right: 12px; }
+    #plan-row #plan-details { flex-shrink: 0; font-size: 13px; text-decoration: none; padding: 0 10px; height: 26px; line-height: 26px; display: inline-flex; align-items: center; margin: 4px 0; }
+    #todo-toggle { flex: 1; min-width: 0; width: 100%; text-align: left; background: none; border: none; padding: 8px 14px; font-size: 13px; font-weight: 600; color: #3a3a3c; font-family: inherit; cursor: pointer; }
     #todo-list { list-style: none; margin: 0; padding: 0 14px; }
     #todo-list li { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 14px; }
     #todo-list li.done span.t { text-decoration: line-through; color: #8e8e93; }
@@ -335,7 +337,9 @@
   <nav id="topic-pills" aria-label="Plans" hidden></nav>
   <!-- The plan's to-do list (owner, 2026-10-12): everyone in the plan sees and edits it. -->
   <section id="todo-bar" hidden>
-    <button type="button" id="todo-toggle" aria-expanded="false"></button>
+    <!-- What you're doing about this plan, under its pill (🐛 #30/#31, 2026-10-20): Creating,
+         and Details (the plan summary, which has 💬 Discussion back). -->
+    <div id="plan-row"><button type="button" id="todo-toggle" aria-expanded="false"></button><a id="plan-details" class="tpill" href="#">ℹ︎ Details</a></div>
     <div id="todo-body" hidden>
       <ul id="todo-list"></ul>
       <div id="todo-ideas"></div>
@@ -491,8 +495,6 @@
             + `<span>${d.tentative ? '🗓️' : '📅'} ${esc(d.title)}</span>${d.tentative ? '<span class="tent">tentative</span>' : ''}</a>`).join('')
           // Standalone housekeeping that isn't about any plan (owner, 2026-10-09).
           + `<a class="tpill${topicEvent === 'general' ? ' active' : ''}" href="/app/chat?event=general">💬 General</a>`;
-        // The plan's details, one tap from its chat (🐛 #30, 2026-10-20: "I want to get to the
-        // event details from this screen") — the summary has a 💬 Discussion button back. Added below.
         const current = discussions.find((d) => d.event_id === topicEvent);
 
         // The host can rename the plan they're in (✎ next to its pill) — for everyone.
@@ -505,13 +507,7 @@
         }
         el.hidden = false;
         const active = el.querySelector('.tpill.active');
-        if (current && active) {
-          const info = document.createElement('a');
-          info.className = 'tpill tpill-info'; info.textContent = 'ℹ︎ Details'; info.title = 'Plan details';
-          info.href = '/app/events?event=' + encodeURIComponent(current.event_id) + (topicDay ? '&day=' + topicDay : '');
-          active.after(info);   // right next to the plan's pill, before ✎
-          info.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-        } else if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
+        if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
       } catch (_) { /* pills are optional */ }
     }
 
@@ -522,6 +518,7 @@
     let focused = false;
     async function loadTodos() {
       if (!topicEvent || topicEvent === 'general') return;
+      document.getElementById('plan-details').href = '/app/events?event=' + encodeURIComponent(topicEvent) + (topicDay ? '&day=' + topicDay : '');
       const bar = document.getElementById('todo-bar');
       let data;
       try { const r = await fetch('/api/events/' + encodeURIComponent(topicEvent) + '/todos'); if (!r.ok) return; data = await r.json(); } catch (_) { return; }
