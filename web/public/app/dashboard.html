@@ -159,7 +159,7 @@
 
   <!-- Creating: what you're helping make happen with friends (each plan's shared list) -->
   <section class="home-sec" id="sec-creating">
-    <button type="button" class="sec-head" onclick="openSection('creating')" aria-label="Open Creating"><h2>Creating</h2><span class="sec-line" id="line-creating"></span><span class="sec-more">›</span></button>
+    <button type="button" class="sec-head" onclick="location.href='/app/creating'" aria-label="Open Creating"><h2>Creating</h2><span class="sec-line" id="line-creating"></span><span class="sec-more">›</span></button>
     <div id="creating"><div class="empty-state">Loading…</div></div>
   </section>
 
@@ -179,6 +179,7 @@
 <nav class="bottom-nav">
   <a href="/app/dashboard" class="active"><span class="tab-icon">🏠</span>Home</a>
   <a href="/app/chat"><span class="tab-icon">💬</span>Chat</a>
+  <a href="/app/creating"><span class="tab-icon">✨</span>Creating</a>
   <a href="/app/contacts"><span class="tab-icon">👥</span>People</a>
   <a href="/app/events"><span class="tab-icon">📅</span>Events</a>
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
@@ -261,11 +262,11 @@
   // to be kept, per plan (2026-10-12).
   function creatingHtml(list, suggestions) {
     // Each opens the plan's chat with the thing itself highlighted in its Creating bar (🐛 #26).
-    const sug = (suggestions || []).map(s => `<a class="card feed-item" href="/app/chat?event=${esc(s.event_id)}&focus=suggestions"><span class="feed-icon">💡</span><div>
+    const sug = (suggestions || []).map(s => `<a class="card feed-item" href="/app/creating?event=${esc(s.event_id)}&focus=suggestions"><span class="feed-icon">💡</span><div>
       <div class="card-title">${s.count} suggestion${s.count === 1 ? '' : 's'} for ${esc(s.title)}</div><div class="card-sub">Keep the ones you want</div></div></a>`).join('');
     if ((!list || !list.length) && !sug) return '<div class="empty-state">Nothing to do right now. Open a plan\'s chat to add what needs doing.</div>';
     return (list || []).map(i => `<div class="card feed-item"><span class="feed-icon">✨</span><div style="flex:1;min-width:0">
-      <a href="/app/chat?event=${esc(i.event_id)}&todo=${esc(i.todo_id)}" style="text-decoration:none;color:inherit"><div class="card-title">${esc(i.text)}</div>
+      <a href="/app/creating?event=${esc(i.event_id)}&todo=${esc(i.todo_id)}" style="text-decoration:none;color:inherit"><div class="card-title">${esc(i.text)}</div>
       <div class="card-sub">${esc(i.title)}${i.at ? ' · ' + whenFor(i) : ''} · ${i.who === 'you' ? 'you\'re on it' : 'nobody\'s on it yet'}</div></a>
       ${i.who === 'you'
         // An action, not a status: "✓ Done" read as "it's done" (🐛 #26 — the massages weren't).

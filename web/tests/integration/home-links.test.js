@@ -44,9 +44,11 @@ describe('🐛 #26: Home opens the thing itself', () => {
   test('a plan card opens its summary (dates, people, suggestions, Creating, what needs doing)', () => {
     assert.ok(dash.includes('const href = `/app/events?event=${esc(i.event_id)}`;'));
   });
-  test('a Creating item / the suggestions open the chat with that thing highlighted in the open Creating bar', () => {
-    assert.ok(dash.includes('/app/chat?event=${esc(i.event_id)}&todo=${esc(i.todo_id)}') && dash.includes('&focus=suggestions'));
-    assert.ok(chat.includes("if (focusTodo || focusSuggestions) todoOpen = true;") && chat.includes("el.classList.add('focus'); el.scrollIntoView"));
+  // Since 🐛 #32 these open the Creating tab (its own page), highlighted there.
+  test('a Creating item / the suggestions open the Creating tab with that thing highlighted', () => {
+    const creating = read('creating.html');
+    assert.ok(dash.includes('/app/creating?event=${esc(i.event_id)}&todo=${esc(i.todo_id)}') && dash.includes('/app/creating?event=${esc(s.event_id)}&focus=suggestions'));
+    assert.ok(creating.includes("el.classList.add('focus'); el.scrollIntoView") && chat.includes("location.replace('/app/creating' + location.search)"));
   });
   test('"✓ Done" read as a status — it is "☐ Mark done", and only on items you\'re on', () => {
     assert.ok(!dash.includes("')\">✓ Done</button>"));
@@ -67,9 +69,28 @@ describe('🐛 #30: a plan\'s details from its chat', () => {
   // 🐛 #31: not among the pills — under them, next to Creating (what you're doing about this plan).
   test('a "Details" button next to the plan\'s pill opens its summary (which links back to the discussion)', () => {
     const chat = read('chat.html');
-    assert.ok(chat.includes('<div id="plan-row"><button type="button" id="todo-toggle" aria-expanded="false"></button><a id="plan-details" class="tpill" href="#">ℹ︎ Details</a></div>'));
+    assert.ok(chat.includes('<div id="plan-row"><a id="plan-creating" href="#">✨ Creating ›</a><a id="plan-details" class="tpill" href="#">ℹ︎ Details</a></div>'));
     assert.ok(chat.includes("document.getElementById('plan-details').href = '/app/events?event=' + encodeURIComponent(topicEvent)"));
     assert.ok(!chat.includes("info.textContent = 'ℹ︎ Details'"), 'no longer among the pills');
     assert.ok(read('events.html').includes('💬 Discussion'));
+  });
+});
+
+describe('🐛 #32: Creating is its own tab, grouped by plan like the chat', () => {
+  test('a Creating tab on every screen, All and a pill per plan, each plan with Details and its chat', () => {
+    for (const f of ['dashboard', 'chat', 'events', 'contacts', 'settings', 'creating']) assert.ok(read(`${f}.html`).includes('<span class="tab-icon">✨</span>Creating</a>'), f);
+    const c = read('creating.html');
+    assert.ok(c.includes("fetch('/api/chat/discussions')") && c.includes('href="/app/creating">All</a>') && c.includes('/app/creating?event=${encodeURIComponent(p.event_id)}'));
+    assert.ok(c.includes('ℹ︎ Details') && c.includes('I’m on it') && c.includes('Accept') && c.includes('form class="add"'));
+    assert.ok(read('chat.html').includes("link.href = '/app/creating?event=' + encodeURIComponent(topicEvent)"));
+  });
+  test('the page is served to signed-in people', async () => {
+    const u = { phone: '+12025370999' };
+    db._raw().prepare("INSERT INTO users (id, name, phone, onboarding_state) VALUES (?, 'Sean C', ?, 'complete')").run(uuidv4(), u.phone);
+    db.writeConsent(u.phone, 'INVITE_PAGE');
+    const r = await request.get('/app/creating').set('Cookie', await cookieFor(u));
+    assert.equal(r.status, 200);
+    assert.ok(r.text.includes('ButterflAI — Creating'));
+    assert.equal((await request.get('/app/creating')).status, 302, 'login first');
   });
 });

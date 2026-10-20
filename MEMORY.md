@@ -66,7 +66,7 @@ build_state:
   clawbank_integration: stubbed              # full wire-up when social-budget feature lands
   web_ui: live                              # dashboard, events, settings, onboarding, referral all shipped
   flai_infrastructure: live                 # ledger, burn meter, lift instrumentation, attendance gate shipped
-  test_suite: live_1096_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
+  test_suite: live_1121_passing              # see §7 — tests MUST be maintained with every code change; system-prompt.test.js covers behavioral rules
   ci_cd: live                               # push to main → auto-deploy after tests pass
   anthropic_auth: keyless_wif_in_prod       # 2026-10-02: Fly OIDC → Anthropic Workload Identity Federation; no API key anywhere in prod. See §9
 permission_model:
@@ -975,6 +975,17 @@ chat with that item highlighted in the open Creating bar (`?todo=`); suggestions
 highlighted (`?focus=suggestions`); a friend's question with it pinned on top (`?ask=`,
 `/api/questions/:id`, the person asked only). The button is "☐ Mark done" on items you're on,
 "I'm on it" otherwise. Test: `home-links.test.js`.
+
+## 24d. Creating is its own tab `[2026-10-20]`
+
+🐛 #30–#32 (owner: "let's have a new tab just for what we're creating together … grouped … the
+way that the chat is grouped by pills"). `/app/creating` (bottom nav: Home · Chat · Creating ·
+Events · People · Settings): All + one pill per plan (`/api/chat/discussions`, same as chat);
+each plan's items (lead/team, details, I'm on it, check off), suggestions (Accept / No),
+ButterflAI's suggestions (Keep), add — plus ℹ︎ Details and 💬 for the plan. In a plan's chat the
+row under the pills links to it ("✨ Creating 0/2 · 2 to look at ›") and to ℹ︎ Details; Home's
+Creating items/suggestions open it highlighted. Every app page's inline scripts are parsed by
+a test (a stray "});" once blanked the chat).
 
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 

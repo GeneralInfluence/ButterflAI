@@ -63,5 +63,9 @@
   "31": {
     "note_starts": "This is good but I think that it should go next to the creating tab",
     "test": "tests/integration/home-links.test.js › a \"Details\" button next to the plan's pill opens its summary (which links back to the discussion)"
+  },
+  "32": {
+    "note_starts": "I think the creating section needs to be its own tab",
+    "test": "tests/integration/home-links.test.js › a Creating tab on every screen, All and a pill per plan, each plan with Details and its chat"
   }
 }

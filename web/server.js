@@ -1542,6 +1542,7 @@ app.get('/app/login',      (req, res) => res.sendFile(path.join(__dirname, 'publ
 app.get('/app/chat',       webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/chat.html')));
 app.get('/app/contacts',   webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/contacts.html')));
 app.get('/app/dashboard',  webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/dashboard.html')));
+app.get('/app/creating',   webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/creating.html')));   // 🐛 #32
 app.get('/app/events',     webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/events.html')));
 app.get('/app/settings',   webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/settings.html')));
 // The old "Finish setup" wizard (name + 3 contacts + how often) is gone — people join through

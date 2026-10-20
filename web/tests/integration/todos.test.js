@@ -102,7 +102,9 @@ describe('plan to-dos', () => {
 
   test('pages: to-do bar in the plan\'s chat, on Events cards, and on Home', () => {
     const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app', f), 'utf8');
-    assert.ok(read('chat.html').includes('<section id="todo-bar" hidden>') && read('chat.html').includes('Suggested by ButterflAI'));
+    // The list lives in its own tab since 🐛 #32 (2026-10-20); a plan's chat links to it.
+    assert.ok(read('chat.html').includes('<section id="todo-bar" hidden>') && read('chat.html').includes('id="plan-creating"'));
+    assert.ok(read('creating.html').includes('Suggested by ButterflAI'));
     assert.ok(read('events.html').includes('function todoLine(e)') && read('events.html').includes('function checkTodo('));
     // Home = Feeling · Creating · Happenings (owner, 2026-10-12)
     const dash = read('dashboard.html');

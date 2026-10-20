@@ -190,6 +190,7 @@
     #todo-bar[hidden], #todo-body[hidden] { display: none; }
     #plan-row { display: flex; align-items: center; gap: 8px; padding-right: 12px; }
     #plan-row #plan-details { flex-shrink: 0; font-size: 13px; text-decoration: none; padding: 0 10px; height: 26px; line-height: 26px; display: inline-flex; align-items: center; margin: 4px 0; }
+    #plan-creating { flex: 1; min-width: 0; padding: 8px 14px; font-size: 13px; font-weight: 600; color: #3a3a3c; text-decoration: none; }
     #todo-toggle { flex: 1; min-width: 0; width: 100%; text-align: left; background: none; border: none; padding: 8px 14px; font-size: 13px; font-weight: 600; color: #3a3a3c; font-family: inherit; cursor: pointer; }
     #todo-list { list-style: none; margin: 0; padding: 0 14px; }
     #todo-list li { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 14px; }
@@ -339,13 +340,7 @@
   <section id="todo-bar" hidden>
     <!-- What you're doing about this plan, under its pill (🐛 #30/#31, 2026-10-20): Creating,
          and Details (the plan summary, which has 💬 Discussion back). -->
-    <div id="plan-row"><button type="button" id="todo-toggle" aria-expanded="false"></button><a id="plan-details" class="tpill" href="#">ℹ︎ Details</a></div>
-    <div id="todo-body" hidden>
-      <ul id="todo-list"></ul>
-      <div id="todo-ideas"></div>
-      <div id="todo-suggested"></div>
-      <form id="todo-add"><input id="todo-new" maxlength="200" placeholder="Add something to make happen…" aria-label="Add to Creating"><button type="submit" class="tpill">Add</button></form>
-    </div>
+    <div id="plan-row"><a id="plan-creating" href="#">✨ Creating ›</a><a id="plan-details" class="tpill" href="#">ℹ︎ Details</a></div>
   </section>
 
   <div id="messages">
@@ -464,6 +459,8 @@
     // (?focus=suggestions) or a friend's question (?ask=) — shown, not left to find.
     const focusTodo = new URLSearchParams(location.search).get('todo');
     const focusSuggestions = new URLSearchParams(location.search).get('focus') === 'suggestions';
+    // Older links (from Home) to one Creating item / the suggestions now open the Creating tab.
+    if (focusTodo || focusSuggestions) location.replace('/app/creating' + location.search);
     const askId = new URLSearchParams(location.search).get('ask');
     const topicDay = /^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get('day') || '') ? new URLSearchParams(location.search).get('day') : null;
 
@@ -512,49 +509,21 @@
     }
 
     // ── The plan's to-do list ───────────────────────────────────────────────────
-    let todoOpen = false;
-    try { todoOpen = localStorage.getItem('bfly-todo-open') === '1'; } catch (_) {}
-    if (focusTodo || focusSuggestions) todoOpen = true;
-    let focused = false;
+    // Creating has its own tab now (🐛 #32, 2026-10-20: "let's have a new tab just for what we're
+    // creating together"); in a plan's chat, its row links there and to Details, with the count.
     async function loadTodos() {
       if (!topicEvent || topicEvent === 'general') return;
-      document.getElementById('plan-details').href = '/app/events?event=' + encodeURIComponent(topicEvent) + (topicDay ? '&day=' + topicDay : '');
       const bar = document.getElementById('todo-bar');
-      let data;
-      try { const r = await fetch('/api/events/' + encodeURIComponent(topicEvent) + '/todos'); if (!r.ok) return; data = await r.json(); } catch (_) { return; }
-      const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-      const kept = data.todos.filter(t => !t.suggested), sug = data.todos.filter(t => t.suggested);
-      const toggle = document.getElementById('todo-toggle');
-      // "Creating" — the plan's shared list (owner named it, 2026-10-12)
-      toggle.textContent = `✨ Creating ${kept.length ? `${data.progress.done}/${data.progress.total}` : ''}${sug.length ? ` · ${sug.length} suggested` : ''} ${todoOpen ? '▴' : '▾'}`;
-      toggle.setAttribute('aria-expanded', String(todoOpen));
-      document.getElementById('todo-body').hidden = !todoOpen;
-      // Each item: its details, who's on it; only its team can check it off or edit it — anyone
-      // else taps "I'm on it" first (owner, 2026-10-19: no editing by accident).
-      const STATUS = { idea: '', options: 'options found', chosen: 'chosen', booked: 'booked ✓' };
-      document.getElementById('todo-list').innerHTML = kept.map(t => {
-        const det = [t.when_text, t.place && 'at ' + t.place, STATUS[t.status]].filter(Boolean).join(' · ');
-        const crew = t.team && t.team.length ? t.team.join(', ') : '';
-        return `<li class="${t.done ? 'done' : ''}" data-id="${esc(t.id)}">
-          ${t.yours ? `<input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done">` : ''}<span class="t">${esc(t.shown || t.text)}${det ? `<span class="det">${esc(det)}</span>` : ''}${t.notes ? `<span class="det">${esc(t.notes)}</span>` : ''}</span>
-          ${crew ? `<span class="who">${esc(crew)}</span>` : ''}${t.yours ? '<button type="button" class="todo-x" aria-label="Remove">✕</button>' : '<button type="button" class="tpill onit">I\'m on it</button>'}</li>`;
-      }).join('')
-        || '<li style="color:#8e8e93;font-size:13px">Nothing yet — add what needs doing, or ask your ButterflAI what this plan needs.</li>';
-      document.getElementById('todo-suggested').innerHTML = sug.length ? '<div style="font-size:12px;color:#8e8e93;margin-top:4px">Suggested by ButterflAI</div>' + sug.map(t =>
-        `<div class="sug" data-id="${esc(t.id)}"><span>${esc(t.shown || t.text)}</span><button type="button" class="tpill keep">Keep</button><button type="button" class="todo-x" aria-label="Dismiss">✕</button></div>`).join('') : '';
-      // Suggestions: ones you decide (Accept / No), and your own waiting (take it back).
-      const ideas = data.suggestions || [];
-      document.getElementById('todo-ideas').innerHTML = ideas.length ? '<div style="font-size:12px;color:#8e8e93;margin-top:4px">💡 Suggestions</div>' + ideas.map(s =>
-        `<div class="idea" data-sid="${esc(s.id)}"><span>${esc(s.from === 'you' ? 'You' : s.from)}${s.item ? ` on “${esc(s.item)}”` : ''}: ${esc(s.summary)}</span>${s.can_decide
-          ? '<button type="button" class="tpill accept">Accept</button><button type="button" class="tpill decline">No</button>'
-          : '<span style="flex:0 0 auto;font-size:12px;color:#8e8e93">waiting</span><button type="button" class="todo-x withdraw" aria-label="Take back">✕</button>'}</div>`).join('') : '';
+      const link = document.getElementById('plan-creating');
+      link.href = '/app/creating?event=' + encodeURIComponent(topicEvent) + (topicDay ? '&day=' + topicDay : '');
+      document.getElementById('plan-details').href = '/app/events?event=' + encodeURIComponent(topicEvent) + (topicDay ? '&day=' + topicDay : '');
       bar.hidden = false;
-      // Highlight what Home sent them here for — once.
-      if (!focused && (focusTodo || focusSuggestions)) {
-        focused = true;
-        const el = focusTodo ? document.querySelector(`#todo-list [data-id="${CSS.escape(focusTodo)}"]`) : (document.getElementById('todo-ideas').firstElementChild || document.getElementById('todo-suggested').firstElementChild);
-        if (el) { el.classList.add('focus'); el.scrollIntoView({ block: 'center' }); }
-      }
+      try {
+        const r = await fetch('/api/events/' + encodeURIComponent(topicEvent) + '/todos'); if (!r.ok) return;
+        const data = await r.json();
+        const kept = data.todos.filter(t => !t.suggested), waiting = (data.suggestions || []).filter(x => x.can_decide).length + data.todos.filter(t => t.suggested).length;
+        link.textContent = `✨ Creating${kept.length ? ` ${data.progress.done}/${data.progress.total}` : ''}${waiting ? ` · ${waiting} to look at` : ''} ›`;
+      } catch (_) {}
     }
     // A friend's ButterflAI question opened from Home: pinned on top of the chat.
     if (askId) fetch('/api/questions/' + encodeURIComponent(askId)).then((r) => (r.ok ? r.json() : null)).then((q) => {
@@ -565,40 +534,6 @@
       const bar = document.getElementById('todo-bar');
       bar.parentNode.insertBefore(pin, bar.nextSibling);
     }).catch(() => {});
-    async function todoCall(method, url, body) {
-      await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).catch(() => {});
-      loadTodos();
-    }
-    document.getElementById('todo-toggle').addEventListener('click', () => {
-      todoOpen = !todoOpen;
-      try { localStorage.setItem('bfly-todo-open', todoOpen ? '1' : '0'); } catch (_) {}
-      loadTodos();
-    });
-    document.getElementById('todo-body').addEventListener('click', (e) => {
-      const sug = e.target.closest('[data-sid]');
-      if (sug) {
-        const url = '/api/suggestions/' + encodeURIComponent(sug.dataset.sid);
-        if (e.target.matches('.accept')) todoCall('POST', url, { accept: true });
-        else if (e.target.matches('.decline')) todoCall('POST', url, { accept: false });
-        else if (e.target.matches('.withdraw')) todoCall('DELETE', url);
-        return;
-      }
-      const row = e.target.closest('[data-id]');
-      if (!row) return;
-      const url = '/api/todos/' + encodeURIComponent(row.dataset.id);
-      if (e.target.matches('input[type=checkbox]')) todoCall('PATCH', url, { done: e.target.checked });
-      else if (e.target.matches('.keep')) todoCall('PATCH', url, { keep: true });
-      else if (e.target.matches('.onit')) todoCall('POST', url + '/join');
-      else if (e.target.matches('.todo-x')) todoCall('DELETE', url);
-    });
-    document.getElementById('todo-add').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const input = document.getElementById('todo-new');
-      const text = input.value.trim();
-      if (!text) return;
-      input.value = '';
-      todoCall('POST', '/api/events/' + encodeURIComponent(topicEvent) + '/todos', { text, ...(topicDay ? { day: topicDay } : {}) });
-    });
 
     function renamePlan(plan) {
       const el = document.getElementById('topic-pills');
@@ -1221,6 +1156,7 @@
 <nav class="bottom-nav">
   <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
   <a href="/app/chat" class="active"><span class="tab-icon">💬</span>Chat</a>
+  <a href="/app/creating"><span class="tab-icon">✨</span>Creating</a>
   <a href="/app/contacts"><span class="tab-icon">👥</span>People</a>
   <a href="/app/events"><span class="tab-icon">📅</span>Events</a>
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>

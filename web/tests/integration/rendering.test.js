@@ -61,10 +61,11 @@ const APP_PAGES = [
   { path: '/app/dashboard',   name: 'Dashboard' },
   { path: '/app/contacts',    name: 'Contacts (People)' },
   { path: '/app/events',      name: 'Events' },
+  { path: '/app/creating',    name: 'Creating' },   // its own tab since 🐛 #32
   { path: '/app/settings',    name: 'Settings' },
 ];
 
-const BOTTOM_NAV_TABS = ['Home', 'Chat', 'People', 'Events', 'Settings'];
+const BOTTOM_NAV_TABS = ['Home', 'Chat', 'Creating', 'People', 'Events', 'Settings'];   // Creating added 2026-10-20 (🐛 #32)
 
 // ── PWA meta tag compliance ───────────────────────────────────────────────────
 
@@ -950,7 +951,8 @@ describe('Home at a glance: three sections, each opens full screen', () => {
   const home = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
   test('each section has its title, a summary line and an open button', () => {
     for (const k of ['feeling', 'creating', 'happenings']) {
-      assert.ok(home.includes(`onclick="openSection('${k}')"`), k);
+      // Creating opens its own tab since 🐛 #32 (2026-10-20); the others open full screen on Home.
+      assert.ok(k === 'creating' ? home.includes(`onclick="location.href='/app/creating'"`) : home.includes(`onclick="openSection('${k}')"`), k);
       assert.ok(home.includes(`id="line-${k}"`), k);
     }
   });
@@ -1033,4 +1035,22 @@ describe('🐛 #12: tapping a plan on the calendar opens its details', () => {
     assert.ok(ev.includes('body main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 48px); }'));
     assert.ok(ev.includes('#plan-summary, .day-panel { scroll-margin-top: 72px; }'));
   });
+});
+
+// 2026-10-20: a stray "});" left by an edit broke chat.html's whole script (the page loaded
+// blank) and no test noticed. Every inline <script> on every app page must parse.
+describe('every page\'s scripts parse', () => {
+  const fs = require('node:fs'), vm = require('node:vm'), p = require('node:path');
+  const dir = p.join(__dirname, '../../public/app');
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.html'))) {
+    test(f, () => {
+      const html = fs.readFileSync(p.join(dir, f), 'utf8');
+      [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].forEach((m, i) => {
+        assert.doesNotThrow(() => new vm.Script(m[1], { filename: `${f}#script${i}` }), `${f} script ${i}`);
+      });
+    });
+  }
+  for (const f of ['feedback.js', 'name-prompt.js', 'notify-prompt.js', 'update-check.js', 'install-prompt.js']) {
+    test(f, () => assert.doesNotThrow(() => new vm.Script(fs.readFileSync(p.join(__dirname, '../../public', f), 'utf8'), { filename: f })));
+  }
 });
