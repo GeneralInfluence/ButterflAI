@@ -1155,6 +1155,11 @@ a Creating item's 🍻 Together makes it a small tentative plan, "<item> — tog
 the others on the item (else the plan's host / co-hosts), one per item (`todos.together`,
 `event_todos.together_event_id`, migration 075, `POST /api/todos/:id/together`). Ideas see open Creating
 items and who's on them and may suggest doing one together; ideas are never errands or reminders.
+**Back from a page (🐛 #42 — an overlay while browsing a site; a web app can't draw over another site):**
+tapping More remembers the idea; on returning to Explore a sheet asks "Back from <site> — what did you
+think?" — 😍 Into it (= Sounds fun: kept + passed on) · 🤷 Meh · 👎 Not for me (hidden) + a note
+(`spells.react`, `spells.note`, migration 076, `POST /api/spells/:id/react`). Notes feed the next ideas
+("What they said about ideas they looked at — follow it"); they never leave the person.
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`

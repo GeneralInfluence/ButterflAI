@@ -1695,6 +1695,13 @@ app.get('/api/ideas/map', webAuth.requireAuth, (req, res) => res.json(require('.
 app.post('/api/ideas', webAuth.requireAuth, express.json({ limit: '200kb' }), (req, res) => {
   res.json(require('./ideafeed').page(req.user.id, { seen: req.body?.seen }));
 });
+// 🐛 #42: what they thought after looking at an idea's page.
+app.post('/api/spells/:id/react', webAuth.requireAuth, express.json(), (req, res) => {
+  let id = String(req.params.id);
+  if (id.startsWith('pool:')) { id = require('./spells').adopt(req.user.id, id.slice(5)); if (!id) return res.status(404).json({ error: 'NOT_FOUND' }); }
+  const r = require('./spells').react(req.user.id, id, { verdict: req.body?.verdict, note: req.body?.note });
+  return r.error ? res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r) : res.json(r);
+});
 app.post('/api/spells/:id', webAuth.requireAuth, express.json(), (req, res) => {
   let id = String(req.params.id);
   // An idea found around you (someone else's, public): it becomes yours first.

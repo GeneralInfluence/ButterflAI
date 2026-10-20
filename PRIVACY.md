@@ -408,6 +408,10 @@ ButterflAI page showed it.
 search, and shown only after it opened over https. For the map, the idea's place name and town (e.g.
 "Cargo Concert Hall, Reno") are looked up on OpenStreetMap's Nominatim — nothing about the person. The
 map shows ideas only — never where any person is.
+**What you thought of a page (🐛 #42):** back from an idea's page, a person can say what they thought.
+"Into it" works like ✨ Sounds fun (kept, its public title passed on); their written note stays theirs —
+it shapes the ideas ButterflAI imagines for them (sent to Anthropic with that request) and is never shown
+to or shared with anyone else.
 
 ## I'm out (who's near you now) `[2026-10-20]`
 

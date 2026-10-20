@@ -111,5 +111,9 @@
   "44": {
     "note_starts": "I like these things about a quick call with Allie",
     "test": "tests/integration/together.test.js › a Creating item becomes its own small plan with the people on it — tentative, no date, one per item"
+  },
+  "42": {
+    "note_starts": "If I open a website through butterfly",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #42: back from a page — into it (kept, passed on), not for me (hidden), and a note that shapes your next ideas and reaches no one"
   }
 }

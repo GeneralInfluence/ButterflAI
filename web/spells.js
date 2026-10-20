@@ -77,7 +77,10 @@ function contextFor(user) {
     ORDER BY t.created_at DESC LIMIT 8`).all(user.id, user.phone || '')
     .map((t) => ({ text: t.text, plan: t.plan, with: require('./todos').team(t.id).filter((m) => m.phone !== user.phone).map((m) => String(m.name).split(' ')[0])
       .filter((n) => !(avoided || []).some((a) => String(a.name || '').split(' ')[0] === n)) }));
-  return { plans, friends, said, wishes, dismissed, current, around, todos, avoidedNames: (avoided || []).map((a) => a.name).filter(Boolean) };
+  // What they said about ideas after looking at them (🐛 #42) — their own taste, in their own words.
+  const notes = db._raw().prepare("SELECT title, note, status FROM spells WHERE user_id = ? AND note IS NOT NULL ORDER BY created_at DESC LIMIT 12").all(user.id)
+    .map((r) => `"${r.title}"${r.status === 'kept' ? ' (into it)' : r.status === 'dismissed' ? ' (not for them)' : ''}: ${clean(r.note, 160)}`);
+  return { plans, friends, said, wishes, dismissed, current, around, todos, notes, avoidedNames: (avoided || []).map((a) => a.name).filter(Boolean) };
 }
 
 const PROMPT = (user, c, today) => `You are ButterflAI, imagining what could be fun for ${String(user.name || 'this person').split(' ')[0]} — gentle ideas ("spells") that might make good things happen with the people in their life and widen their circle. Today is ${today}${user.city ? `; they live in ${user.city}` : ''}.
@@ -89,6 +92,7 @@ What you know (their own):
 - Things they said lately: ${c.said.slice(0, 15).map((s) => `"${s}"`).join(' ') || 'nothing'}
 - Not into (dismissed before — don't suggest anything like these): ${c.dismissed.join('; ') || 'nothing yet'}
 - Things they're making happen in their plans (and who's on them): ${(c.todos || []).map((t) => `${t.text} (${t.plan}${t.with.length ? `, with ${t.with.join(' & ')}` : ''})`).join('; ') || 'none'}
+- What they said about ideas they looked at (their taste — follow it): ${(c.notes || []).join('; ') || 'nothing yet'}
 - Ideas they already have (don't repeat): ${(c.current || []).join('; ') || 'none'}
 - Liked lately by people around them (anonymous — a hint at what's good nearby): ${(c.around || []).join('; ') || 'nothing yet'}
 
@@ -273,6 +277,24 @@ function answer(userId, id, ans) {
   return { error: 'BAD_ANSWER' };
 }
 
+/**
+ * After looking at an idea's page (🐛 #42): into it (kept as a wish and passed on, like ✨ Sounds fun),
+ * meh, or not for me (hidden, and similar ideas stop) — plus anything they want to say about it, which
+ * stays theirs and shapes what ButterflAI imagines for them next. The note never reaches anyone else.
+ */
+function react(userId, id, { verdict, note } = {}) {
+  const s = db._raw().prepare('SELECT * FROM spells WHERE id = ? AND user_id = ?').get(id, userId);
+  if (!s) return { error: 'NOT_FOUND' };
+  if (!['into', 'meh', 'no'].includes(verdict) && !String(note || '').trim()) return { error: 'EMPTY' };
+  const text = String(note || '').replace(/\s+/g, ' ').trim().slice(0, 500) || null;
+  if (text) db._raw().prepare('UPDATE spells SET note = ? WHERE id = ?').run(text, id);
+  let out = { ok: true };
+  if (verdict === 'into' && s.status === 'new') out = { ...answer(userId, id, 'wish'), noted: !!text };
+  else if (verdict === 'no' && s.status === 'new') out = { ...answer(userId, id, 'dismiss'), noted: !!text };
+  else out.noted = !!text;
+  return out;
+}
+
 /** Kept 7 days; dismissed titles kept 60 days (so similar ones stop), then gone. */
 function purgeOld() {
   return db._raw().prepare("DELETE FROM spells WHERE (status != 'dismissed' AND expires_at < ?) OR (status = 'dismissed' AND created_at < ?)").run(now(), now() - 60 * 86400).changes;
@@ -350,4 +372,4 @@ function adopt(userId, originId) {
   return id;
 }
 
-module.exports = { generate, more, tick, forUser, answer, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
+module.exports = { generate, more, tick, forUser, answer, react, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };

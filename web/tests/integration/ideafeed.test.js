@@ -186,4 +186,36 @@ describe('✨ Feed', () => {
     assert.ok(html.includes("showView('map')") && html.includes('leaflet') && html.includes('[0x34, 0xc7, 0x59], b = [0x6c, 0x47, 0xff]'), 'green → purple, never red');
     assert.ok(html.includes('Found in a web search'), '🐛 #41: each post says where it came from');
   });
+
+  // 🐛 #42 (Sean, 2026-10-20): "If I open a website through butterfly … can I have that overlay so that way
+  // as I go through the website I can make a comment … what's interesting and what's not. And that becomes
+  // a part of my personal preferences which is a social share of sorts that affects the network". An app
+  // can't draw over another website, so: back from the page, "what did you think?".
+  test('🐛 #42: back from a page — into it (kept, passed on), not for me (hidden), and a note that shapes your next ideas and reaches no one', async () => {
+    const me = mkUser('Sean R'); const friend = mkUser('Friend R'); const o = mkUser('Other R');
+    knows(me, friend); knows(friend, me);
+    const a = idea(me, { title: 'Comedy night at the Laugh Factory' });
+    const b = idea(me, { title: 'Pottery wheel taster' });
+    const pooled = idea(o, { title: 'Swing dance lesson' });
+    const c = await cookieFor(me);
+    let r = await request.post(`/api/spells/${a}/react`).set('Cookie', c).send({ verdict: 'into', note: 'love the late show, not the early one' });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.passed_on, 1, 'into it spreads like ✨ Sounds fun');
+    assert.ok(!JSON.stringify(spells.forUser(friend.id)).includes('late show'), 'the note never goes anywhere');
+    r = await request.post(`/api/spells/${b}/react`).set('Cookie', c).send({ verdict: 'no', note: 'too messy' });
+    assert.equal(db._raw().prepare('SELECT status FROM spells WHERE id = ?').get(b).status, 'dismissed');
+    r = await request.post('/api/spells/' + encodeURIComponent(`pool:${pooled}`) + '/react').set('Cookie', c).send({ verdict: 'meh', note: 'maybe with lessons first' });
+    assert.equal(r.status, 200);
+    assert.equal((await request.post(`/api/spells/${a}/react`).set('Cookie', c).send({})).status, 400);
+    const seen = [];
+    spells._setClient({ messages: { create: async (req) => { seen.push(req); return { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"spells":[]}' }] }; } } });
+    await spells.generate(me, { force: true });
+    const prompt = seen[0].messages[0].content;
+    assert.match(prompt, /What they said about ideas they looked at \(their taste — follow it\): /);
+    assert.match(prompt, /"Comedy night at the Laugh Factory" \(into it\): love the late show/);
+    assert.match(prompt, /"Pottery wheel taster" \(not for them\): too messy/);
+    assert.match(prompt, /"Swing dance lesson": maybe with lessons first/);
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes('what did you think?') && html.includes("onclick=\"visiting(") && html.includes('only you and your ButterflAI see this'));
+  });
 });
