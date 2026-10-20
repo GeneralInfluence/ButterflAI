@@ -34,6 +34,13 @@ function fmtDay(s) { return new Date(s + 'T12:00:00Z').toLocaleDateString('en-US
 
 function datesOf(e, tz) {
   const proposals = parseJson(e.proposed_dates, []);
+  // One date range, locked in = those days, confirmed (🐛 #23, 2026-10-19: a weekend has no
+  // single start time, so "Lock it in" never appeared for Melanie's Fri–Sat weekend).
+  if (proposals.length === 1 && !e.tentative) {
+    const o = proposals[0];
+    return { kind: 'days', proposals: [], from: o.from, to: o.to, last: o.to, days: span(o.from, o.to),
+      label: o.from === o.to ? fmtDay(o.from) : `${fmtDay(o.from)} – ${fmtDay(o.to)}` };
+  }
   if (proposals.length) {
     return { kind: 'proposed', proposals, label: proposals.map((p) => (p.from === p.to ? fmtDay(p.from) : `${fmtDay(p.from)} – ${fmtDay(p.to)}`)).join(' or ') + ' (proposed)',
       days: [...new Set(proposals.flatMap((p) => span(p.from, p.to)))], last: proposals[proposals.length - 1].to };
@@ -80,7 +87,7 @@ function planFor(eventId, viewerId) {
   const todo = db._raw().prepare(`SELECT count(*) total, sum(done_at IS NOT NULL AND suggested = 0) done, sum(suggested = 1) suggested,
     sum(suggested = 0) kept FROM event_todos WHERE event_id = ?`).get(e.id);
 
-  const ended = dates.kind === 'set' ? dates.end < t : dates.kind === 'proposed' ? (Date.parse(dates.last + 'T23:59:59Z') / 1000) < t - 86400 : false;
+  const ended = dates.kind === 'set' ? dates.end < t : ['proposed', 'days'].includes(dates.kind) ? (Date.parse(dates.last + 'T23:59:59Z') / 1000) < t - 86400 : false;
   const stage = e.status === 'cancelled' ? 'cancelled'
     : ended ? 'past'
     : !isHost && mine?.status === 'invited' ? 'invited'
@@ -98,6 +105,10 @@ function planFor(eventId, viewerId) {
   const next = stillGoing ? 'Still going? Tap to answer'
     : stage === 'invited' ? (e.tentative ? 'Interested? Tap to answer' : 'Tap to respond')
     : isHost && stage === 'idea' ? 'Pick dates'
+    // It's clearly happening — one set of dates and someone going or things being organized:
+    // offer to lock it in (owner, 🐛 #23: "At what point does the agent automatically recognize?").
+    : canEditIt && e.tentative && (dates.kind === 'set' || (dates.kind === 'proposed' && dates.proposals.length === 1))
+      && (people.some((p) => p.going) || (todo.kept || 0) > 0) ? 'It’s happening — lock it in'
     : isHost && e.tentative && invitations.length && !waiting.length && (interested.length || people.some((p) => p.deferring_to.length))
       ? 'Lock in the plan — tell your agent the final details' : null;
 

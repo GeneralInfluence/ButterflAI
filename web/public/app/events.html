@@ -809,9 +809,15 @@
   // The host fixes their own plan (2026-10-13: "without me having to use my admin ability"):
   // lock it in when the date is set, see what changed and who changed it, undo the last change.
   function hostControls(p) {
-    const lock = p.tentative && p.dates.kind === 'set'
-      ? `<button class="ps-primary" onclick="lockIn('${escHtml(p.id)}', this)">🔒 Lock it in</button>`
-      : p.tentative && p.dates.kind !== 'set' ? `<div class="ps-rows" style="font-size:13px;color:#6e6e76">Pick the date in the discussion to lock it in.</div>` : '';
+    // Lock in: a set date, or one proposed range (a weekend) as is; several options → one button each (🐛 #23).
+    const opts = p.dates.kind === 'proposed' ? p.dates.proposals : [];
+    const optLabel = (o) => o.from === o.to ? new Date(o.from + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' })
+      : `${new Date(o.from + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' })} – ${new Date(o.to + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' })}`;
+    const lock = !p.tentative ? ''
+      : p.dates.kind === 'set' || opts.length === 1
+      ? `<button class="ps-primary" onclick="lockIn('${escHtml(p.id)}', this)">🔒 Lock it in${opts.length === 1 ? ` · ${escHtml(optLabel(opts[0]))}` : ''}</button>`
+      : opts.length > 1 ? opts.map((o) => `<button class="ps-primary" onclick='lockIn(${JSON.stringify(p.id)}, this, ${JSON.stringify(o)})'>🔒 ${escHtml(optLabel(o))}</button>`).join(' ')
+      : `<div class="ps-rows" style="font-size:13px;color:#6e6e76">Pick the date in the discussion to lock it in.</div>`;
     setTimeout(() => loadChanges(p.id), 0);
     return `${lock ? `<div class="ps-actions">${lock}</div>` : ''}
       <div class="ps-label">Recent changes</div><div id="ps-changes" class="ps-rows" style="font-size:13px">Loading…</div>`;
@@ -834,9 +840,10 @@
     await fetch('/api/events/' + encodeURIComponent(eventId) + '/cohost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invitation_id: invitationId, cohost: on }) }).catch(() => {});
     await refreshPlans();
   }
-  async function lockIn(id, btn) {
+  async function lockIn(id, btn, option) {
     btn.disabled = true;
-    await fetch('/api/events/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tentative: false }) }).catch(() => {});
+    const body = option ? { tentative: false, proposed_dates: [option] } : { tentative: false };
+    await fetch('/api/events/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
     await refreshPlans();
   }
   async function undoLast(id, btn) {

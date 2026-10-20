@@ -132,7 +132,7 @@ function decide(actions, { userId, userText, eventId, plans, isNamed }) {
     if (a.kind === 'cancel' && p.role !== 'host') return { ...out, decision: 'agent', why: 'only the host can cancel' };
     if (a.kind === 'rsvp' && (p.role !== 'guest' || !['going', 'interested', 'declined'].includes(a.answer))) return { ...out, decision: 'drop', why: 'not an answer they can give' };
     if (a.kind === 'add_todo' && !String(a.text || '').trim()) return { ...out, decision: 'drop', why: 'no item' };
-    if (a.kind === 'lock_in' && p.dates?.kind !== 'set') return { ...out, decision: 'agent', why: 'no date set yet' };
+    if (a.kind === 'lock_in' && !(p.dates?.kind === 'set' || (p.dates?.kind === 'proposed' && p.dates.proposals.length === 1))) return { ...out, decision: 'agent', why: 'no date set yet' };
     if (!APPLIED_KINDS.has(a.kind)) return { ...out, decision: 'agent' };
     if (out.confidence >= APPLY_AT) return { ...out, decision: 'apply' };
     if (out.confidence >= ASK_AT && a.ask) return { ...out, decision: 'ask' };

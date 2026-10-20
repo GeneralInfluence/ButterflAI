@@ -267,7 +267,8 @@ async function runAttendanceGate() {
 function plansToConfirm(user) {
   const t = Math.floor(Date.now() / 1000);
   return require('./plan').plansFor(user.id, { includePast: true })
-    .filter((p) => p.stage === 'past' && p.dates.kind === 'set' && p.dates.end < t - 12 * 3600 && p.dates.end > t - 7 * 86400)
+    .map((p) => (p.dates.kind === 'days' ? { ...p, dates: { ...p.dates, end: Date.parse(p.dates.to + 'T23:59:59Z') / 1000 } } : p))
+    .filter((p) => p.stage === 'past' && ['set', 'days'].includes(p.dates.kind) && p.dates.end < t - 12 * 3600 && p.dates.end > t - 7 * 86400)
     .filter((p) => p.role === 'host' || p.invitation?.status === 'accepted')
     .filter((p) => !db.getAttendanceConfirmation(p.id, user.id));
 }

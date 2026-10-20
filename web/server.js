@@ -2308,7 +2308,7 @@ app.get('/api/events/:id/manage', webAuth.requireAuth, (req, res) => {
 app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => {
   // Every plan change goes through planops.js — the same rules as the agent's tools.
   // + tentative ("Lock it in") and duration_mins (2026-10-13: hosts fix their plans themselves).
-  const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address', 'host_attending', 'tentative', 'duration_mins'];
+  const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address', 'host_attending', 'tentative', 'duration_mins', 'proposed_dates'];
   const changes = {};
   for (const k of allowed) if (req.body[k] !== undefined) changes[k] = req.body[k];
   if (!Object.keys(changes).length) return res.status(400).json({ error: 'Nothing to update' });

@@ -66,6 +66,10 @@ function desired(userId, eventId) {
       end: { dateTime: new Date((p.dates.end + 60) * 1000).toISOString() },
       status: firm ? 'confirmed' : 'tentative', transparency: firm ? 'opaque' : 'transparent' } }];
   }
+  if (p.dates.kind === 'days') {   // a locked-in date range (a weekend): one all-day entry across it
+    return [{ key: `days:${p.dates.from}:${p.dates.to}`, body: { ...common, summary: p.title + label,
+      start: { date: p.dates.from }, end: { date: addDays(p.dates.to, 1) }, status: firm ? 'confirmed' : 'tentative', transparency: 'transparent' } }];
+  }
   if (p.dates.kind === 'proposed') {
     return p.dates.proposals.map((o) => ({ key: `proposed:${o.from}:${o.to}`, body: { ...common, summary: `${p.title} (proposed)`,
       start: { date: o.from }, end: { date: addDays(o.to, 1) }, status: 'tentative', transparency: 'transparent' } }));

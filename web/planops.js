@@ -154,6 +154,13 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
     if (p && u.scheduled_at === undefined && (e.date_tbd || e.flexible_time)) Object.assign(u, { date_tbd: 1, flexible_time: 0 });
   }
   if (changes.tentative !== undefined) u.tentative = changes.tentative ? 1 : 0;
+  // Locking in needs one set of dates: a date, or exactly one proposed range (🐛 #23).
+  if (u.tentative === 0 && e.tentative) {
+    const opts = u.proposed_dates !== undefined ? JSON.parse(u.proposed_dates || 'null') : JSON.parse(e.proposed_dates || 'null');
+    const dated = (u.scheduled_at !== undefined || !e.date_tbd) && !(u.date_tbd ?? e.date_tbd);
+    if (opts && opts.length > 1) return { error: 'PICK_DATES', message: `Which dates? There are ${opts.length} options — lock in one (proposed_dates: [that one], tentative: false).`, options: opts };
+    if (!opts && !dated) return { error: 'NO_DATE', message: 'Pick the date first, then lock it in.' };
+  }
   if (changes.flexible_time !== undefined) u.flexible_time = changes.flexible_time ? 1 : 0;
   if (changes.duration_mins !== undefined && Number(changes.duration_mins) > 0) u.duration_mins = Math.round(Number(changes.duration_mins));
   if (changes.event_type !== undefined) u.event_type = changes.event_type === 'public' ? 'public' : 'private';
