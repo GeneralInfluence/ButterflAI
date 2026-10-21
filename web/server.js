@@ -1660,6 +1660,8 @@ const BUTTERFLY_NOTES = {
   'cyborg-steampunk-rust-bright.png': 'The steampunk cyborg, rust with bright highlights',
   'cyborg-steampunk-original.png': 'The steampunk cyborg as sent (bronze) — from the web; needs a license before public use',
   'cyborg-simple-flat.svg': 'Simple flat cyborg (rust, purple, cyan) — drawn for ButterflAI',
+  'cyborg-simple-flat-angled.svg': 'The flat cyborg, tilted like the 🦋 emoji (🐛 #78: new colors, the old angle)',
+  'monarch-rust-purple-cyan-angled.svg': 'The monarch in the new colors, tilted like the 🦋 emoji (🐛 #78)',
   'monarch-rust-purple-cyan.svg': 'The original ButterflAI monarch in rust, purple and cyan',
   'monarch-original.svg': 'The original ButterflAI monarch (orange)',
 };

@@ -89,6 +89,7 @@
   // One item: details, who's on it; only its team checks it off or edits it — anyone else
   // taps "I'm on it" first (owner, 2026-10-19: no editing by accident).
   function itemHtml(t) {
+    if (t.over && !t.done) return `<li class="done" data-id="${esc(t.id)}"><span class="t">${esc(t.shown || t.text)}<span class="det">Its time has passed</span></span></li>`;
     const det = [t.when_text, t.place && 'at ' + t.place, STATUS[t.status]].filter(Boolean).join(' · ');
     return `<li class="${t.done ? 'done' : ''}" data-id="${esc(t.id)}">
       ${t.yours ? `<input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done">` : ''}
@@ -126,6 +127,7 @@
       if (!d) return '';
       // In All: only plans that have something on them.
       if (!planId && !d.todos.length && !(d.suggestions || []).length) return '';
+      if (!planId && d.over) return '';   // everything on it is done or its time has passed (2026-10-21)
       return planHtml(p, d, !!planId);
     }).join('');
     main.innerHTML = html || '<div class="empty">Nothing being created yet. Open a plan here (the pills above) to add what needs doing, or ask your ButterflAI what a plan needs.</div>';

@@ -1044,6 +1044,15 @@ copied it. Now a headcount ("for 4", "party of 6", "4 people/tickets/massages") 
 notes/title or a Creating item must be a number the user's own words (last 3 days) contain — else `COUNT_NOT_SAID`
 (`agent.inventedCount`); prompt NUMBERS ARE THEIRS. Retro corrected the weekend's notes and massage item. Test: `counts.test.js`.
 
+## 24g. Creating is what can still be done; Home is a summary `[2026-10-21]`
+
+🐛 #79 ("Why do I see lunch with Allie from yesterday on my creating list … I can't turn back time … constantly updated as
+time passes"): an item whose own day has passed, or whose plan is over (`plan.stage === 'past'`), isn't a to-do — worked out
+live (`todos.overFor`), so nothing needs a daily cleanup. Gone from Home's Creating and the Creating tab's All view; inside its
+plan it shows "Its time has passed". 🐛 #80 ("the home screen is supposed to be a decision point … Those details should be in a
+follow-up screen"): Home's Out and about is one line (`data-summary` in outnow-ui.js) — "Out and about? ›" opens Explore with
+the form open (`?out=1`), "You're out · N nearby ›", "You're in tonight"; a friend saying hi still shows.
+
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 
 Owner: "I want to be told when the grants or any other types of connections expire so that way

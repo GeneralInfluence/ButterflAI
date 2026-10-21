@@ -91,4 +91,31 @@ describe('🐛 #44: 🍻 do a Creating item together', () => {
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/creating.html'), 'utf8');
     assert.ok(html.includes('🍻 Together') && html.includes("url + '/together'"));
   });
+
+});
+
+// 🐛 #79 (Sean, 2026-10-21): "Why do I see lunch with Allie from yesterday on my creating list … I can't turn back time.
+// We should be reviewing the things and removing things if they're in the past … constantly updated … as time passes".
+describe('🐛 #79: Creating is what can still be done', () => {
+  test('an item whose day has passed, or whose plan is over, isn\'t a to-do any more — on Home or in Creating', async () => {
+    const sean = mkUser('Sean P'); const allie = mkUser('Allie P');
+    const e = await weekend(sean, [allie]);
+    const yesterday = new Date(Date.now() - 86400e3).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const old = todos.add(sean.id, e, { text: 'Lunch with Allie' }).todo;
+    db._raw().prepare('UPDATE event_todos SET day = ? WHERE id = ?').run(yesterday, old.id);
+    const now = todos.add(sean.id, e, { text: 'Book the hot springs' }).todo;
+    const home = todos.forHome(sean.id).items.map((i) => i.text);
+    assert.ok(home.includes('Book the hot springs'));
+    assert.ok(!home.some((t) => /Lunch with Allie/.test(t)), 'yesterday\'s lunch is gone from Home');
+    const l = todos.list(sean.id, e);
+    assert.equal(l.todos.find((t) => t.id === old.id).over, true);
+    assert.equal(l.todos.find((t) => t.id === now.id).over, false);
+    // A plan that's over: none of its items are to-dos.
+    const past = (await planops.create(sean.id, { title: 'Lunch with Allie P', scheduled_at: new Date(Date.now() - 2 * 86400e3).toISOString() })).eventId;
+    todos.add(sean.id, past, { text: 'Pick the restaurant' });
+    assert.ok(!todos.forHome(sean.id).items.some((i) => i.event_id === past));
+    assert.equal(todos.list(sean.id, past).over, true);
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/creating.html'), 'utf8');
+    assert.ok(html.includes("if (!planId && d.over) return '';") && html.includes('Its time has passed'));
+  });
 });

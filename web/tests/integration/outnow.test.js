@@ -137,7 +137,8 @@ describe('🌴 I\'m out — who\'s near you now', () => {
   test('Home → Feeling has "Out and about?" with the 18+ check', () => {
     const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public', f), 'utf8');
     const html = read('app/dashboard.html'), ui = read('outnow-ui.js');
-    assert.ok(html.includes('<div id="out-now"></div>') && html.includes('<script src="/outnow-ui.js"></script>'));
+    // Home shows it as one line leading to Explore (🐛 #80).
+    assert.ok(html.includes('<div id="out-now" data-summary="1"></div>') && html.includes('<script src="/outnow-ui.js"></script>'));
     assert.ok(ui.includes('Out and about?') && ui.includes('I’m 18 or older') && ui.includes("fetch('/api/out'"));
   });
 
@@ -206,5 +207,15 @@ describe('🌴 I\'m out — who\'s near you now', () => {
     assert.ok(ui.includes('el.dataset.compact && !outFormOpen') && ui.includes('function openOutForm'));
     assert.ok(!home.includes('function renderOut'), 'one copy — not a second one on Home');
     assert.ok(explore.includes("!['friend_out', 'around', 'go_out'].includes(i.type)"), 'not twice on Explore (the stories leave them to the panel)');
+  });
+
+  // 🐛 #80 (Sean, 2026-10-21): "the home screen is supposed to be a decision point … This out and about card has too many
+  // options and too many pieces in it. Those details should be in a follow-up screen".
+  test('🐛 #80: on Home, Out and about is one line that opens Explore (with the form open)', () => {
+    const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public', f), 'utf8');
+    const ui = read('outnow-ui.js');
+    assert.ok(ui.includes('if (el.dataset.summary) {') && ui.includes("href=\"/app/explore${v.me || v.in_until ? '' : '?out=1'}\""));
+    assert.ok(ui.includes('let outFormOpen = /[?&]out=1\\b/.test(location.search);'));
+    assert.ok(read('app/dashboard.html').includes('data-summary="1"'));
   });
 });

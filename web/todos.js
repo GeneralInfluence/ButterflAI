@@ -67,11 +67,28 @@ function planDay(userId, eventId, day) {
   return p && (p.days || []).includes(day) ? day : null;
 }
 
+/**
+ * Over: its plan is past, or its own day has gone by (Sean, 2026-10-21: "Why do I see lunch with Allie from yesterday on my
+ * creating list … I can't turn back time … This should be … constantly updated as … time passes"). Worked out live from
+ * the date — nothing to clean up — so the moment a day passes, its items stop being things to do.
+ */
+function overFor(userId) {
+  const tz = db.getUser(userId)?.timezone || 'America/Los_Angeles';
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+  const planOver = new Map();
+  return (t) => {
+    if (t.day && t.day < today) return true;
+    if (!planOver.has(t.event_id)) { let o = false; try { o = require('./plan').planFor(t.event_id, userId)?.stage === 'past'; } catch (_) {} planOver.set(t.event_id, o); }
+    return planOver.get(t.event_id);
+  };
+}
+
 function list(userId, eventId) {
   if (!topics.canSee(userId, eventId)) return { error: 'NOT_IN_PLAN' };
   const rows = db._raw().prepare('SELECT * FROM event_todos WHERE event_id = ? ORDER BY suggested, done_at IS NOT NULL, created_at, rowid').all(eventId);
   const kept = rows.filter((t) => !t.suggested);
-  return { todos: rows.map((t) => view(t, userId)), suggestions: require('./suggestions').forPlan(eventId, userId), progress: { done: kept.filter((t) => t.done_at).length, total: kept.length },
+  const over = overFor(userId);
+  return { todos: rows.map((t) => ({ ...view(t, userId), over: over(t) })), over: rows.length > 0 && rows.every((t) => t.done_at || over(t)), suggestions: require('./suggestions').forPlan(eventId, userId), progress: { done: kept.filter((t) => t.done_at).length, total: kept.length },
     members: members(eventId).map((m) => ({ name: first(m.name) })) };
 }
 
@@ -234,7 +251,7 @@ function mine(userId) {
     JOIN social_events se ON se.id = t.event_id
     WHERE t.assignee_phone = ? AND t.done_at IS NULL AND t.suggested = 0 AND COALESCE(se.status, 'open') != 'cancelled'
       AND (se.scheduled_at > ? OR se.date_tbd = 1)`).all(u.phone, now() - 86400)
-    .filter((t) => topics.canSee(userId, t.event_id));
+    .filter((t) => topics.canSee(userId, t.event_id)).filter((t) => !overFor(userId)(t));
 }
 
 /**
@@ -249,7 +266,8 @@ function forHome(userId) {
   if (!plans.length) return { items: [], suggestions: [] };
   const q = `SELECT t.*, se.title AS event_title, se.scheduled_at, se.date_tbd FROM event_todos t JOIN social_events se ON se.id = t.event_id
     WHERE t.event_id IN (${plans.map(() => '?').join(',')}) AND t.done_at IS NULL AND COALESCE(se.status, 'open') != 'cancelled'`;
-  const rows = db._raw().prepare(q).all(...plans);
+  const over = overFor(userId);
+  const rows = db._raw().prepare(q).all(...plans).filter((t) => !over(t));   // past days and past plans aren't to-dos any more
   const item = (t, who) => ({ todo_id: t.id, event_id: t.event_id, text: view(t).shown, day: t.day || null, title: t.event_title, at: t.date_tbd ? null : t.scheduled_at, who });
   const items = [
     // Yours: you lead it or you're on its team.

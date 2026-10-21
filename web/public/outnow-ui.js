@@ -22,7 +22,7 @@ function outEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =
 #out-now .feed-item.needs-you { border: 2px solid #6c47ff; }`;
   document.head.appendChild(st);
 })();
-let outFormOpen = false;
+let outFormOpen = /[?&]out=1\b/.test(location.search);   // opened from Home's "Out and about?
 function openOutForm() { outFormOpen = true; renderOut(); }
 async function outStayIn() { outFormOpen = false; await fetch('/api/out/in', { method: 'POST' }).catch(() => {}); loadOut(false); }
 async function outNotIn() { await fetch('/api/out/in', { method: 'DELETE' }).catch(() => {}); outFormOpen = true; loadOut(false); }
@@ -66,6 +66,15 @@ function renderOut() {
   const asks = (v.asks || []).map((a) => `<div class="card feed-item needs-you"><span class="feed-icon">👋</span><div style="flex:1;min-width:0">
     <div class="card-title">${outEsc(a.name)} is out near you</div><div class="card-sub">Up for ${outEsc(a.activity)}</div>
     <div class="share-row" style="margin:6px 0 0"><button class="chip-btn" onclick="answerAsk('${outEsc(a.id)}', true, this)">I’m in</button><button class="chip-btn" onclick="answerAsk('${outEsc(a.id)}', false, this)">Not now</button></div></div></div>`).join('');
+  // Home: one line that leads to Explore — the form and the people nearby are a step away, not on Home (🐛 #80:
+  // "the home screen is supposed to be a decision point … Those details should be in a follow-up screen").
+  if (el.dataset.summary) {
+    const n = (v.friends || []).length + (v.others || []).length;
+    const line = v.me ? `🌴 You’re out${n ? ` · ${n} ${n === 1 ? 'person' : 'people'} nearby` : ''}` : v.in_until ? '🏠 You’re in tonight' : '🌴 Out and about?';
+    el.innerHTML = asks + `<a class="card feed-item" href="/app/explore${v.me || v.in_until ? '' : '?out=1'}" style="text-decoration:none;color:inherit;padding:12px 16px;align-items:center">
+      <div style="flex:1;min-width:0" class="card-title">${line}</div><span style="color:#6c47ff;font-size:18px">›</span></a>`;
+    return;
+  }
   // 🏠 In tonight (🐛 #62): it stops asking — one quiet line to change your mind.
   if (!v.me && v.in_until && !outFormOpen) {
     el.innerHTML = asks + `<div class="card feed-item" style="padding:10px 14px"><span class="feed-icon">🏠</span><div style="flex:1;min-width:0">

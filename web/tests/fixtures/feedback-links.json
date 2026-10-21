@@ -247,5 +247,17 @@
   "77": {
     "note_starts": "Rocky horror isn't until the 30",
     "test": "tests/integration/spells.test.js › 🐛 #77: an idea about one of your plans has that plan's day; plans' days and places are never invented"
+  },
+  "78": {
+    "note_starts": "The new butterfly logo is cute, but I like tae angle",
+    "test": "tests/integration/butterflies.test.js › every design is kept and shown side by side, the one in use marked"
+  },
+  "79": {
+    "note_starts": "Why do I see lunch with Allie from yesterday on my creating list",
+    "test": "tests/integration/together.test.js › an item whose day has passed, or whose plan is over, isn't a to-do any more — on Home or in Creating"
+  },
+  "80": {
+    "note_starts": "I don't like the design of this feeling tab",
+    "test": "tests/integration/outnow.test.js › 🐛 #80: on Home, Out and about is one line that opens Explore (with the form open)"
   }
 }
