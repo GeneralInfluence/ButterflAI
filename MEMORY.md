@@ -1027,7 +1027,7 @@ The host's agent gets a system line only — no "accepted" notice (`via: 'inferr
 🐛 #75: asking your ButterflAI to change a Creating item IS taking action on it (owner's rule) — you join it and it
 changes, instead of a suggestion waiting on the item's lead (agent manage_todos from the user's own turn, understand's
 update_item). Retros: plans people are in on → interested; such pending suggestions applied. Test: `in-on-it.test.js`.
-**Same day:** the switcher's first tab is **ButterflAI** with a cyborg-butterfly thumbnail (`public/icons/ai-butterfly.png`, owner's pick from his images; was 🤖), not "💬 Chat" — you're talking to your AI, not chatting with
+**Same day:** the switcher's first tab is **ButterflAI** with a simple cyborg butterfly (`public/icons/ai-butterfly.svg`, owner 2026-10-21: rust + ButterflAI purple + bright cyan details, "very simple so it pops"; was 🤖, then a dark photo thumbnail), not "💬 Chat" — you're talking to your AI, not chatting with
 people (🐛 #76). A change notification ("Melanie changed the notes…") opens the plan with **✨ What changed** — who, before
 → after, every field from that moment — once (`planops.whatChanged`, `GET /api/events/:id/changed/:changeId`, `?changed=`;
 remembered per device, removed from the address). Ideas see plans you're invited to as well, are told a plan's day and

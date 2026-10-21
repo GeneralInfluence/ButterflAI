@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- ButterflAI's own assistant: a simple cyborg butterfly — rust, purple, one bright cyan for the details -->
+  <path d="M30 30 C24 12, 8 4, 4 12 C1 19, 8 28, 30 32 Z" fill="#6C47FF"/>
+  <path d="M34 30 C40 12, 56 4, 60 12 C63 19, 56 28, 34 32 Z" fill="#6C47FF"/>
+  <path d="M30 34 C14 34, 8 44, 12 52 C16 58, 26 52, 30 38 Z" fill="#B4532A"/>
+  <path d="M34 34 C50 34, 56 44, 52 52 C48 58, 38 52, 34 38 Z" fill="#B4532A"/>
+  <rect x="29.5" y="20" width="5" height="32" rx="2.5" fill="#B4532A"/>
+  <path d="M31 21 C29 14, 24 10, 21 9" stroke="#B4532A" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M33 21 C35 14, 40 10, 43 9" stroke="#B4532A" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <circle cx="21" cy="9" r="2.2" fill="#3CF2FF"/>
+  <circle cx="43" cy="9" r="2.2" fill="#3CF2FF"/>
+  <g fill="none" stroke="#3CF2FF" stroke-width="2.4">
+    <circle cx="16" cy="18" r="4.2"/>
+    <circle cx="48" cy="18" r="4.2"/>
+  </g>
+  <g fill="#3CF2FF">
+    <circle cx="16" cy="18" r="1.4"/><circle cx="48" cy="18" r="1.4"/>
+    <circle cx="19" cy="46" r="2.6"/><circle cx="45" cy="46" r="2.6"/>
+    <rect x="31" y="26" width="2" height="2" rx="1"/><rect x="31" y="31" width="2" height="2" rx="1"/><rect x="31" y="36" width="2" height="2" rx="1"/>
+  </g>
+  <g stroke="#3CF2FF" stroke-width="1.6" stroke-linecap="round">
+    <path d="M16 11.5v2M16 22.5v2M9.5 18h2M20.5 18h2M48 11.5v2M48 22.5v2M41.5 18h2M52.5 18h2"/>
+  </g>
+</svg>
