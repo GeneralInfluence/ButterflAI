@@ -15,31 +15,28 @@
 
 ## 2. Logo & Symbol
 
-### Primary Symbol — The Butterfly (🦋)
-The butterfly is the core brand symbol. It represents transformation, connection, and social movement. The butterfly mark is always rendered in **Monarch coloring** (warm amber/orange wings with black veining and white edge spots) on a purple field.
+> **Updated 2026-10-21 (owner):** the butterfly is a **cyborg butterfly in rust, purple and bright cyan** — "every
+> butterfly in the app should be consistent", and every option we try is kept.
 
-**Do:**
-- Use the butterfly on all app icons, splash screens, and marketing surfaces
-- Maintain the Monarch color palette on the butterfly itself
-- Always place on the brand purple background for app icons
+### The butterfly
+- **In use:** `web/public/icons/butterflies/cyborg-steampunk-purple.png` — a steampunk cyborg butterfly recolored to
+  ButterflAI purple (#6C47FF) with rust (#B4532A) and bright cyan (#3CF2FF) details.
+- **One butterfly everywhere:** every screen shows `web/public/icons/butterfly-128.png` (tab icons, the ButterflAI tab,
+  logos, empty states, install prompt); favicons are `icons/favicon-32.png` / `favicon.ico`; the home-screen icons
+  (`icon-192/512.png`, `apple-touch-icon.png`) are the butterfly on **Purple Pale (#EDE9FE)** — a purple butterfly
+  doesn't show on brand purple. No 🦋 emoji on any screen (a test checks); text messages (SMS, push titles) keep words.
+- **All options kept:** `web/public/icons/butterflies/` — the original orange monarch, the monarch in the new colors,
+  a simple flat cyborg, and the steampunk cyborg (as sent + three recolors). See them side by side in the app:
+  **Settings → Butterfly designs** (`/app/butterflies`).
+- **To switch:** `node tools/butterfly-icons.js public/icons/butterflies/<file>` (run in `web/`, needs Playwright —
+  `npx -y -p playwright node tools/butterfly-icons.js …`), then deploy. It rewrites the current butterfly, the 128px
+  in-app image, app icons and favicons.
+- **Licensing:** the steampunk designs come from an image found on the web — fine for friends testing; license it or
+  commission an original before public launch. The monarch and the flat cyborg are ours.
+- The Android notification badge (`icons/badge.svg`) stays a plain white silhouette (Android tints it).
 
-**Don't:**
-- Replace the butterfly with abstract shapes or letters
-- Render it in off-brand colors (no blue, red, or grey butterflies)
-- Use generic emoji rendering — use the brand SVG asset for icons
-
-### Icon Construction
-App icons use a **purple rounded-square** background with the butterfly centered and scaled to ~65% of the container.
-
-| Asset | Size | File |
-|-------|------|------|
-| App icon | 192×192 px | `web/public/icons/icon-192.png` |
-| App icon | 512×512 px | `web/public/icons/icon-512.png` |
-| Apple touch icon | 180×180 px | `web/public/icons/apple-touch-icon.png` |
-| Favicon | 32×32 px | `web/public/favicon.ico` (or `favicon-32.png`) |
-| SVG master | vector | `web/public/icons/butterfly.svg` |
-
----
+### Previous (until 2026-10-21)
+The orange Monarch (`icons/butterfly.svg`) on a purple rounded square — kept as `butterflies/monarch-original.svg`.
 
 ## 3. Color Palette
 

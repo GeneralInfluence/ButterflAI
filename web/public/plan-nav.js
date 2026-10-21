@@ -34,7 +34,7 @@
     const tab = (p, label, extra = '') => `<a class="${p === page ? 'active' : ''}" href="${href(p, eventId, day)}" data-mode="${p}">${label}${extra}</a>`;
     const draw = (count, waiting) => {
       el.innerHTML = `<nav class="plan-modes" aria-label="${plan ? 'This plan' : 'Everything'}">`
-        + tab('chat', '<img class="ai-ico" src="/icons/ai-butterfly.svg" alt="" width="20" height="20"> ButterflAI') + tab('creating', '✨ Creating', (count ? ` <span class="count">${esc(count)}</span>` : '') + (waiting ? `<span class="dot" title="${waiting} new to look at" aria-label="${waiting} new to look at"></span>` : ''))
+        + tab('chat', '<img class="ai-ico" src="/icons/butterfly-128.png" alt="" width="20" height="20"> ButterflAI') + tab('creating', '✨ Creating', (count ? ` <span class="count">${esc(count)}</span>` : '') + (waiting ? `<span class="dot" title="${waiting} new to look at" aria-label="${waiting} new to look at"></span>` : ''))
         + tab('events', plan ? '📅 Details' : '📅 Calendar') + '</nav>';
       el.hidden = false;
     };

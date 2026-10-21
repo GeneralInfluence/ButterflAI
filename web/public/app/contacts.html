@@ -12,7 +12,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <meta name="theme-color" content="#6c47ff">
   <title>ButterflAI — Contacts</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root { --purple: #6c47ff; }
@@ -370,7 +370,7 @@
 </head>
 <body>
   <header>
-    <a class="logo" href="/app/dashboard">🦋</a>
+    <a class="logo" href="/app/dashboard"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"></a>
     <h2>Contacts</h2>
     <span class="count" id="count"></span>
     <nav>
@@ -473,7 +473,7 @@
 <nav class="bottom-nav">
   <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
   <a href="/app/explore"><span class="tab-icon">🧭</span>Explore</a>
-  <a href="/app/chat" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon">🦋</span>Plans</a>
+  <a href="/app/chat" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"></span>Plans</a>
   <a href="/app/settings" class="active"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
 
@@ -879,7 +879,7 @@
       const params = new URLSearchParams(location.search);
       if (params.get('connected')) {
         const from = params.get('from') || 'your friend';
-        showToast(`✓ You and ${decodeURIComponent(from)} are now connected 🦋`, 5000);
+        showToast(`✓ You and ${decodeURIComponent(from)} are now connected ✨`, 5000);
         history.replaceState({}, '', '/app/contacts');
       }
     })();

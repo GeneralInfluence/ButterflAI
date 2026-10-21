@@ -70,7 +70,7 @@ const APP_PAGES = [
 // Chat, Creating and Events are one place, Plans; People is in Settings). Was 5, then 6 tabs.
 // Then Home · Explore · Plans · Settings (owner, 2026-10-20: the ideas "should become a feed … their own tab";
 // named Explore the same day).
-const BOTTOM_NAV_TABS = ['<span class="tab-icon">🏠</span>Home</a>', '<span class="tab-icon">🧭</span>Explore</a>', '<span class="tab-icon">🦋</span>Plans</a>', '<span class="tab-icon">⚙️</span>Settings</a>'];
+const BOTTOM_NAV_TABS = ['<span class="tab-icon">🏠</span>Home</a>', '<span class="tab-icon">🧭</span>Explore</a>', '<span class="tab-icon"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"></span>Plans</a>', '<span class="tab-icon">⚙️</span>Settings</a>'];
 
 // ── PWA meta tag compliance ───────────────────────────────────────────────────
 

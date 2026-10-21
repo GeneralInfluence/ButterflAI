@@ -61,7 +61,7 @@
     ].join(';');
 
     const msg = document.createElement('span');
-    msg.textContent = '🦋 A new version is ready';
+    msg.textContent = '✨ A new version is ready';
     banner.appendChild(msg);
 
     const btn = document.createElement('button');

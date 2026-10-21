@@ -70,7 +70,7 @@
 <nav class="bottom-nav">
   <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
   <a href="/app/explore"><span class="tab-icon">🧭</span>Explore</a>
-  <a href="/app/chat" class="active" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon">🦋</span>Plans</a>
+  <a href="/app/chat" class="active" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"></span>Plans</a>
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
 
@@ -101,7 +101,7 @@
     const kept = data.todos.filter((t) => !t.suggested), sug = data.todos.filter((t) => t.suggested), ideas = data.suggestions || [];
     const head = `<div class="plan-head">
         <a class="plan-title" href="/app/creating?event=${encodeURIComponent(p.event_id)}">${esc(p.title)}</a>
-        ${full ? '' : `<a class="mini" href="/app/chat?event=${encodeURIComponent(p.event_id)}"><img class="ai-ico" src="/icons/ai-butterfly.svg" alt="" width="16" height="16"> ButterflAI</a><a class="mini" href="/app/events?event=${encodeURIComponent(p.event_id)}">📅 Details</a>`}</div>
+        ${full ? '' : `<a class="mini" href="/app/chat?event=${encodeURIComponent(p.event_id)}"><img class="ai-ico" src="/icons/butterfly-128.png" alt="" width="16" height="16"> ButterflAI</a><a class="mini" href="/app/events?event=${encodeURIComponent(p.event_id)}">📅 Details</a>`}</div>
       <div class="plan-sub">${esc(p.dates || '')}${kept.length ? ` · ${data.progress.done}/${data.progress.total} done` : ''}</div>`;
     const items = kept.length ? `<ul class="items">${kept.map(itemHtml).join('')}</ul>` : (full ? '<div class="plan-sub">Nothing yet — add what needs doing, or ask your ButterflAI what this plan needs.</div>' : '');
     const ideaHtml = ideas.length ? '<div class="label">💡 Suggestions</div>' + ideas.map((s) => `<div class="idea" data-sid="${esc(s.id)}"><span>${esc(s.from === 'you' ? 'You' : s.from)}${s.item ? ` on “${esc(s.item)}”` : ''}: ${esc(s.summary)}</span>${s.can_decide

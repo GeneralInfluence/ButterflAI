@@ -59,7 +59,7 @@
 
       const icon = document.createElement('div');
       icon.style.cssText = 'font-size:36px;flex-shrink:0';
-      icon.textContent = '🦋';
+      icon.innerHTML = '<img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain">';
       card.appendChild(icon);
 
       const text = document.createElement('div');
@@ -132,11 +132,11 @@
         </div>
         <div style="display:flex;align-items:center;gap:14px">
           <div style="width:36px;height:36px;border-radius:50%;background:#6c47ff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">3</div>
-          <div style="font-size:14px;color:#3a3a3c">Tap <strong>"Add"</strong> — the 🦋 butterfly appears on your home screen</div>
+          <div style="font-size:14px;color:#3a3a3c">Tap <strong>"Add"</strong> — the ButterflAI butterfly appears on your home screen</div>
         </div>
       </div>
       <div style="margin-top:24px;text-align:center">
-        <div style="font-size:48px">🦋</div>
+        <div style="font-size:48px"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"></div>
         <div style="font-size:13px;color:#8e8e93;margin-top:6px">ButterflAI will appear on your home screen</div>
       </div>
     `;

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <meta name="theme-color" content="#6c47ff">
+  <title>ButterflAI — Butterfly designs</title>
+  <!-- Every butterfly design kept, side by side (owner, 2026-10-21: "save all of these different butterfly options so
+       that way we can experiment with it over time"). The one in use everywhere is marked; to switch, run
+       `node tools/butterfly-icons.js public/icons/butterflies/<file>` and deploy. -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f7; color: #1c1c1e; }
+    header { background: #fff; border-bottom: 1px solid #e5e5e5; padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
+    header a { color: #6c47ff; text-decoration: none; font-size: 15px; }
+    h1 { font-size: 18px; }
+    main { max-width: 640px; margin: 0 auto; padding: 14px 16px 40px; }
+    .hint { font-size: 13px; color: #6e6e76; line-height: 1.45; margin-bottom: 14px; }
+    .card { background: #fff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 14px; margin-bottom: 14px; }
+    .card.current { border: 2px solid #6c47ff; }
+    .name { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+    .badge { font-size: 12px; background: #6c47ff; color: #fff; border-radius: 999px; padding: 2px 10px; }
+    .file { font-size: 12px; color: #8e8e93; margin: 2px 0 10px; word-break: break-all; }
+    .sizes { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .dark { background: #1c1c1e; border-radius: 10px; padding: 8px; display: flex; gap: 12px; align-items: center; }
+    .tile { background: #ede9fe; border-radius: 22%; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; }
+    img { object-fit: contain; }
+  </style>
+</head>
+<body>
+<header><a href="/app/settings">‹ Settings</a><h1>Butterfly designs</h1></header>
+<main>
+  <p class="hint">Every butterfly design we’ve tried, at the sizes the app uses — big, a tab icon, a favicon, on dark, and as the home-screen icon. The one marked <b>In use</b> is every butterfly in the app.</p>
+  <div id="list">Loading…</div>
+</main>
+<script>
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  fetch('/api/butterflies').then((r) => r.json()).then((d) => {
+    document.getElementById('list').innerHTML = d.designs.map((b) => `<div class="card${b.current ? ' current' : ''}">
+      <div class="name">${esc(b.name)}${b.current ? '<span class="badge">In use</span>' : ''}</div>
+      <div class="file">${esc(b.note || '')} · icons/butterflies/${esc(b.file)}</div>
+      <div class="sizes"><img src="${esc(b.url)}" width="140" height="140" alt=""><img src="${esc(b.url)}" width="44" height="44" alt=""><img src="${esc(b.url)}" width="20" height="20" alt="">
+        <div class="dark"><img src="${esc(b.url)}" width="44" height="44" alt=""><img src="${esc(b.url)}" width="20" height="20" alt=""></div>
+        <div class="tile"><img src="${esc(b.url)}" width="46" height="46" alt=""></div></div></div>`).join('');
+  }).catch(() => { document.getElementById('list').textContent = 'Couldn’t load the designs.'; });
+</script>
+</body>
+</html>

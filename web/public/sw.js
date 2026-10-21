@@ -19,7 +19,7 @@ self.addEventListener('message', e => {
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', event => {
-  let data = { title: '🦋 ButterflAI', body: 'You have a new update.', url: '/app/chat' };
+  let data = { title: 'ButterflAI', body: 'You have a new update.', url: '/app/chat' };
   try { data = { ...data, ...JSON.parse(event.data.text()) }; } catch (_) {}
   event.waitUntil(
     self.registration.showNotification(data.title, {

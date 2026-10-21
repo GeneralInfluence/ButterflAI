@@ -12,7 +12,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <meta name="theme-color" content="#6c47ff">
   <title>ButterflAI — Settings</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root { --purple: #6c47ff; --bg: #f2f2f7; }
@@ -145,7 +145,7 @@
 </head>
 <body>
 <header>
-  <a class="logo" href="/app/dashboard">🦋 ButterflAI</a>
+  <a class="logo" href="/app/dashboard"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"> ButterflAI</a>
   <nav>
     <a href="/app/chat">ButterflAI</a>
     <a href="/app/contacts">Contacts</a>
@@ -240,6 +240,12 @@
       </div>
       <p id="notif-status" style="font-size:13px;color:#888;margin-top:10px;min-height:18px"></p>
     </div>
+  </section>
+
+  <!-- Butterfly designs (2026-10-21) -->
+  <section>
+    <h2>🎨 Butterfly designs</h2>
+    <div class="card"><a href="/app/butterflies" style="color:#6c47ff;text-decoration:none;font-size:15px">See every butterfly we’ve tried, side by side ›</a></div>
   </section>
 
   <!-- 💌 Whispers (2026-10-21) -->
@@ -411,7 +417,7 @@
 <nav class="bottom-nav">
   <a href="/app/dashboard"><span class="tab-icon">🏠</span>Home</a>
   <a href="/app/explore"><span class="tab-icon">🧭</span>Explore</a>
-  <a href="/app/chat" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon">🦋</span>Plans</a>
+  <a href="/app/chat" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"></span>Plans</a>
   <a href="/app/settings" class="active"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
 
@@ -727,7 +733,7 @@
     // Agent capacity (capability language — never shows balance number)
     try {
       const cap = await fetch('/api/user/capacity').then(r => r.json());
-      document.getElementById('capacity-emoji').textContent = cap.emoji || '🦋';
+      document.getElementById('capacity-emoji').textContent = cap.emoji || '✨';
       document.getElementById('capacity-msg').textContent   = cap.message || '';
       document.getElementById('capacity-section').style.display = '';
     } catch (_) {}

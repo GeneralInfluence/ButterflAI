@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Background pill (for standalone SVG use; stripped when compositing onto colored bg) -->
+
+  <!-- Monarch butterfly — warm amber/orange wings, black veining, white spots -->
+
+  <!-- === LEFT WINGS === -->
+
+  <!-- Left upper wing (large) -->
+  <path d="M100 95 C85 75, 45 55, 20 60 C5 63, 2 80, 8 95 C14 110, 38 118, 60 110 C75 105, 90 100, 100 95 Z"
+        fill="#E8871A"/>
+  <path d="M100 95 C85 75, 45 55, 20 60 C5 63, 2 80, 8 95 C14 110, 38 118, 60 110 C75 105, 90 100, 100 95 Z"
+        fill="none" stroke="#1a0a00" stroke-width="2.5"/>
+
+  <!-- Left lower wing (smaller, rounder) -->
+  <path d="M100 105 C88 108, 60 118, 38 130 C22 138, 20 155, 30 162 C42 170, 65 162, 80 150 C92 140, 98 120, 100 105 Z"
+        fill="#E8871A"/>
+  <path d="M100 105 C88 108, 60 118, 38 130 C22 138, 20 155, 30 162 C42 170, 65 162, 80 150 C92 140, 98 120, 100 105 Z"
+        fill="none" stroke="#1a0a00" stroke-width="2.5"/>
+
+  <!-- === RIGHT WINGS === -->
+
+  <!-- Right upper wing (large) -->
+  <path d="M100 95 C115 75, 155 55, 180 60 C195 63, 198 80, 192 95 C186 110, 162 118, 140 110 C125 105, 110 100, 100 95 Z"
+        fill="#E8871A"/>
+  <path d="M100 95 C115 75, 155 55, 180 60 C195 63, 198 80, 192 95 C186 110, 162 118, 140 110 C125 105, 110 100, 100 95 Z"
+        fill="none" stroke="#1a0a00" stroke-width="2.5"/>
+
+  <!-- Right lower wing -->
+  <path d="M100 105 C112 108, 140 118, 162 130 C178 138, 180 155, 170 162 C158 170, 135 162, 120 150 C108 140, 102 120, 100 105 Z"
+        fill="#E8871A"/>
+  <path d="M100 105 C112 108, 140 118, 162 130 C178 138, 180 155, 170 162 C158 170, 135 162, 120 150 C108 140, 102 120, 100 105 Z"
+        fill="none" stroke="#1a0a00" stroke-width="2.5"/>
+
+  <!-- === WING VEINING (black lines) === -->
+
+  <!-- Left upper veins -->
+  <path d="M100 95 C90 82, 68 68, 45 65" fill="none" stroke="#1a0a00" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M100 95 C88 88, 58 80, 30 82" fill="none" stroke="#1a0a00" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M100 98 C86 96, 55 95, 22 92" fill="none" stroke="#1a0a00" stroke-width="1.2" stroke-linecap="round"/>
+
+  <!-- Left lower veins -->
+  <path d="M100 105 C90 112, 72 122, 52 132" fill="none" stroke="#1a0a00" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M100 108 C88 118, 65 138, 42 150" fill="none" stroke="#1a0a00" stroke-width="1.2" stroke-linecap="round"/>
+
+  <!-- Right upper veins -->
+  <path d="M100 95 C110 82, 132 68, 155 65" fill="none" stroke="#1a0a00" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M100 95 C112 88, 142 80, 170 82" fill="none" stroke="#1a0a00" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M100 98 C114 96, 145 95, 178 92" fill="none" stroke="#1a0a00" stroke-width="1.2" stroke-linecap="round"/>
+
+  <!-- Right lower veins -->
+  <path d="M100 105 C110 112, 128 122, 148 132" fill="none" stroke="#1a0a00" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M100 108 C112 118, 135 138, 158 150" fill="none" stroke="#1a0a00" stroke-width="1.2" stroke-linecap="round"/>
+
+  <!-- === WHITE EDGE SPOTS === -->
+
+  <!-- Left upper wing spots (border row) -->
+  <circle cx="22" cy="75" r="4" fill="white" opacity="0.9"/>
+  <circle cx="18" cy="90" r="3.5" fill="white" opacity="0.9"/>
+  <circle cx="24" cy="104" r="3" fill="white" opacity="0.9"/>
+  <circle cx="35" cy="64" r="3.5" fill="white" opacity="0.9"/>
+  <circle cx="52" cy="58" r="3" fill="white" opacity="0.9"/>
+
+  <!-- Left lower wing spots -->
+  <circle cx="28" cy="155" r="5" fill="white" opacity="0.9"/>
+  <circle cx="40" cy="162" r="4" fill="white" opacity="0.9"/>
+  <circle cx="55" cy="157" r="3.5" fill="white" opacity="0.9"/>
+  <circle cx="68" cy="148" r="3" fill="white" opacity="0.9"/>
+
+  <!-- Right upper wing spots -->
+  <circle cx="178" cy="75" r="4" fill="white" opacity="0.9"/>
+  <circle cx="182" cy="90" r="3.5" fill="white" opacity="0.9"/>
+  <circle cx="176" cy="104" r="3" fill="white" opacity="0.9"/>
+  <circle cx="165" cy="64" r="3.5" fill="white" opacity="0.9"/>
+  <circle cx="148" cy="58" r="3" fill="white" opacity="0.9"/>
+
+  <!-- Right lower wing spots -->
+  <circle cx="172" cy="155" r="5" fill="white" opacity="0.9"/>
+  <circle cx="160" cy="162" r="4" fill="white" opacity="0.9"/>
+  <circle cx="145" cy="157" r="3.5" fill="white" opacity="0.9"/>
+  <circle cx="132" cy="148" r="3" fill="white" opacity="0.9"/>
+
+  <!-- === BODY === -->
+  <ellipse cx="100" cy="100" rx="5" ry="42" fill="#1a0a00"/>
+  <ellipse cx="100" cy="100" rx="3.5" ry="40" fill="#2d1200"/>
+
+  <!-- === ANTENNAE === -->
+  <path d="M98 62 C94 48, 82 38, 78 28" fill="none" stroke="#1a0a00" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="77" cy="26" r="4" fill="#1a0a00"/>
+
+  <path d="M102 62 C106 48, 118 38, 122 28" fill="none" stroke="#1a0a00" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="123" cy="26" r="4" fill="#1a0a00"/>
+
+  <!-- Inner wing highlights (lighter orange) -->
+  <path d="M100 95 C88 85, 68 75, 50 75 C40 75, 30 80, 28 90 C35 90, 58 88, 80 96 Z"
+        fill="#F5A830" opacity="0.5"/>
+  <path d="M100 95 C112 85, 132 75, 150 75 C160 75, 170 80, 172 90 C165 90, 142 88, 120 96 Z"
+        fill="#F5A830" opacity="0.5"/>
+</svg>

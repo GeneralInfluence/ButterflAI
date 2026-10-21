@@ -12,7 +12,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <meta name="theme-color" content="#6c47ff">
   <title>ButterflAI — Dashboard</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root { --purple: #6c47ff; --bg: #f2f2f7; }
@@ -130,7 +130,7 @@
 </head>
 <body>
 <header>
-  <a class="logo" href="/app/dashboard">🦋 ButterflAI</a>
+  <a class="logo" href="/app/dashboard"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"> ButterflAI</a>
   <nav>
     <a href="/app/chat">ButterflAI</a>
     <a href="/app/contacts">Contacts</a>
@@ -186,7 +186,7 @@
 <nav class="bottom-nav">
   <a href="/app/dashboard" class="active"><span class="tab-icon">🏠</span>Home</a>
   <a href="/app/explore"><span class="tab-icon">🧭</span>Explore</a>
-  <a href="/app/chat" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon">🦋</span>Plans</a>
+  <a href="/app/chat" onclick="try{var u=localStorage.getItem('bfly-plans-last');if(u&&u.indexOf('/app/')===0){location.href=u;return false}}catch(e){}"><span class="tab-icon"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"></span>Plans</a>
   <a href="/app/settings"><span class="tab-icon">⚙️</span>Settings</a>
 </nav>
 
@@ -247,7 +247,7 @@
       return `<a class="card feed-item${i.action ? ' needs-you' : ''}" href="${href}"><span class="feed-icon">${i.tentative ? '🗓️' : '📅'}</span><div><div class="card-title">${esc(i.title)}${tent(i)}</div><div class="card-sub">${whenFor(i)}${i.venue ? ' · ' + esc(i.venue) : ''} · ${who}</div>${action(i)}</div></a>`;
     }
     // "Did you make it?" after a plan (2026-10-13): answered right here.
-    if (i.type === 'checkin') return `<div class="card feed-item needs-you"><span class="feed-icon">🦋</span><div style="flex:1;min-width:0">
+    if (i.type === 'checkin') return `<div class="card feed-item needs-you"><span class="feed-icon"><img src="/icons/butterfly-128.png" alt="ButterflAI" class="bfly-img" style="width:1.15em;height:1.15em;vertical-align:-0.18em;object-fit:contain"></span><div style="flex:1;min-width:0">
       <div class="card-title">Did you make it to ${esc(i.title)}?</div><div class="card-sub">${when(i.at)}</div>
       <div class="share-row" style="margin:8px 0 0"><button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', true)">Yes</button>
       <button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', false)">No</button>

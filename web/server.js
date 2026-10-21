@@ -1647,6 +1647,28 @@ app.post('/api/quick', webAuth.requireAuth, async (req, res) => {
   }
   db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text: note.slice(0, 4000), intent: 'capture' });
 });
+// 🦋 Every butterfly design kept, and which one the app uses (owner, 2026-10-21) — tools/butterfly-icons.js switches it.
+const BUTTERFLY_NOTES = {
+  'cyborg-steampunk-purple.png': 'The steampunk cyborg in rust, purple and bright cyan',
+  'cyborg-steampunk-rust.png': 'The steampunk cyborg, mostly rust',
+  'cyborg-steampunk-rust-bright.png': 'The steampunk cyborg, rust with bright highlights',
+  'cyborg-steampunk-original.png': 'The steampunk cyborg as sent (bronze) — from the web; needs a license before public use',
+  'cyborg-simple-flat.svg': 'Simple flat cyborg (rust, purple, cyan) — drawn for ButterflAI',
+  'monarch-rust-purple-cyan.svg': 'The original ButterflAI monarch in rust, purple and cyan',
+  'monarch-original.svg': 'The original ButterflAI monarch (orange)',
+};
+app.get('/app/butterflies', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/butterflies.html')));
+app.get('/api/butterflies', webAuth.requireAuth, (req, res) => {
+  const fs = require('fs');
+  const dir = path.join(__dirname, 'public/icons/butterflies');
+  const cur = ['png', 'svg'].map((x) => path.join(__dirname, `public/icons/butterfly-current.${x}`)).find((f) => fs.existsSync(f));
+  const curBytes = cur ? fs.readFileSync(cur) : null;
+  const designs = fs.readdirSync(dir).filter((f) => /\.(png|svg)$/.test(f)).sort().map((f) => ({
+    file: f, url: `/icons/butterflies/${f}`, name: f.replace(/\.(png|svg)$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase()),
+    note: BUTTERFLY_NOTES[f] || null, current: !!curBytes && fs.readFileSync(path.join(dir, f)).equals(curBytes) }));
+  designs.sort((a, b) => (b.current - a.current));
+  res.json({ designs });
+});
 app.get('/app/quick', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/quick.html')));
 
 app.post('/api/plans/new', webAuth.requireAuth, express.json(), (req, res) => {
