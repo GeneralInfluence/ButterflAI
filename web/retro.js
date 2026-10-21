@@ -808,6 +808,23 @@ const TASKS = [
       return `applied ${n}`;
     },
   },
+  {
+    id: '2026-10-21-melanies-massage-not-for-4',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: 'Melanie booked a massage for herself, not "for 4 people" — nobody said four (Sean\'s agent invented it, Melanie\'s passed it on). Melanie\'s Birthday Weekend\'s notes and its massage item are corrected, only if still as found.',
+    async run(user) {
+      const e = db._raw().prepare("SELECT id, notes FROM social_events WHERE host_user_id = ? AND title = 'Melanie''s Birthday Weekend' AND notes LIKE '%for 4 people%'").get(user.id);
+      let out = [];
+      if (e) {
+        const r = await require('./planops').update(user.id, e.id, { notes: 'Melanie booked herself a massage at the Renaissance Hotel (Reno), Friday 10 am, then lunch with Allie. Saturday: hot springs at Carson City Hot Springs, then dinner at Sassafras.' }, { via: 'retro' });
+        out.push(r.error ? r.error : 'notes');
+      }
+      const t = db._raw().prepare("SELECT t.id FROM event_todos t JOIN social_events se ON se.id = t.event_id WHERE se.host_user_id = ? AND t.notes LIKE 'Booked for 4 people%'").all(user.id);
+      for (const x of t) { db._raw().prepare("UPDATE event_todos SET notes = 'Melanie booked a massage for herself, Friday 10 am. Lunch with Allie after.' WHERE id = ?").run(x.id); out.push('item'); }
+      return out.join(', ') || 'not as found';
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

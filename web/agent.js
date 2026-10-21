@@ -1050,6 +1050,31 @@ function relayProblem(userText, outText) {
   return null;
 }
 
+/**
+ * How many people — only if your user said it (2026-10-21). Sean's agent turned "massages before 3 on Friday" into "book
+ * for 4 people"; Melanie's agent then told Sean's "Massages booked … for 4 people" when she'd said "booked a massage" (for
+ * herself) — and both plans' notes and the Creating item said 4. A headcount in a message to another agent, a plan's
+ * notes or a Creating item must be a number the user's own recent words contain.
+ */
+const NUM_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12 };
+const N = '(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|twelve)';
+const HEADCOUNT = new RegExp(`\\b(?:for|party of|table for|group of)\\s+${N}\\b(?!\\s*(?:am|pm|a\\.m|p\\.m|:|hours?|hrs?|mins?|minutes?|days?|nights?|weeks?|months?|years?|o'?clock|\\$|dollars?|bucks|%|th|st|nd|rd))|\\b${N}\\s+(?:people|ppl|persons|guests|adults|of us|spots|seats|tickets|massages|slots)\\b`, 'gi');
+function inventedCount(userId, text) {
+  const counts = [];
+  for (const m of String(text || '').matchAll(HEADCOUNT)) {
+    const raw = (m[1] || m[2] || '').toLowerCase();
+    const n = NUM_WORDS[raw] || Number(raw);
+    if (n > 1) counts.push({ n, said: m[0] });
+  }
+  if (!counts.length) return null;
+  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND text NOT LIKE '[Agent %' AND created_at > strftime('%s','now') - 3 * 86400`)
+    .all(userId).map((r) => r.text).join(' ') + ' ' + (USER_CHANNELS.includes(currentTurn?.channel) ? currentTurn.userText || '' : '');
+  const words = recent.toLowerCase();
+  const said = (n) => new RegExp(`\\b${n}\\b`).test(words) || Object.entries(NUM_WORDS).some(([w, v]) => v === n && new RegExp(`\\b${w}\\b`).test(words));
+  const bad = counts.find((c) => !said(c.n));
+  return bad ? `Your user never said how many people ("${bad.said}") — don't add a number they didn't give. Leave it out (or ask them), then try again.` : null;
+}
+
 // Tools that persist what the user says in plain text. Refused while private mode is on.
 const PLAINTEXT_WRITE_TOOLS = ['update_preferences', 'save_agent_note'];
 
@@ -1080,6 +1105,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       currentTurn.relayChecked = true;
       return { error: 'RELAY_CHANGES_MEANING', action_status: 'NOT_SENT', message: problem };
     }
+  }
+  // A headcount nobody gave (2026-10-21 — "massages for 4"): not in messages to other agents, plan notes or Creating items.
+  {
+    const said = toolName === 'message_agent' ? toolInput?.message : toolName === 'reply_agent' ? toolInput?.body
+      : ['update_event', 'create_social_event'].includes(toolName) ? [toolInput?.notes, toolInput?.title].filter(Boolean).join(' · ')
+      : toolName === 'manage_todos' ? [toolInput?.text, toolInput?.notes, ...(Array.isArray(toolInput?.items) ? toolInput.items : [])].filter(Boolean).join(' · ') : null;
+    const problem = said ? inventedCount(userId, said) : null;
+    if (problem) return { error: 'COUNT_NOT_SAID', action_status: 'NOT_DONE', message: problem };
   }
   if (toolInput && Array.isArray(toolInput.contact_ids)) {
     const bad = toolInput.contact_ids.filter((id) => ownContact(userId, id).error);
@@ -2612,6 +2645,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   ONE PLAN AT A TIME: in a plan's discussion, change only that plan. Something your user says there ("noon till 6", "kids won't last") is about that plan — never copy it onto their other plans. To change another plan they must name it.
   SCREENSHOTS: "[What was on my screen]" in your user's message is what ButterflAI read from a screenshot they attached (the picture isn't kept) — treat it as what they're showing you and act on it like their own words: dates, times, places and people in it are what to plan with (as written — never invent a missing time), a flyer or event page is something to plan around, and a conversation shows what's been said. If it's unclear what they want done with it, do the obvious thing for the plan being discussed (or ask once). Never describe anyone's looks.
   WHISPERS (anonymous messages): every message ButterflAI passes on says who it's from ("From Allie's ButterflAI") — except a 💌 whisper. When your user wants a friend to get something without their name ("anonymously tell Sean…", "start a rumor", "don't let her know it's from me"), use send_whisper (never send_logistics_sms or message_agent): write it short, kind or playful, with no hint of who sent it. It only reaches friends on ButterflAI who have each other saved; tell your user exactly what happened (sent / not sent and why). When your user got a whisper ("💌 Someone close to you says…") and tells you what to say back, use reply_whisper; if they don't want more from that person, mute_whisper. Never guess or hint who sent a whisper.
+  NUMBERS ARE THEIRS: never add how many people ("for 4", "party of 6") that your user didn't say — not to another agent, not in a plan's notes, not on Creating. If it matters, ask. "Booked a massage" is one massage, for them.
   WISHES ARE NOT PLANS: "I wish…", "I'd love to someday…", "it'd be great to…" with no date, place or people decided → manage_wishes add (ButterflAI looks for others who wish for the same thing). A concrete plan (people, a day, "let's do X") → create_social_event. Never tell your user anyone else's wishes; matches reach them on their own.
   PLANS ARE MADE TOGETHER — GUESTS SUGGEST, HOSTS AND CO-HOSTS DECIDE: the host and co-hosts (the person a plan is for is one automatically; the host can add more with set_cohost) change a plan for everyone. A guest's change still goes through update_event / merge_plans — it becomes a suggestion the host and co-hosts accept or decline; tell your user "suggested to X", never "changed", and never "I can't". Only the host cancels. When your user decides on a suggestion ("yes, do Melanie's idea"), use decide_suggestion.
   CREATING ITEMS HAVE A LEAD AND A TEAM: whoever brings an item up leads it. Before adding, check the list — if it's already there in other words, add details to that item (manage_todos update), never a second one. Only the item's team edits it; your user's ideas about someone else's item go to them as a suggestion, unless your user is taking it on themselves ("I'll book it" → join: true).

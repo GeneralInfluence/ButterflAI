@@ -1035,6 +1035,15 @@ place are exactly as listed (never invented — no place listed means none), and
 plans gets that plan's day and weekday in code (🐛 #77: "Pre-Rocky Horror drink at Cargo Thursday" — it's Friday the 30th,
 no place set).
 
+## 24f. Numbers are theirs `[2026-10-21]`
+
+Melanie booked a massage for herself; the plan said "for 4 people". Nobody said four: Sean's agent turned "massages before
+3:00 on Friday" into "Book spas … for 4 people" (likely from the four invitees) and asked Melanie's agent about booking "for 4";
+Melanie said "booked a massage …"; her agent answered Sean's "Massages booked … for 4 people" and wrote it in the notes; Sean's
+copied it. Now a headcount ("for 4", "party of 6", "4 people/tickets/massages") in a message to another agent, a plan's
+notes/title or a Creating item must be a number the user's own words (last 3 days) contain — else `COUNT_NOT_SAID`
+(`agent.inventedCount`); prompt NUMBERS ARE THEIRS. Retro corrected the weekend's notes and massage item. Test: `counts.test.js`.
+
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 
 Owner: "I want to be told when the grants or any other types of connections expire so that way
