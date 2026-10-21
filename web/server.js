@@ -1699,9 +1699,15 @@ app.post('/api/spells/more', webAuth.requireAuth, async (req, res) => {   // �
 // 🧭 Explore (ideafeed.js): a page at a time; the page sends the ids it already showed.
 app.get('/app/explore', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/explore.html')));
 app.get('/app/feed', (req, res) => res.redirect(301, '/app/explore'));   // its first name
-app.post('/api/ideas/ask', webAuth.requireAuth, express.json(), async (req, res) => {   // 🔎 🐛 #50
-  const r = await require('./spells').ask(req.user.id, req.body?.text);
-  return r.error && !r.items?.length ? res.status(r.error === 'EMPTY' ? 400 : 429).json(r) : res.json(r);
+// 🔎 Ask Explore (🐛 #50): runs in the background and is kept (🐛 #54) — poll /api/ideas/asks for its ideas.
+app.post('/api/ideas/ask', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./spells').ask(req.user.id, req.body?.text);
+  return r.error ? res.status(400).json(r) : res.json(r);
+});
+app.get('/api/ideas/asks', webAuth.requireAuth, (req, res) => res.json({ asks: require('./spells').asks(req.user.id) }));
+app.post('/api/ideas/asks/:id/again', webAuth.requireAuth, (req, res) => {
+  const r = require('./spells').askAgain(req.user.id, String(req.params.id));
+  return r.error ? res.status(404).json(r) : res.json(r);
 });
 app.get('/api/ideas/map', webAuth.requireAuth, (req, res) => res.json(require('./ideafeed').map(req.user.id)));   // 🐛 #43
 app.post('/api/ideas', webAuth.requireAuth, express.json({ limit: '200kb' }), (req, res) => {

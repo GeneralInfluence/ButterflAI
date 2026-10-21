@@ -175,7 +175,7 @@
     const why = i.why && !/^(People around you like this|Found around you)$/.test(i.why) ? i.why : '';
     const when = i.date ? new Date(i.date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : '';
     // Where it came from (🐛 #41): ideas about things nearby come from a web search; the link only shows once it opened securely.
-    const src = i.source_site ? (i.link ? `Found in a web search · ${esc(i.source_site)}` : `Found in a web search · ${esc(i.source_site)} (link hidden — it didn’t open securely)`)
+    const src = i.source_site ? (i.link ? `Found in a web search · ${esc(i.source_site)}` : `Found in a web search · ${esc(i.source_site)} (checking its page…)`)
       : i.kind === 'nearby' || i.kind === 'new' ? 'Imagined by ButterflAI — no web page to check' : 'Imagined by ButterflAI from your plans and chats';
     return `<article class="post" data-id="${esc(i.id)}">
       <div class="post-head"><div class="avatar">${ICON[i.kind] || '✨'}</div><div class="who">ButterflAI<small>${esc(from)}</small></div>
@@ -277,21 +277,49 @@
     input.placeholder = r.error ? 'Couldn’t save — try again' : '✓ Saved — this shapes your ideas';
   }
 
-  // ── 🔎 Ask Explore (🐛 #50): a search, or steering ("more outdoors") that sticks ──
+  // ── 🔎 Ask Explore (🐛 #50): a search, or steering ("more outdoors") that sticks. 🐛 #54: runs in the
+  // background and is kept — your recent searches stay here with their ideas; open one, or run it again. ──
+  let asksList = [], askOpen = null, askPoll = null;
+  function askHtml(a) {
+    const open = askOpen === a.id;
+    const state = a.status === 'working' ? 'looking…' : a.items.length ? `${a.items.length} idea${a.items.length === 1 ? '' : 's'}` : (a.message || 'nothing yet');
+    return `<div class="asked-head" style="cursor:pointer" onclick="toggleAsk('${esc(a.id)}')">🔎 ${esc(a.text.length > 60 ? a.text.slice(0, 57) + '…' : a.text)}
+        <span class="sub" style="margin:0;font-weight:400">· ${esc(state)}</span>
+        <button aria-label="Run it again" title="Run it again" onclick="event.stopPropagation(); askAgain('${esc(a.id)}')">↻</button>
+        <button aria-label="${open ? 'Close' : 'Open'}" onclick="event.stopPropagation(); toggleAsk('${esc(a.id)}')">${open ? '▴' : '▾'}</button></div>`
+      + (open ? (a.status === 'working' ? '<div class="sub" style="margin:0 2px 14px">✨ ButterflAI is looking — this takes a few seconds; you can keep scrolling or leave and come back.</div>'
+        : a.items.map((i) => cardHtml({ type: 'idea', ...i })).join('') + (a.message && !a.items.length ? `<div class="sub" style="margin:0 2px 14px">${esc(a.message)}</div>` : '')) : '');
+  }
+  function renderAsks() {
+    for (const a of asksList) for (const i of a.items) if (!rendered.some((r) => r.id === i.id)) rendered.push(i);
+    document.getElementById('asked').innerHTML = asksList.map(askHtml).join('');
+  }
+  function toggleAsk(id) { askOpen = askOpen === id ? null : id; renderAsks(); }
+  async function loadAsks() {
+    const d = await fetch('/api/ideas/asks').then((r) => r.json()).catch(() => null);
+    if (!d) return;
+    asksList = d.asks || [];
+    if (askOpen && !asksList.some((a) => a.id === askOpen)) askOpen = null;
+    if (!askOpen && asksList[0] && Date.now() / 1000 - asksList[0].at < 2 * 3600) askOpen = asksList[0].id;   // your latest search, open
+    renderAsks();
+    clearTimeout(askPoll);
+    if (asksList.some((a) => a.status === 'working')) askPoll = setTimeout(loadAsks, 3000);
+  }
   async function askExplore() {
     const el = document.getElementById('ask-text'); const text = el.value.trim(); if (!text) return;
-    const box = document.getElementById('asked');
-    box.innerHTML = `<div class="asked-head">🔎 Looking for “${esc(text)}”…</div>`;
-    el.blur();
+    el.value = ''; el.blur();
     scrollTo({ top: 0, behavior: 'smooth' });   // the answer shows at the top — asked from anywhere down the feed
     const r = await fetch('/api/ideas/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }).then((x) => x.json()).catch(() => ({}));
-    el.value = '';
-    const items = r.items || [];
-    for (const i of items) { seen.push(i.id); rendered.push(i); }
-    box.innerHTML = `<div class="asked-head">🔎 For “${esc(text)}”${items.length ? '' : ' — ' + esc(r.message || 'nothing found right now')}<button aria-label="Clear" onclick="document.getElementById('asked').innerHTML=''">✕</button></div>`
-      + items.map((i) => cardHtml({ type: 'idea', ...i })).join('')
-      + (items.length ? '<div class="sub" style="margin:0 2px 14px">ButterflAI will keep this in mind for your ideas from now on.</div>' : '');
+    if (r.ask) { askOpen = r.ask.id; asksList = [r.ask, ...asksList.filter((a) => a.id !== r.ask.id)]; renderAsks(); }
+    setTimeout(loadAsks, 3000);
   }
+  async function askAgain(id) {
+    const r = await fetch('/api/ideas/asks/' + encodeURIComponent(id) + '/again', { method: 'POST' }).then((x) => x.json()).catch(() => ({}));
+    if (r.ask) { askOpen = r.ask.id; asksList = [r.ask, ...asksList]; renderAsks(); }
+    setTimeout(loadAsks, 3000);
+  }
+  loadAsks();
+
   function d_visible() { const r = document.getElementById('sentinel').getBoundingClientRect(); return r.top < innerHeight + 400; }
 
   async function answer(id, ans, btn) {

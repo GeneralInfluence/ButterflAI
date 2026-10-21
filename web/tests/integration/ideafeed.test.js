@@ -303,15 +303,20 @@ describe('✨ Feed', () => {
       ? [{ kind: 'nearby', title: 'Hike to Galena Falls', why: 'You asked for hikes', link: 'https://trails.test/galena' }, { kind: 'new', title: 'Sunset trail run club', why: 'Outdoors', link: 'https://trails.test/run' }]
       : [] }) }] }; } } });
     const c = await cookieFor(me);
+    // Since 🐛 #54 a search runs in the background and is kept; the page asks how it's going.
     const r = await request.post('/api/ideas/ask').set('Cookie', c).send({ text: 'hikes with a view this weekend' });
     assert.equal(r.status, 200);
-    assert.deepEqual(r.body.items.map((i) => i.title), ['Hike to Galena Falls', 'Sunset trail run club']);
+    assert.equal(r.body.ask.status, 'working');
+    let a = null;
+    for (let k = 0; k < 50 && (!a || a.status === 'working'); k++) { await new Promise((x) => setTimeout(x, 20)); a = (await request.get('/api/ideas/asks').set('Cookie', c)).body.asks[0]; }
+    assert.equal(a.status, 'done');
+    assert.deepEqual(a.items.map((i) => i.title), ['Hike to Galena Falls', 'Sunset trail run club']);
     assert.match(prompts[0], /They just asked Explore for: "hikes with a view this weekend"/);
     await spells.generate(me, { force: true });
     assert.match(prompts[1], /What they've asked Explore for lately \(searches and steering — follow it\): "hikes with a view this weekend"/);
     assert.equal((await request.post('/api/ideas/ask').set('Cookie', c).send({ text: ' ' })).status, 400);
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
-    assert.ok(html.includes('id="ask-text"') && html.includes("fetch('/api/ideas/ask'"));
+    assert.ok(html.includes('id="ask-text"') && html.includes("fetch('/api/ideas/ask'") && html.includes("fetch('/api/ideas/asks')"));
     // Sean, 2026-10-21: "The search box at the top of explorer should always be there as I scroll".
     assert.match(html, /\.ask \{[^}]*position: sticky; top: 52px/);
     assert.ok(html.includes("scrollTo({ top: 0, behavior: 'smooth' });   // the answer shows at the top"));
@@ -366,5 +371,51 @@ describe('✨ Feed', () => {
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
     assert.ok(html.includes('💬 You said:') && html.includes('📅 Your plans from Explore'));
     void t;
+  });
+
+  // 🐛 #54 (Sean, 2026-10-21): "I did a search about Liam's party but they never updated and when I went to the
+  // home screen and then back to explore it disappeared. I'd like to be able to do the search again or find out the
+  // results of the search without having to redo the search. What happened to that effort with Liam's party?"
+  // — the model answered in prose ("I cannot generate the 8 specific ideas without more specific information about
+  // Liam's birthday party date…"), every result was dropped silently, and the search wasn't kept.
+  test('🐛 #54: a search that gets prose is asked again for ideas, ideas know your plans\' days and places, searches are kept and can run again', async () => {
+    const me = mkUser('Sean S54');
+    const e = (await require('../../planops').create(me.id, { title: 'Liam\'s Birthday Party', scheduled_at: new Date(Date.now() + 5 * 86400e3).toISOString(), venue_name: 'Virginia City' })).eventId;
+    void e;
+    const prompts = [];
+    let call = 0;
+    spells._setClient({ messages: { create: async (req) => {
+      call++; prompts.push(req.messages);
+      if (call === 1) return { stop_reason: 'end_turn', content: [{ type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://visitvirginiacitynv.test/mines' }] },
+        { type: 'text', text: 'Based on my search … I cannot generate the 8 specific ideas without more specific information about Liam\'s birthday party date.' }] };
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ spells: [
+        { kind: 'new', title: 'Chollar Mine tour for the kids', why: 'You mentioned mine tours', link: 'https://visitvirginiacitynv.test/mines' },
+        { kind: 'reconnect', title: 'Wild west show before the party', why: 'Kids love it' }] }) }] };
+    } } });
+    const c = await cookieFor(me);
+    const r = await request.post('/api/ideas/ask').set('Cookie', c).send({ text: 'events in Virginia City around Liam\'s birthday party — mine tours, wild west shows' });
+    let a = null;
+    for (let k = 0; k < 50 && (!a || a.status === 'working'); k++) { await new Promise((x) => setTimeout(x, 20)); a = (await request.get('/api/ideas/asks').set('Cookie', c)).body.asks[0]; }
+    assert.equal(a.id, r.body.ask.id);
+    assert.equal(a.status, 'done');
+    assert.deepEqual(a.items.map((i) => i.title), ['Chollar Mine tour for the kids', 'Wild west show before the party'], 'asked again for the ideas, from what it found');
+    assert.match(prompts[0][0].content, /Liam's Birthday Party \([^)]*Virginia City\)/, 'the plan with its day and place');
+    assert.match(prompts[1].at(-1).content, /Now reply with the JSON only/);
+    // Kept: it's still there later, its ideas aren't mixed into the main feed, and it can run again.
+    assert.ok(!ideafeed.page(me.id).items.some((i) => i.title === 'Chollar Mine tour for the kids'), 'under the search, not twice');
+    call = 0;
+    const again = await request.post(`/api/ideas/asks/${a.id}/again`).set('Cookie', c);
+    assert.equal(again.status, 200);
+    assert.equal(again.body.ask.text, a.text);
+    for (let k = 0; k < 50; k++) { await new Promise((x) => setTimeout(x, 20)); if ((await request.get('/api/ideas/asks').set('Cookie', c)).body.asks.every((x) => x.status !== 'working')) break; }
+    const all = (await request.get('/api/ideas/asks').set('Cookie', c)).body.asks;
+    assert.equal(all.length, 2);
+    // Nothing found at all → said, not silent.
+    spells._setClient({ messages: { create: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Sorry, nothing.' }] }) } });
+    const none = await spells.ask(me.id, 'underwater opera', { wait: true });
+    assert.equal(none.status, 'none');
+    assert.match(none.message, /Couldn’t find ideas for that right now/);
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes('function askAgain') && html.includes('you can keep scrolling or leave and come back'));
   });
 });

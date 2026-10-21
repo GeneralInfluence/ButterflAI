@@ -83,7 +83,7 @@ function page(userId, { seen = [] } = {}) {
   const user = db.getUser(userId);
   if (!user) return { items: [], done: true };
   const shown = new Set((Array.isArray(seen) ? seen : []).slice(0, 2000).map(String));
-  const mine = spells.forUser(userId).map((s) => ({ type: 'idea', ...s }));
+  const mine = spells.forUser(userId).filter((s) => !s.asked).map((s) => ({ type: 'idea', ...s }));   // a search's ideas sit under it
   const have = new Set(db._raw().prepare('SELECT lower(title) t, lower(public_title) p FROM spells WHERE user_id = ?').all(userId).flatMap((r) => [r.t, r.p]).filter(Boolean));
   const all = [...(shown.size ? [] : rightNow(user)), ...mine, ...pool(user, have)].filter((i) => !shown.has(i.id));
   const items = all.slice(0, PAGE);

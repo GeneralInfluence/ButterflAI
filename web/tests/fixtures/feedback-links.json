@@ -151,5 +151,9 @@
   "53": {
     "note_starts": "I've already replied to this a couple times",
     "test": "tests/integration/ideafeed.test.js › 🐛 #52 / #53: ideas build on your plans and on what you already answered, Explore shows what you said and the plans you made from it"
+  },
+  "54": {
+    "note_starts": "I did a search about Liam's party but they never updated",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #54: a search that gets prose is asked again for ideas, ideas know your plans' days and places, searches are kept and can run again"
   }
 }

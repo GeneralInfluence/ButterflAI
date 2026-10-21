@@ -50,10 +50,11 @@ const clean = (t, n = 140) => String(t || '').replace(/\s+/g, ' ').trim().slice(
 /** What the person's own ButterflAI knows that's relevant (theirs only). */
 function contextFor(user) {
   const t = now();
-  const plans = db._raw().prepare(`SELECT se.title, se.scheduled_at, se.date_tbd FROM social_events se
+  const plans = db._raw().prepare(`SELECT se.id, se.title, se.scheduled_at, se.date_tbd, se.venue_name FROM social_events se
     LEFT JOIN event_invitations ei ON ei.event_id = se.id LEFT JOIN contacts c ON c.id = ei.contact_id
     WHERE COALESCE(se.status, 'open') != 'cancelled' AND (se.host_user_id = ? OR (c.phone = ? AND ei.status = 'accepted'))
     AND se.created_at > ? GROUP BY se.id ORDER BY se.created_at DESC LIMIT 15`).all(user.id, user.phone || '', t - 90 * 86400);
+  for (const p of plans) { try { p.when = require('./plan').planFor(p.id, user.id)?.dates?.label || null; } catch (_) { p.when = null; } }
   // Friends from their own plans, with when they last had one together — never avoided people.
   const avoid = require('./avoid');
   let avoided = [];
@@ -91,7 +92,7 @@ function contextFor(user) {
 const PROMPT = (user, c, today) => `You are ButterflAI, imagining what could be fun for ${String(user.name || 'this person').split(' ')[0]} — gentle ideas ("spells") that might make good things happen with the people in their life and widen their circle. Today is ${today}${user.city ? `; they live in ${user.city}` : ''}.
 
 What you know (their own):
-- Recent plans: ${c.plans.map((p) => p.title).join('; ') || 'none'}
+- Their plans (with when and where — 🐛 #54, a search about "Liam's party" didn't know its day or place): ${c.plans.map((p) => `${p.title}${p.when ? ` (${p.when}${p.venue_name ? `, ${p.venue_name}` : ''})` : p.venue_name ? ` (${p.venue_name})` : ''}`).join('; ') || 'none'}
 - Friends they make plans with (and when they last did): ${c.friends.map((f) => `${String(f.name).split(' ')[0]}${f.last ? ` (${new Date(f.last * 1000).toISOString().slice(0, 10)})` : ''}`).join(', ') || 'none yet'}
 - Their wishes: ${c.wishes.join('; ') || 'none yet'}
 - Things they said lately: ${c.said.slice(0, 15).map((s) => `"${s}"`).join(' ') || 'nothing'}
@@ -118,7 +119,7 @@ Facts must come from your search results: "link" only to a page you actually fou
 Reply with JSON only: {"spells":[{"kind":"nearby","title":"…","public_title":"…","why":"…","link":"https://…","date":"YYYY-MM-DD","place":"…","address":"…"}, …]}`;
 
 /** Imagine today's spells for one person (once a day). Returns how many were made. */
-async function generate(user, { force = false, more = false, focus = null } = {}) {
+async function generate(user, { force = false, more = false, focus = null, askId = null } = {}) {
   const c = client();
   if (!c || !user) return 0;
   const last = db._raw().prepare('SELECT max(created_at) t FROM spells WHERE user_id = ?').get(user.id).t || 0;
@@ -136,8 +137,20 @@ async function generate(user, { force = false, more = false, focus = null } = {}
     if (r.stop_reason !== 'pause_turn') break;
     messages.push({ role: 'assistant', content: r.content });
   }
-  let list = [];
-  try { list = JSON.parse(text.match(/\{[\s\S]*\}/)[0]).spells || []; } catch (_) { return 0; }
+  const parse = (t) => { try { return JSON.parse(String(t).match(/\{[\s\S]*\}/)[0]).spells || null; } catch (_) { return null; } };
+  let list = parse(text);
+  if (!list || !list.length) {
+    // It answered in prose (🐛 #54: "I cannot generate the 8 specific ideas without more specific information…")
+    // — ask once more for the ideas, from what it found.
+    console.warn(`[spells] no ideas in the reply for ${user.id}${focus ? ' (a search)' : ''}: ${String(text).slice(0, 160).replace(/\s+/g, ' ')}`);
+    messages.push({ role: 'assistant', content: text || '…' });
+    messages.push({ role: 'user', content: 'Now reply with the JSON only — ideas from what you found, even if not everything was confirmed (leave out links, dates or places you didn\'t find). {"spells":[…]}' });
+    try {
+      const r = await c.messages.create({ model: DEFAULT_MODEL, max_tokens: 1200, messages });
+      list = parse((r.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(''));
+    } catch (err) { console.warn('[spells] retry failed:', err.message); }
+    if (!list || !list.length) return 0;
+  }
   // Never name someone on their avoid list, whatever the model wrote (checked in code).
   const avoidWords = ctx.avoidedNames.map((n) => String(n).split(/\s+/)[0].toLowerCase()).filter((w) => w.length > 1);
   const ok = (s) => !avoidWords.some((w) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(`${s.title} ${s.why}`));
@@ -174,7 +187,7 @@ async function generate(user, { force = false, more = false, focus = null } = {}
     if (repeat && !db._raw().prepare("SELECT 1 FROM spells WHERE user_id = ? AND status = 'new' AND source = 'echo' AND lower(title) = lower(?)").get(user.id, pub)) continue;
     const sid = uuidv4();
     db._raw().prepare('INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, date, place, address, asked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(sid, user.id, s.kind, clean(s.title, 90), clean(s.why, 200), link, now() + KEEP_DAYS * 86400, pub, date, place, address, focus ? clean(focus, 120) : null);
+      .run(sid, user.id, s.kind, clean(s.title, 90), clean(s.why, 200), link, now() + KEEP_DAYS * 86400, pub, date, place, address, askId);
     if (c) db._raw().prepare('UPDATE spells SET link_ok = 1, image = ?, frameable = ?, page_desc = ?, image_checked = 1 WHERE id = ?').run(c.image || null, c.frameable ? 1 : 0, c.desc || null, sid);
     recent.push(words(s.title));
     // The same idea was passed on to them already: one card — theirs — carrying who-many liked it.
@@ -197,26 +210,48 @@ async function tick({ limit = 5 } = {}) {
 }
 
 /** ✨ More ideas (🐛 #37): another batch on top of today's, up to MAX_PER_DAY. */
-async function more(userId, { focus = null } = {}) {
+async function more(userId, { focus = null, askId = null } = {}) {
   const user = db.getUser(userId);
   const made = db._raw().prepare("SELECT count(*) n FROM spells WHERE user_id = ? AND source = 'own' AND created_at > ?").get(userId, now() - EVERY).n;
   if (made >= MAX_PER_DAY) return { error: 'ENOUGH', message: 'That’s plenty of ideas for today — more tomorrow.' };
-  const n = await generate(user, { force: true, more: true, focus });
+  const n = await generate(user, { force: true, more: true, focus, askId });
   return n ? { ok: true, made: n } : { error: 'NONE', message: 'Couldn’t imagine more right now — try again later.' };
 }
 
 /**
  * 🔎 Ask Explore (🐛 #50): a search ("live music this weekend") or steering ("more outdoors, fewer concerts").
- * Kept (14 days) so it keeps shaping ideas; answered now with a batch made for it.
+ * Kept 14 days so it keeps shaping ideas. 🐛 #54: it runs in the background and is kept with its results —
+ * leave Explore and come back, or run it again. Its ideas carry the ask's id (spells.asked).
  */
-async function ask(userId, text) {
+function ask(userId, text, { wait = false } = {}) {
   const t = clean(text, 200);
-  if (!t) return { error: 'EMPTY' };
-  db._raw().prepare('INSERT INTO explore_asks (id, user_id, text) VALUES (?, ?, ?)').run(uuidv4(), userId, t);
-  const before = now() - 1;
-  const r = await more(userId, { focus: t });
-  const items = db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND status = 'new' AND source = 'own' AND asked = ? AND created_at >= ? ORDER BY created_at").all(userId, t, before).map(view);
-  return { ok: !r.error || items.length > 0, asked: t, items, ...(r.error && !items.length ? { error: r.error, message: r.message } : {}) };
+  if (!t) return wait ? Promise.resolve({ error: 'EMPTY' }) : { error: 'EMPTY' };
+  const id = uuidv4();
+  db._raw().prepare("INSERT INTO explore_asks (id, user_id, text, status) VALUES (?, ?, ?, 'working')").run(id, userId, t);
+  const run = more(userId, { focus: t, askId: id })
+    .then((r) => r, (err) => { console.warn('[spells] ask failed:', err.message); return { error: 'FAILED' }; })
+    .then((r) => {
+      const made = db._raw().prepare("SELECT count(*) n FROM spells WHERE user_id = ? AND asked = ?").get(userId, id).n;
+      db._raw().prepare('UPDATE explore_asks SET status = ?, made = ?, finished_at = ? WHERE id = ?').run(made ? 'done' : r.error === 'ENOUGH' ? 'limit' : 'none', made, now(), id);
+      return askView(userId, db._raw().prepare('SELECT * FROM explore_asks WHERE id = ?').get(id));
+    });
+  return wait ? run : { ok: true, ask: askView(userId, db._raw().prepare('SELECT * FROM explore_asks WHERE id = ?').get(id)) };
+}
+function askView(userId, a) {
+  const items = db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND asked = ? AND status = 'new' AND NOT (kind IN ('nearby', 'new') AND (link IS NULL OR COALESCE(link_ok, 1) = 0)) ORDER BY created_at")
+    .all(userId, a.id).map(view);
+  return { id: a.id, text: a.text, status: a.status, made: a.made, at: a.created_at, items,
+    message: a.status === 'none' ? 'Couldn’t find ideas for that right now — try again or say it another way' : a.status === 'limit' ? 'That’s plenty of ideas for today — more tomorrow' : null };
+}
+/** Recent searches (7 days, newest first) with their ideas — for the top of Explore. */
+function asks(userId) {
+  return db._raw().prepare('SELECT * FROM explore_asks WHERE user_id = ? AND created_at > ? ORDER BY created_at DESC LIMIT 6').all(userId, now() - 7 * 86400)
+    .map((a) => askView(userId, a));
+}
+/** Run a search again. */
+function askAgain(userId, askId) {
+  const a = db._raw().prepare('SELECT text FROM explore_asks WHERE id = ? AND user_id = ?').get(askId, userId);
+  return a ? ask(userId, a.text) : { error: 'NOT_FOUND' };
 }
 
 // ── Passing ideas on (🐛 #37) ──
@@ -282,7 +317,7 @@ function echo(fromUserId, spell) {
 
 // A link is shown only once it's been checked to open securely (🐛 #41).
 const view = (s) => ({ id: s.id, kind: s.kind, title: s.title, why: s.why, status: s.status,
-  image: s.image || null, link: s.link_ok === 1 ? s.link : null, link_ok: s.link_ok, source_site: s.link ? host(s.link) : null,
+  image: s.image || null, link: s.link_ok === 1 ? s.link : null, asked: s.asked || null, link_ok: s.link_ok, source_site: s.link ? host(s.link) : null,
   date: s.date || null, place: s.place || null, lat: s.lat ?? null, lng: s.lng ?? null, you_said: s.note || null, event_id: s.event_id || null, passed_on: s.source === 'echo' || s.echoes > 0, liked_by: s.echoes || undefined, can_spread: !!s.public_title && PUBLIC_KINDS.includes(s.kind) });
 function forUser(userId) {
   // An idea about something happening whose page didn't open isn't suggested (🐛 #51).
@@ -424,4 +459,4 @@ function adopt(userId, originId) {
   return id;
 }
 
-module.exports = { generate, more, ask, tick, forUser, answer, react, page, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
+module.exports = { generate, more, ask, asks, askAgain, tick, forUser, answer, react, page, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };

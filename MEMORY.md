@@ -1194,6 +1194,13 @@ the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (
   never re-suggested; a plan made from an idea is linked (`spells.event_id`, migration 079, set in
   create_social_event from `currentTurn.spellId`) and shown on Explore's top ("📅 Your plans from Explore");
   each post shows "💬 You said: …".
+- **Searches that work and stay (#54 — a Liam's-party search "never updated" and vanished):** the model had
+  answered in prose ("I cannot generate the 8 specific ideas without … Liam's birthday party date") and the
+  batch was dropped silently. Now: a reply with no ideas is logged and asked once more for the JSON from what it
+  found; ideas see plans with their day and place (`plan.planFor` label + venue); a search runs in the
+  background (`explore_asks.status` working/done/none/limit, migration 080; `GET /api/ideas/asks`, `POST
+  /api/ideas/asks/:id/again`) and stays at the top of Explore for 7 days with its ideas (open, ↻ again); a
+  search's ideas sit under it, not in the main list.
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`
