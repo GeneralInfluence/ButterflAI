@@ -25,7 +25,7 @@ const now = () => Math.floor(Date.now() / 1000);
 
 /** Public ideas from other people in your town, one per idea, most liked first. */
 function pool(user, have) {
-  const rows = db._raw().prepare(`SELECT s.* FROM spells s WHERE s.user_id != ? AND s.public_title IS NOT NULL AND s.kind IN ('nearby', 'new')
+  const rows = db._raw().prepare(`SELECT s.* FROM spells s WHERE s.user_id != ? AND s.public_title IS NOT NULL AND s.kind IN ('nearby', 'new') AND s.link IS NOT NULL AND COALESCE(s.link_ok, 1) = 1
     AND s.status != 'dismissed' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 600`).all(user.id, now() - POOL_DAYS * 86400);
   const ok = new Map();
   const byTitle = new Map();
@@ -61,6 +61,11 @@ function rightNow(user) {
       out.push({ type: 'share', id: `share:${p.id}`, title: `${require('./people').nameFor(user.id, p.user_id, { first: true })}: ${p.text}`, sub: 'Shared with you' });
     }
   } catch (_) {}
+  // Plans you made from Explore lately (🐛 #53) — on top, so the feed remembers what you did with it.
+  for (const r of db._raw().prepare(`SELECT s.title AS idea, se.id, se.title FROM spells s JOIN social_events se ON se.id = s.event_id
+    WHERE s.user_id = ? AND COALESCE(se.status, 'open') != 'cancelled' AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 5`).all(user.id, now() - 14 * 86400)) {
+    out.push({ type: 'my_plan', id: `myplan:${r.id}`, title: r.title, sub: `Your plan from the idea “${r.idea}”`, url: `/app/chat?event=${r.id}` });
+  }
   // Public plans hosted by people in your town (open to anyone).
   const pub = db._raw().prepare(`SELECT se.id, se.title, se.scheduled_at, se.host_user_id FROM social_events se
     WHERE se.event_type = 'public' AND COALESCE(se.status, 'open') != 'cancelled' AND se.scheduled_at > ? AND se.scheduled_at < ? AND se.host_user_id != ?

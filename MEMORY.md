@@ -1185,6 +1185,15 @@ the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (
 - **Ask Explore (#50 — "search for what I'm looking for … can't just be scrolling forever"):** 🔎 box at the
   top — a search gets a batch made for it now (`spells.ask`, `POST /api/ideas/ask`, `spells.asked`); asks are
   kept 14 days (`explore_asks`) and steer every later batch ("more outdoors").
+- **Only ideas you can check (#51 — "if it didn't open securely then you shouldn't be suggesting it"):** links
+  are checked (`ogimage.check`, in parallel) before a batch is saved; an event idea (nearby / new) without a
+  link that opens over https is dropped — never shown, here or "around you" (`forUser`/`pool` filter).
+- **Build on what they did (#52 loved "a pre-show vibe before Rocky Horror"; #53 "I've already replied to this
+  … the feed should include feedback I've already given and plans I made"):** the prompt favors ideas that fit
+  around their plans and lists ideas already answered (kept / made into a plan + its name / what they said) —
+  never re-suggested; a plan made from an idea is linked (`spells.event_id`, migration 079, set in
+  create_social_event from `currentTurn.spellId`) and shown on Explore's top ("📅 Your plans from Explore");
+  each post shows "💬 You said: …".
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`

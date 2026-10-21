@@ -139,5 +139,17 @@
   "50": {
     "note_starts": "I need to be give and feedback about what I'm seeing",
     "test": "tests/integration/ideafeed.test.js › 🐛 #50: ask Explore — a search answered now, and steering that keeps shaping ideas"
+  },
+  "51": {
+    "note_starts": "If it didn't open securely then you shouldn't be suggesting it to me",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #51: links are checked before an idea is saved — an event idea whose page won't open is never suggested, here or around town"
+  },
+  "52": {
+    "note_starts": "I love this idea of a pre-show vibe",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #52 / #53: ideas build on your plans and on what you already answered, Explore shows what you said and the plans you made from it"
+  },
+  "53": {
+    "note_starts": "I've already replied to this a couple times",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #52 / #53: ideas build on your plans and on what you already answered, Explore shows what you said and the plans you made from it"
   }
 }

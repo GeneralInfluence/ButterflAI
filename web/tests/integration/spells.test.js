@@ -32,6 +32,8 @@ function mkUser(name) {
 const knows = (o, u) => db.upsertContact({ invited_by_user_id: o.id, name: u.name, phone: u.phone, tier: 1 });
 function model(list) {
   const seen = [];
+  // Ideas about something happening come with a page to find out more (🐛 #51 — without one they aren't suggested).
+  list = list.map((x) => (['nearby', 'new'].includes(x.kind) && !x.link ? { ...x, link: `https://events.test/${encodeURIComponent(x.title)}` } : x));
   // The web search's results name the sites the links are on (links to other sites are dropped, 🐛 #41).
   const results = { type: 'web_search_tool_result', content: list.filter((x) => x.link).map((x) => ({ type: 'web_search_result', url: x.link, title: 'r' })) };
   spells._setClient({ messages: { create: async (req) => { seen.push(req); return { stop_reason: 'end_turn', content: [results, { type: 'text', text: JSON.stringify({ spells: list }) }] }; } } });
@@ -203,21 +205,21 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
     await spells.generate(sean, { force: true });
     assert.match(seen[0].messages[0].content, /Facts must come from your search results/);
     const list = spells.forUser(sean.id);
-    assert.deepEqual(list.map((x) => x.title).sort(), [`Free Throw at Cargo ${real}`, 'New Constellations at Cargo'].sort(), 'same concert once, past one gone, weekday fixed');
+    // 🐛 #51 (next day): an event idea with no page you can open isn't suggested at all — New Constellations'
+    // site never came back in the search, so it's gone (it used to be kept without its link).
+    assert.deepEqual(list.map((x) => x.title), [`Free Throw at Cargo ${real}`], 'same concert once, past one gone, weekday fixed, no unverifiable idea');
     const ft = list.find((x) => x.title.startsWith('Free Throw'));
     assert.match(ft.why, new RegExp(real));
     assert.equal(ft.date, d); assert.equal(ft.place, 'Cargo Concert Hall'); assert.equal(ft.source_site, 'cargoreno.com');
     assert.equal(ft.link, null, 'not shown until it has opened securely');
-    const nc = db._raw().prepare("SELECT link FROM spells WHERE user_id = ? AND title = 'New Constellations at Cargo'").get(sean.id);
-    assert.equal(nc.link, null, 'a site the search never returned: no link');
+    assert.equal(db._raw().prepare("SELECT 1 FROM spells WHERE user_id = ? AND title = 'New Constellations at Cargo'").get(sean.id), undefined, 'a site the search never returned: not suggested');
     // The link is checked: a site that won't open securely stays hidden.
     const og = require('../../ogimage');
     og._setLookup(async () => [{ address: '93.184.216.34' }]);
     og._setFetch(async (url) => { if (url.includes('cargoreno')) throw new Error('TLS alert internal error'); return { status: 200, ok: true, headers: new Map([['content-type', 'text/html']]), text: async () => '' }; });
     await spells.fillImages({ limit: 500 });
-    const after = spells.forUser(sean.id).find((x) => x.title.startsWith('Free Throw'));
-    assert.equal(after.link, null);
-    assert.equal(after.link_ok, 0);
+    assert.equal(spells.forUser(sean.id).find((x) => x.title.startsWith('Free Throw')), undefined, '🐛 #51: a page that won\'t open — the idea isn\'t shown');
+    assert.equal(db._raw().prepare("SELECT link_ok FROM spells WHERE user_id = ? AND title LIKE 'Free Throw%'").get(sean.id).link_ok, 0);
     og._setFetch(async () => ({ status: 200, ok: true, headers: new Map([['content-type', 'text/html']]), text: async () => '' }));
     db._raw().prepare("UPDATE spells SET image_checked = 0, link_ok = NULL WHERE user_id = ?").run(sean.id);
     await spells.fillImages({ limit: 500 });

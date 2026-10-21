@@ -1937,6 +1937,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const made = await planops.create(userId, toolInput, { via: 'agent' });
       if (made.error) return made;
       const { eventId } = made;
+      // Made from one of ButterflAI's ideas (🐛 #53): the idea remembers its plan, for Explore.
+      if (currentTurn?.spellId) db._raw().prepare('UPDATE spells SET event_id = ? WHERE id = ? AND user_id = ? AND event_id IS NULL').run(eventId, currentTurn.spellId, userId);
       const eventData = toolInput;
       const inviteResult = made.invites;
 
@@ -2960,7 +2962,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
   const turnStart = Math.floor(Date.now() / 1000);   // chat rows from here on belong to this turn (topics.js)
   currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id, eventId: msg.event_id || null,
-    contextDay: msg.context_day || null };
+    contextDay: msg.context_day || null, spellId: msg.spell_id || null };
   if (msg.channel === 'agent_query') {
     // Who's asking (for tell_my_user's avoid-list check), from the queued "thread=<id>".
     const thread = /\bthread=([\w-]+)/.exec(msg.text || '')?.[1];

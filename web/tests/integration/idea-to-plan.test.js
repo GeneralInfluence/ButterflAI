@@ -73,4 +73,19 @@ describe('🐛 #45 / #47: Make it a plan from an idea', () => {
     assert.ok(explore.includes("window.bflyNewPlan(String(it.title || '')"));
     assert.ok(fb.includes('window.bflyNewPlan = ') && fb.includes('change anything before it’s made') && fb.includes('spell_id: fromSpell'));
   });
+
+  test('🐛 #53: the plan the agent makes from an idea is remembered on the idea', async () => {
+    const { cookie, user } = await login('Sean IP4', '+12025350004');
+    const id = uuidv4();
+    db._raw().prepare(`INSERT INTO spells (id, user_id, kind, title, why, expires_at) VALUES (?, ?, 'reconnect', 'Pre-show drinks before Rocky Horror?', 'You have tickets', ?)`).run(id, user.id, Math.floor(Date.now() / 1000) + 86400);
+    db._raw().prepare('UPDATE inbound_messages SET processed = 1').run();   // earlier tests' messages aren't this turn
+    await request.post('/api/plans/new').set('Cookie', cookie).send({ text: 'Pre-show drinks before Rocky Horror', spell_id: id });
+    let n = 0;
+    agent._setAnthropic({ messages: { create: async () => (n++ === 0
+      ? { id: 'a', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'create_social_event', input: { title: 'Pre-show drinks', activity_type: 'drinks', tentative: true } }] }
+      : { id: 'b', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Made it.' }] }) } });
+    await agent.tick();
+    const e = db._raw().prepare("SELECT id FROM social_events WHERE host_user_id = ? AND title = 'Pre-show drinks'").get(user.id);
+    assert.equal(db._raw().prepare('SELECT event_id FROM spells WHERE id = ?').get(id).event_id, e.id);
+  });
 });

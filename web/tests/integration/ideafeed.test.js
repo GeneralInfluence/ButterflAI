@@ -297,8 +297,10 @@ describe('✨ Feed', () => {
     const me = mkUser('Sean Q');
     const prompts = [];
     let call = 0;
-    spells._setClient({ messages: { create: async (req) => { prompts.push(req.messages[0].content); call++; return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ spells: call === 1
-      ? [{ kind: 'nearby', title: 'Hike to Galena Falls', why: 'You asked for hikes' }, { kind: 'new', title: 'Sunset trail run club', why: 'Outdoors' }]
+    spells._setClient({ messages: { create: async (req) => { prompts.push(req.messages[0].content); call++; return { stop_reason: 'end_turn', content: [
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://trails.test/galena' }, { type: 'web_search_result', url: 'https://trails.test/run' }] },
+      { type: 'text', text: JSON.stringify({ spells: call === 1
+      ? [{ kind: 'nearby', title: 'Hike to Galena Falls', why: 'You asked for hikes', link: 'https://trails.test/galena' }, { kind: 'new', title: 'Sunset trail run club', why: 'Outdoors', link: 'https://trails.test/run' }]
       : [] }) }] }; } } });
     const c = await cookieFor(me);
     const r = await request.post('/api/ideas/ask').set('Cookie', c).send({ text: 'hikes with a view this weekend' });
@@ -313,5 +315,56 @@ describe('✨ Feed', () => {
     // Sean, 2026-10-21: "The search box at the top of explorer should always be there as I scroll".
     assert.match(html, /\.ask \{[^}]*position: sticky; top: 52px/);
     assert.ok(html.includes("scrollTo({ top: 0, behavior: 'smooth' });   // the answer shows at the top"));
+  });
+
+  // 🐛 #51 (Sean, 2026-10-21): "If it didn't open securely then you shouldn't be suggesting it to me. I can't
+  // find out more and [can't] make a decision off of what you've shown me".
+  test('🐛 #51: links are checked before an idea is saved — an event idea whose page won\'t open is never suggested, here or around town', async () => {
+    const og = require('../../ogimage');
+    og._setLookup(async () => [{ address: '93.184.216.34' }]);
+    og._setFetch(async (url) => { if (url.includes('broken')) throw new Error('TLS alert'); return { status: 200, ok: true, headers: new Map([['content-type', 'text/html']]), text: async () => '<meta property="og:image" content="https://img.test/ok.jpg">' }; });
+    const me = mkUser('Sean B1'); const o = mkUser('Other B1');
+    spells._setClient({ messages: { create: async () => ({ stop_reason: 'end_turn', content: [
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://broken.test/a' }, { type: 'web_search_result', url: 'https://fine.test/b' }] },
+      { type: 'text', text: JSON.stringify({ spells: [
+        { kind: 'nearby', title: 'Show at the broken site', why: 'x', link: 'https://broken.test/a' },
+        { kind: 'nearby', title: 'Show at the fine site', why: 'x', link: 'https://fine.test/b' },
+        { kind: 'new', title: 'No page at all', why: 'x' },
+        { kind: 'reconnect', title: 'Call Allie', why: 'it\'s been a while' }] }) }] }) } });
+    await spells.generate(me, { force: true });
+    const mine = spells.forUser(me.id);
+    assert.deepEqual(mine.map((x) => x.title).sort(), ['Call Allie', 'Show at the fine site']);
+    const fine = mine.find((x) => x.title === 'Show at the fine site');
+    assert.equal(fine.link, 'https://fine.test/b', 'checked before it was saved — shown with its link straight away');
+    assert.equal(fine.image, 'https://img.test/ok.jpg');
+    og._setFetch(null);
+    const bad = idea(o, { title: 'Other town thing broken' });
+    db._raw().prepare('UPDATE spells SET link_ok = 0 WHERE id = ?').run(bad);
+    assert.ok(!ideafeed.page(me.id).items.some((i) => i.title === 'Other town thing broken'), 'not from around town either');
+  });
+  // 🐛 #52: "I love this idea of a pre-show vibe pregaming before The Rocky horror picture show … that you came up
+  // with it is awesome". 🐛 #53: "I've already replied to this a couple times. It should be more relevant to that
+  // rather than suggesting it as something completely new. The feed should include feedback I've already given
+  // and plans I made as a result of going through the feed recently".
+  test('🐛 #52 / #53: ideas build on your plans and on what you already answered, Explore shows what you said and the plans you made from it', async () => {
+    const me = mkUser('Sean B2');
+    const t = Math.floor(Date.now() / 1000);
+    const said = idea(me, { kind: 'reconnect', title: 'Plan Melanie\'s Birthday Over a Drink', pub: null });
+    db._raw().prepare("UPDATE spells SET note = 'Already talking to her Friday' WHERE id = ?").run(said);
+    const planned = idea(me, { kind: 'reconnect', title: 'Coffee with Melanie before her birthday weekend?', pub: null });
+    const e = (await require('../../planops').create(me.id, { title: 'Talk with Melanie', tentative: true })).eventId;
+    db._raw().prepare("UPDATE spells SET status = 'planned', event_id = ? WHERE id = ?").run(e, planned);
+    const prompts = [];
+    spells._setClient({ messages: { create: async (req) => { prompts.push(req.messages[0].content); return { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"spells":[]}' }] }; } } });
+    await spells.generate(me, { force: true, more: true });
+    assert.match(prompts[0], /Ideas they've already answered \(with what they did or said — don't suggest these again\): .*"Coffee with Melanie before her birthday weekend\?" → made into a plan \("Talk with Melanie"\)/);
+    assert.match(prompts[0], /"Plan Melanie's Birthday Over a Drink" → still open, they said: Already talking to her Friday/);
+    assert.match(prompts[0], /a pre-show drink before a show they're going to/);
+    const p = ideafeed.page(me.id);
+    assert.ok(p.items.some((i) => i.type === 'my_plan' && i.title === 'Talk with Melanie' && i.url === `/app/chat?event=${e}`), 'your plan from Explore');
+    assert.equal(p.items.find((i) => i.title === 'Plan Melanie\'s Birthday Over a Drink').you_said, 'Already talking to her Friday');
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes('💬 You said:') && html.includes('📅 Your plans from Explore'));
+    void t;
   });
 });

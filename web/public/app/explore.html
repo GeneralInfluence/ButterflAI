@@ -110,6 +110,7 @@
   <!-- 🔎 Search for something, or steer what you see (🐛 #50) -->
   <form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas"><button type="submit">Go</button></form>
   <div id="asked"></div>
+  <div id="my-plans"></div>
   <div class="stories" id="stories" hidden></div>
   <!-- Out and about — the same panel as Home's Feeling, starting as one line here (🐛 #40). -->
   <div id="out-now" data-compact="1"></div>
@@ -184,6 +185,7 @@
         ${i.link ? `<a class="act link" href="/app/view?id=${encodeURIComponent(i.id)}">More ›</a>` : ''}</div>
       ${liked ? `<div class="liked">${liked}</div>` : ''}
       <div class="caption"><b>${esc(i.title)}</b>${why ? ` <span>${esc(why)}</span>` : ''}</div>
+      ${i.you_said ? `<div class="facts" style="color:#6c47ff">💬 You said: ${esc(i.you_said)}</div>` : ''}
       ${when || i.place ? `<div class="facts">${when ? `<span>📅 ${esc(when)}</span>` : ''}${i.place ? `<span>📍 ${esc(i.place)}</span>` : ''}</div>` : ''}
       <div class="src">${src}</div>
       <form class="comment" onsubmit="event.preventDefault(); commentOn('${esc(i.id)}', this);"><input maxlength="500" placeholder="What do you think of this one?"><button type="submit">Save</button></form>
@@ -199,6 +201,7 @@
       const d = await r.json();
       for (const i of d.items || []) {
         seen.push(i.id);
+        if (i.type === 'my_plan') { myPlans.push(i); renderMyPlans(); continue; }
         if (i.type === 'idea') { rendered.push(i); feedEl.insertAdjacentHTML('beforeend', cardHtml(i)); }
         else if (!['friend_out', 'around', 'go_out'].includes(i.type)) addStory(i);   // those are in the Out and about panel
       }
@@ -221,6 +224,14 @@
     if (!finished && (d_visible())) loadMore();
   }
 
+  // ── Plans you made from Explore (🐛 #53): on top, a tap opens the plan ──
+  const myPlans = [];
+  function renderMyPlans() {
+    const el = document.getElementById('my-plans');
+    el.innerHTML = myPlans.length ? `<div class="asked-head" style="margin-bottom:6px">📅 Your plans from Explore</div>` + myPlans.map((p) =>
+      `<a class="post" style="display:block;padding:12px 14px;text-decoration:none;color:inherit;margin-bottom:10px" href="${esc(p.url)}"><b>${esc(p.title)}</b><div class="sub">${esc(p.sub)} ›</div></a>`).join('') : '';
+  }
+
   // ── Back where you were (🐛 #48): what was shown and how far down, for 30 minutes ──
   const rendered = [];
   let restoring = false;
@@ -228,7 +239,7 @@
     if (restoring) return;
     // The post at the top of the screen and how far down it sits — things above it can still be loading.
     const top = [...document.querySelectorAll('.post')].find((p) => p.getBoundingClientRect().bottom > 60);
-    try { sessionStorage.setItem('bfly-explore', JSON.stringify({ at: Date.now(), seen, rendered: rendered.filter((i) => document.querySelector(`.post[data-id="${CSS.escape(i.id)}"]`)), stories, finished, y: scrollY,
+    try { sessionStorage.setItem('bfly-explore', JSON.stringify({ at: Date.now(), seen, myPlans, rendered: rendered.filter((i) => document.querySelector(`.post[data-id="${CSS.escape(i.id)}"]`)), stories, finished, y: scrollY,
       anchor: top ? { id: top.dataset.id, top: top.getBoundingClientRect().top } : null })); } catch (_) {}
   }
   function restore() {
@@ -238,6 +249,8 @@
     restoring = true;
     seen = s.seen || []; finished = !!s.finished;
     for (const i of s.stories || []) addStory(i);
+    for (const p of s.myPlans || []) myPlans.push(p);
+    renderMyPlans();
     for (const i of s.rendered) { rendered.push(i); feedEl.insertAdjacentHTML('beforeend', cardHtml(i)); }
     // Back to that post (again as the Out and about panel and stories finish loading above it), unless you've scrolled.
     let moved = false;

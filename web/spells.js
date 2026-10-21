@@ -81,7 +81,11 @@ function contextFor(user) {
   const notes = db._raw().prepare("SELECT title, note, status FROM spells WHERE user_id = ? AND note IS NOT NULL ORDER BY created_at DESC LIMIT 12").all(user.id)
     .map((r) => `"${r.title}"${r.status === 'kept' ? ' (into it)' : r.status === 'dismissed' ? ' (not for them)' : ''}: ${clean(r.note, 160)}`);
   const asks = db._raw().prepare('SELECT text FROM explore_asks WHERE user_id = ? AND created_at > ? ORDER BY created_at DESC LIMIT 8').all(user.id, t - 14 * 86400).map((r) => clean(r.text, 160));
-  return { plans, friends, said, wishes, dismissed, current, around, todos, notes, asks, avoidedNames: (avoided || []).map((a) => a.name).filter(Boolean) };
+  // Ideas they've answered — kept, made into a plan, or said something about (🐛 #53).
+  const answered = db._raw().prepare(`SELECT s.title, s.status, s.note, se.title AS plan FROM spells s LEFT JOIN social_events se ON se.id = s.event_id
+    WHERE s.user_id = ? AND (s.status IN ('kept', 'planned') OR s.note IS NOT NULL) AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 15`).all(user.id, t - 30 * 86400)
+    .map((r) => `"${r.title}" → ${r.status === 'planned' ? `made into a plan${r.plan ? ` ("${r.plan}")` : ''}` : r.status === 'kept' ? 'kept as a wish' : r.status === 'dismissed' ? 'not for them' : 'still open'}${r.note ? `, they said: ${clean(r.note, 140)}` : ''}`);
+  return { plans, friends, said, wishes, dismissed, current, around, todos, notes, asks, answered, avoidedNames: (avoided || []).map((a) => a.name).filter(Boolean) };
 }
 
 const PROMPT = (user, c, today) => `You are ButterflAI, imagining what could be fun for ${String(user.name || 'this person').split(' ')[0]} — gentle ideas ("spells") that might make good things happen with the people in their life and widen their circle. Today is ${today}${user.city ? `; they live in ${user.city}` : ''}.
@@ -95,15 +99,18 @@ What you know (their own):
 - Things they're making happen in their plans (and who's on them): ${(c.todos || []).map((t) => `${t.text} (${t.plan}${t.with.length ? `, with ${t.with.join(' & ')}` : ''})`).join('; ') || 'none'}
 - What they've asked Explore for lately (searches and steering — follow it): ${(c.asks || []).map((a) => `"${a}"`).join('; ') || 'nothing yet'}
 - What they said about ideas they looked at (their taste — follow it): ${(c.notes || []).join('; ') || 'nothing yet'}
+- Ideas they've already answered (with what they did or said — don't suggest these again): ${(c.answered || []).join('; ') || 'none yet'}
 - Ideas they already have (don't repeat): ${(c.current || []).join('; ') || 'none'}
 - Liked lately by people around them (anonymous — a hint at what's good nearby): ${(c.around || []).join('; ') || 'nothing yet'}
 
 ${user.city ? `Search the web once or twice for what's actually on in or near ${user.city} in the next two weeks (shows, music, markets, classes, outdoor things) and use real ones.` : ''}
 ${c.focus ? `They just asked Explore for: "${c.focus}". If that's a search, imagine 8 ideas that answer it (any kinds that fit, real things first); if it's feedback about their ideas ("more outdoors", "less concerts"), follow it and imagine 8 that fit it. Kinds:` : 'Imagine 8 ideas, two of each kind:'}
-- "nearby": something real happening near them soon (name, day, place; include the link).
+- "nearby": something real happening near them soon (name, day, place; include the link) — the best ones fit around a plan they already have (a pre-show drink before a show they're going to, brunch the morning after).
+
 - "reconnect": doing something with a friend they haven't seen in a while (only friends listed above) — or making one of the things they're making happen into time together: figuring it out over a drink, a coffee or a quick call with the people on it ("Plan the massages over a drink with Melanie?").
 - "new": something that widens their circle — a class, a group, a meetup, a new scene.
 - "wish": a way one of their wishes could happen (or, with no wishes, something they'd likely love from what they said).
+Ideas they've already answered are listed above — never suggest them again or anything like them; build on them instead.
 Every idea is something fun to do — never an errand, a chore or a reminder ("Confirm Zack's name with Liam" is not an idea).
 Each: a short, inviting title (under 70 characters, like "Jazz at Shea's Thursday with Allie?") and one line why. Warm, specific, never pushy. Only use friends' first names from the list above.
 For "nearby" and "new" ideas also give "public_title": the same idea with no person named and nothing about them (like "Jazz at Shea's Thursday") — it may be passed on to others.
@@ -134,6 +141,10 @@ async function generate(user, { force = false, more = false, focus = null } = {}
   // Never name someone on their avoid list, whatever the model wrote (checked in code).
   const avoidWords = ctx.avoidedNames.map((n) => String(n).split(/\s+/)[0].toLowerCase()).filter((w) => w.length > 1);
   const ok = (s) => !avoidWords.some((w) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(`${s.title} ${s.why}`));
+  // Check every link before anything's saved (🐛 #51 — "if it didn't open securely then you shouldn't be
+  // suggesting it to me"): an idea about something happening needs a page that opens over https.
+  const links = [...new Set(list.map((x) => x && x.link).filter((l) => /^https:\/\//.test(String(l || '')) && found.has(host(l))))];
+  const checked = new Map(await Promise.all(links.map(async (l) => [l, await require('./ogimage').check(l).catch(() => null)])));
   let made = 0;
   // Today's replace yesterday's untouched ones; "More ideas" adds to them. Passed-on ideas stay.
   if (!more) db._raw().prepare("DELETE FROM spells WHERE user_id = ? AND status = 'new' AND source = 'own'").run(user.id);
@@ -148,6 +159,9 @@ async function generate(user, { force = false, more = false, focus = null } = {}
     // A link only to a site the search actually returned; never plain http (🐛 #41).
     let link = /^https:\/\//.test(String(s.link || '')) ? String(s.link).slice(0, 400) : null;
     if (link && !found.has(host(link))) link = null;
+    const c = link ? checked.get(link) : null;
+    if (c && !c.ok) link = null;
+    if (PUBLIC_KINDS.includes(s.kind) && !link) continue;   // nothing to find out more from — not suggested
     const date = /^\d{4}-\d{2}-\d{2}$/.test(String(s.date || '')) && !Number.isNaN(Date.parse(s.date)) ? s.date : null;
     if (date && date < today) continue;   // already over
     if (date) { s.title = fixWeekdays(s.title, date); s.why = fixWeekdays(s.why, date); if (s.public_title) s.public_title = fixWeekdays(s.public_title, date); }
@@ -161,6 +175,7 @@ async function generate(user, { force = false, more = false, focus = null } = {}
     const sid = uuidv4();
     db._raw().prepare('INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, date, place, address, asked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(sid, user.id, s.kind, clean(s.title, 90), clean(s.why, 200), link, now() + KEEP_DAYS * 86400, pub, date, place, address, focus ? clean(focus, 120) : null);
+    if (c) db._raw().prepare('UPDATE spells SET link_ok = 1, image = ?, frameable = ?, page_desc = ?, image_checked = 1 WHERE id = ?').run(c.image || null, c.frameable ? 1 : 0, c.desc || null, sid);
     recent.push(words(s.title));
     // The same idea was passed on to them already: one card — theirs — carrying who-many liked it.
     const dup = pub && db._raw().prepare("SELECT id, echoes FROM spells WHERE user_id = ? AND status = 'new' AND source = 'echo' AND lower(title) = lower(?)").get(user.id, pub);
@@ -268,9 +283,10 @@ function echo(fromUserId, spell) {
 // A link is shown only once it's been checked to open securely (🐛 #41).
 const view = (s) => ({ id: s.id, kind: s.kind, title: s.title, why: s.why, status: s.status,
   image: s.image || null, link: s.link_ok === 1 ? s.link : null, link_ok: s.link_ok, source_site: s.link ? host(s.link) : null,
-  date: s.date || null, place: s.place || null, lat: s.lat ?? null, lng: s.lng ?? null, passed_on: s.source === 'echo' || s.echoes > 0, liked_by: s.echoes || undefined, can_spread: !!s.public_title && PUBLIC_KINDS.includes(s.kind) });
+  date: s.date || null, place: s.place || null, lat: s.lat ?? null, lng: s.lng ?? null, you_said: s.note || null, event_id: s.event_id || null, passed_on: s.source === 'echo' || s.echoes > 0, liked_by: s.echoes || undefined, can_spread: !!s.public_title && PUBLIC_KINDS.includes(s.kind) });
 function forUser(userId) {
-  return db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND status = 'new' AND expires_at > ? ORDER BY CASE kind WHEN 'nearby' THEN 0 WHEN 'reconnect' THEN 1 WHEN 'wish' THEN 2 ELSE 3 END, echoes DESC, created_at DESC")
+  // An idea about something happening whose page didn't open isn't suggested (🐛 #51).
+  return db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND status = 'new' AND expires_at > ? AND NOT (kind IN ('nearby', 'new') AND (link IS NULL OR COALESCE(link_ok, 1) = 0)) ORDER BY CASE kind WHEN 'nearby' THEN 0 WHEN 'reconnect' THEN 1 WHEN 'wish' THEN 2 ELSE 3 END, echoes DESC, created_at DESC")
     .all(userId, now()).map(view);
 }
 
