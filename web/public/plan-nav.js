@@ -4,9 +4,9 @@
  * knows how to get back and forth very easily").
  *
  *   Row 1 (pills):    All · <a pill per plan>          — which plan; you stay on the same tab
- *   Row 2 (switcher): 🤖 ButterflAI · ✨ Creating · 📅 Details — the same plan, another view
- *   ("🤖 ButterflAI", not "Chat": you're talking to your AI, not chatting with people — Sean, 🐛 #76)
- *                     (on All: 🤖 ButterflAI · ✨ Creating · 📅 Calendar)
+ *   Row 2 (switcher): [cyborg butterfly] ButterflAI · ✨ Creating · 📅 Details — the same plan, another view
+ *   (the cyborg-butterfly thumbnail + "ButterflAI", not "Chat" — Sean's pick, 2026-10-21: you're talking to your AI, not chatting with people — Sean, 🐛 #76)
+ *                     (on All: ButterflAI · ✨ Creating · 📅 Calendar)
  *
  * PlanNav.pills(el, { page, eventId, discussions })  — Creating and Events (Chat has its own
  *   pills with General and rename, in the same style).
@@ -34,7 +34,7 @@
     const tab = (p, label, extra = '') => `<a class="${p === page ? 'active' : ''}" href="${href(p, eventId, day)}" data-mode="${p}">${label}${extra}</a>`;
     const draw = (count, waiting) => {
       el.innerHTML = `<nav class="plan-modes" aria-label="${plan ? 'This plan' : 'Everything'}">`
-        + tab('chat', '🤖 ButterflAI') + tab('creating', '✨ Creating', (count ? ` <span class="count">${esc(count)}</span>` : '') + (waiting ? `<span class="dot" title="${waiting} new to look at" aria-label="${waiting} new to look at"></span>` : ''))
+        + tab('chat', '<img class="ai-ico" src="/icons/ai-butterfly.png" alt="" width="20" height="20"> ButterflAI') + tab('creating', '✨ Creating', (count ? ` <span class="count">${esc(count)}</span>` : '') + (waiting ? `<span class="dot" title="${waiting} new to look at" aria-label="${waiting} new to look at"></span>` : ''))
         + tab('events', plan ? '📅 Details' : '📅 Calendar') + '</nav>';
       el.hidden = false;
     };

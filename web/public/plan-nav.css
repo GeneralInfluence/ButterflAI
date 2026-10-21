@@ -29,3 +29,7 @@
   .bottom-nav .tab-icon { font-size: 22px; line-height: 1; }
   body { padding-bottom: 58px; }
 }
+
+/* Your AI: a cyborg butterfly (owner, 2026-10-21 — talking to your ButterflAI, not chatting with people) */
+.plan-modes .ai-ico, .mini .ai-ico { width: 20px; height: 20px; vertical-align: -4px; margin-right: 2px; object-fit: contain; }
+.mini .ai-ico { width: 16px; height: 16px; vertical-align: -3px; }
