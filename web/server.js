@@ -1649,6 +1649,9 @@ app.post('/api/quick', webAuth.requireAuth, async (req, res) => {
 });
 // 🦋 Every butterfly design kept, and which one the app uses (owner, 2026-10-21) — tools/butterfly-icons.js switches it.
 const BUTTERFLY_NOTES = {
+  'cyborg-steampunk-purple-cyan-edge.png': 'The steampunk cyborg in rust and purple, wing edges bright cyan (owner: more contrast edge → center)',
+  'cyborg-steampunk-purple-cyan-edge-thin.png': 'Same, a thinner cyan edge',
+  'cyborg-steampunk-purple-cyan-edge-wide.png': 'Same, a wider cyan edge',
   'cyborg-steampunk-purple.png': 'The steampunk cyborg in rust, purple and bright cyan',
   'cyborg-steampunk-rust.png': 'The steampunk cyborg, mostly rust',
   'cyborg-steampunk-rust-bright.png': 'The steampunk cyborg, rust with bright highlights',

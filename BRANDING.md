@@ -19,8 +19,9 @@
 > butterfly in the app should be consistent", and every option we try is kept.
 
 ### The butterfly
-- **In use:** `web/public/icons/butterflies/cyborg-steampunk-purple.png` — a steampunk cyborg butterfly recolored to
-  ButterflAI purple (#6C47FF) with rust (#B4532A) and bright cyan (#3CF2FF) details.
+- **In use:** `web/public/icons/butterflies/cyborg-steampunk-purple-cyan-edge.png` — a steampunk cyborg butterfly recolored
+  to ButterflAI purple (#6C47FF) with rust (#B4532A) details, its wing edges glowing bright cyan (#3CF2FF, the antenna-tip
+  color) for contrast from edge to center (owner, 2026-10-21).
 - **One butterfly everywhere:** every screen shows `web/public/icons/butterfly-128.png` (tab icons, the ButterflAI tab,
   logos, empty states, install prompt); favicons are `icons/favicon-32.png` / `favicon.ico`; the home-screen icons
   (`icon-192/512.png`, `apple-touch-icon.png`) are the butterfly on **Purple Pale (#EDE9FE)** — a purple butterfly
