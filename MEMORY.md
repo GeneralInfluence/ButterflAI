@@ -491,6 +491,17 @@ Owner decision after the first friends test (Sean got an unattributed text from 
   sending; wrong addresses in replies to the user are corrected.
 - Code: `web/deliver.js` (`deliverToContact`, `markSeen`, `tickFallback`), table
   `deliveries`, `conversation_history.kind`. Tests: `tests/integration/deliver.test.js`.
+- **💌 Whispers — the one exception (owner, 2026-10-21, after Allie: "The agents are supposed to be able to
+  speak to each other anonymously. And say that something's generally happening or there's a general
+  rumor."):** a kind or playful note to a friend without the sender's name ("💌 Someone close to you
+  says…"). Owner choices: only between people who saved each other; ON unless the receiver turns it off
+  (Settings → Whispers); kindness-checked by the model before sending (fails closed); ≤ 2 a day to one person,
+  5 in all; in the app only; the receiver can answer through their ButterflAI (the sender learns who answered,
+  the receiver never learns who sent) or mute that sender without learning who; avoid lists both ways ("couldn't
+  be sent", never why); ButterflAI keeps who sent each one. `web/whispers.js`, migration 082, agent tools
+  send_whisper / reply_whisper / mute_whisper; an ordinary send asked to be anonymous is refused in code and
+  pointed to send_whisper (`agent.asksAnonymous`, 🐛 #59). Retro: whoever asked for anonymity last week is
+  offered it. Tests: `no-anonymous.test.js`.
 - Considered and rejected: becoming a WhatsApp-style messenger (agent would sit in every
   private conversation; people won't move real chats). Adopted the per-message attribution
   instead; a per-person history view is a possible later addition.
@@ -1209,7 +1220,7 @@ the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (
   about it, not a venue's listing (`spells.pickLink`, by the idea's words in result titles/addresses) (#58).
   A search's "nothing found" never blames the question; searches get 4 web lookups and may count what's open
   or running there that day (#60 — Virginia City for kids worked on the real model once #54's retry shipped).
-- **No anonymous messages (#59):** Allie asked her agent to "anonymously tell Sean he's a dork … don't let him
+- **No anonymous messages (#59 — superseded the same night by 💌 whispers, §10):** Allie asked her agent to "anonymously tell Sean he's a dork … don't let him
   know it's from me"; it sent it and said "Sent", but every message says who it's from (§10). Now refused in
   code (`agent.asksAnonymous` on send_logistics_sms / message_agent → ANONYMOUS_NOT_POSSIBLE) and the agent says
   so; prompt NO ANONYMOUS MESSAGES. Test: `no-anonymous.test.js`.

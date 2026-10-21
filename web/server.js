@@ -1677,6 +1677,13 @@ app.post('/api/out/refresh', webAuth.requireAuth, express.json(), (req, res) => 
   const r = require('./outnow').refresh(req.user.id, { lat: Number(req.body?.lat), lng: Number(req.body?.lng) });
   return r.error ? res.status(400).json(r) : res.json(r);
 });
+// 💌 Whispers (whispers.js, 2026-10-21): on unless you turn them off; unmute everyone you muted.
+app.get('/api/whispers/settings', webAuth.requireAuth, (req, res) => res.json(require('./whispers').settings(req.user.id)));
+app.post('/api/whispers/settings', webAuth.requireAuth, express.json(), (req, res) => {
+  const w = require('./whispers');
+  if (req.body?.unmute_all) return res.json(w.unmuteAll(req.user.id));
+  return res.json(w.setOff(req.user.id, req.body?.off === true));
+});
 app.delete('/api/out', webAuth.requireAuth, (req, res) => res.json(require('./outnow').stop(req.user.id)));
 // 🏠 I'm in tonight (🐛 #62) — and back out of it.
 app.post('/api/out/in', webAuth.requireAuth, (req, res) => res.json(require('./outnow').stayIn(req.user.id)));

@@ -445,6 +445,16 @@ into, what was talked about; never anyone's looks — and then discarded: **the 
 stored** anywhere by ButterflAI. Screenshots can show the other person's profile and messages,
 so only those few facts are kept, on the user's own contact.
 
+## 💌 Whispers `[LOCKED 2026-10-21]`
+
+Every message ButterflAI passes on says who it's from — except a whisper (`whispers.js`): a kind or playful note
+to a friend shown as "Someone close to you says…". Owner decisions: only between people who have each other
+saved; on unless the receiver turns whispers off in Settings; each one is checked by Anthropic's model to be kind
+first (unkind ones aren't sent); at most 2 a day to one person; in the app only. **ButterflAI keeps who sent each
+whisper** (so whispers can't be used to harass) and the sender is told so; the receiver is never shown it, and
+their ButterflAI never guesses. The receiver can answer (the sender sees who answered) or mute the sender without
+learning who. Avoid lists apply both ways and the sender only hears "couldn't be sent".
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

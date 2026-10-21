@@ -191,5 +191,9 @@
   "62": {
     "note_starts": "It's asking if I'm out and about",
     "test": "tests/integration/ideafeed.test.js › 🐛 #62: I'm in tonight — it stops asking until the night ends, going out clears it"
+  },
+  "65": {
+    "note_starts": "The agents are supposed to be able to speak to each other anonymously",
+    "test": "tests/integration/no-anonymous.test.js › Allie's rumor reaches Sean as \"Someone close to you says…\" — no name anywhere he can see — and Sean can answer it"
   }
 }

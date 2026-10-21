@@ -727,6 +727,20 @@ const TASKS = [
       return `requeued ${r.changes}`;
     },
   },
+  {
+    id: '2026-10-21-offer-whispers',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'propose',
+    about: '💌 Whispers now exist (owner, after Allie: "The agents are supposed to be able to speak to each other anonymously"). Anyone who asked to send something anonymously in the last week — and was told it couldn\'t be done — is told it can now, and offered to send it.',
+    run(user) {
+      const { ANON } = require('./agent');
+      const asked = db._raw().prepare("SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND created_at > ? ORDER BY created_at DESC").all(user.id, Math.floor(Date.now() / 1000) - 7 * 86400)
+        .find((r) => ANON.test(r.text || ''));
+      if (!asked) return 'nothing asked';
+      require('./ripples/notice').inApp(user.id, null, '💌 New: whispers. You can now send a friend a kind or playful note without your name on it — they see “Someone close to you says…”. Want me to send the one you asked about earlier? Just say yes (or tell me what to say).', { url: '/app/chat' });
+      return 'offered';
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

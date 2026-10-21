@@ -465,6 +465,22 @@ const TOOL_DEFINITIONS = [
       action: { type: 'string', enum: ['add', 'list', 'remove'] }, text: { type: 'string' }, wish_id: { type: 'string' }, open_to_new: { type: 'boolean' } }, required: ['action'] },
   },
   {
+    name: 'send_whisper',
+    description: '💌 Send a friend a message WITHOUT your user\'s name on it ("anonymously tell Sean he\'s a dork", "start a rumor that…", "don\'t let her know it\'s from me"). Only to people who have each other saved and are on ButterflAI; checked to be kind or playful first. Write it warm and playful from the gist (never their raw words). The receiver sees "Someone close to you says…".',
+    input_schema: { type: 'object', properties: {
+      contact_id: { type: 'string' }, message: { type: 'string', description: 'What the friend will read — short, kind or playful, no hint of who sent it' } }, required: ['contact_id', 'message'] },
+  },
+  {
+    name: 'reply_whisper',
+    description: 'Answer a 💌 whisper your user got ("Someone close to you says…"), when they tell you what to say back. Goes to whoever sent it — with your user\'s name; your user never learns who sent it.',
+    input_schema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] },
+  },
+  {
+    name: 'mute_whisper',
+    description: 'Your user doesn\'t want more whispers from whoever sent their latest one — mute that sender (your user still won\'t learn who). To turn whispers off entirely, point them to Settings → Whispers.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'decide_suggestion',
     description: 'Accept or decline a suggestion someone made for a plan (or a Creating item) your user decides on — listed under "suggestions waiting" in Open events. Only when your user said so.',
     input_schema: { type: 'object', properties: {
@@ -1335,8 +1351,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       const contact = ownContact(userId, toolInput.contact_id);
       if (contact.error) return contact;
       if (asksAnonymous(userId)) {
-        return { error: 'ANONYMOUS_NOT_POSSIBLE', action_status: 'NOT_SENT',
-          message: `Not sent. ButterflAI always shows who a message is from ("From ${String(db.getUser(userId)?.name || 'your user').split(' ')[0]}'s ButterflAI") — there's no anonymous message. Tell your user plainly, and ask if they want to send it from them instead. Don't say it was sent.` };
+        // Messages always say who they're from ("From ${name}'s ButterflAI"); without a name, it's a whisper (2026-10-21).
+        return { error: 'USE_SEND_WHISPER', action_status: 'NOT_SENT',
+          message: `Not sent — this would show it's from them ("From ${String(db.getUser(userId)?.name || 'your user').split(' ')[0]}'s ButterflAI"). They asked for it without their name: use send_whisper instead.` };
       }
       if (!contact.phone) return { error: 'Contact has no phone number on file' };
 
@@ -1393,7 +1410,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'message_agent': {
       const { contact_id, topic, message: agentMsg, ask_again } = toolInput;
-      if (asksAnonymous(userId)) return { error: 'ANONYMOUS_NOT_POSSIBLE', action_status: 'NOT_SENT', message: 'Not sent — every message says who it\'s from; there\'s no anonymous message. Tell your user plainly and ask if they want to send it from them.' };
+      if (asksAnonymous(userId)) return { error: 'USE_SEND_WHISPER', action_status: 'NOT_SENT', message: 'Not sent — this says who it\'s from. Without their name, use send_whisper.' };
       // Every question between agents is about a plan (owner, 2026-10-13): that's what lets
       // insiders answer from the plan, deferrals answer in code, and answers land on the
       // plan instead of being asked again. Only coordination needed one before; and a
@@ -1569,6 +1586,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       return w.forUser(userId);
     }
 
+    case 'send_whisper': return await require('./whispers').send(userId, toolInput.contact_id, toolInput.message);
+    case 'reply_whisper': return await require('./whispers').reply(userId, toolInput.message);
+    case 'mute_whisper': return require('./whispers').muteLatest(userId);
     case 'decide_suggestion': {
       return require('./suggestions').decide(userId, toolInput.suggestion_id, toolInput.accept === true);
     }
@@ -2587,7 +2607,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   DATES AS SAID: pass the date in your user's words (when). A day with no time is that day, "time TBD" — never add a time ("evening", "7pm") they didn't give; "the 30th" is one day, not a weekend range.
   ONE PLAN AT A TIME: in a plan's discussion, change only that plan. Something your user says there ("noon till 6", "kids won't last") is about that plan — never copy it onto their other plans. To change another plan they must name it.
   SCREENSHOTS: "[What was on my screen]" in your user's message is what ButterflAI read from a screenshot they attached (the picture isn't kept) — treat it as what they're showing you and act on it like their own words: dates, times, places and people in it are what to plan with (as written — never invent a missing time), a flyer or event page is something to plan around, and a conversation shows what's been said. If it's unclear what they want done with it, do the obvious thing for the plan being discussed (or ask once). Never describe anyone's looks.
-  NO ANONYMOUS MESSAGES: every message ButterflAI passes on says who it's from ("From Allie's ButterflAI"). If your user asks to send something anonymously ("don't let him know it's from me"), don't send it and don't say it was sent — tell them it will always show it's from them, and ask whether to send it that way.
+  WHISPERS (anonymous messages): every message ButterflAI passes on says who it's from ("From Allie's ButterflAI") — except a 💌 whisper. When your user wants a friend to get something without their name ("anonymously tell Sean…", "start a rumor", "don't let her know it's from me"), use send_whisper (never send_logistics_sms or message_agent): write it short, kind or playful, with no hint of who sent it. It only reaches friends on ButterflAI who have each other saved; tell your user exactly what happened (sent / not sent and why). When your user got a whisper ("💌 Someone close to you says…") and tells you what to say back, use reply_whisper; if they don't want more from that person, mute_whisper. Never guess or hint who sent a whisper.
   WISHES ARE NOT PLANS: "I wish…", "I'd love to someday…", "it'd be great to…" with no date, place or people decided → manage_wishes add (ButterflAI looks for others who wish for the same thing). A concrete plan (people, a day, "let's do X") → create_social_event. Never tell your user anyone else's wishes; matches reach them on their own.
   PLANS ARE MADE TOGETHER — GUESTS SUGGEST, HOSTS AND CO-HOSTS DECIDE: the host and co-hosts (the person a plan is for is one automatically; the host can add more with set_cohost) change a plan for everyone. A guest's change still goes through update_event / merge_plans — it becomes a suggestion the host and co-hosts accept or decline; tell your user "suggested to X", never "changed", and never "I can't". Only the host cancels. When your user decides on a suggestion ("yes, do Melanie's idea"), use decide_suggestion.
   CREATING ITEMS HAVE A LEAD AND A TEAM: whoever brings an item up leads it. Before adding, check the list — if it's already there in other words, add details to that item (manage_todos update), never a second one. Only the item's team edits it; your user's ideas about someone else's item go to them as a suggestion, unless your user is taking it on themselves ("I'll book it" → join: true).
@@ -3346,4 +3366,5 @@ function startAgentLoop() {
 }
 
 module.exports = {
+  ANON,
   planNamedIn, _relayProblem: relayProblem, startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver, _unverifiedSentClaim: unverifiedSentClaim, NOT_SENT_FALLBACK, _unbackedActionClaim: unbackedActionClaim, NOT_DONE_FALLBACK };

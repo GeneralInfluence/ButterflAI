@@ -242,6 +242,23 @@
     </div>
   </section>
 
+  <!-- 💌 Whispers (2026-10-21) -->
+  <section id="whispers">
+    <h2>💌 Whispers</h2>
+    <div class="card">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#555">
+        <input type="checkbox" id="whispers-toggle" checked onchange="setWhispers(this.checked)" style="width:18px;height:18px;accent-color:#6c47ff">
+        Friends can send me whispers
+      </label>
+      <p style="font-size:12px;color:#aaa;margin-top:6px;line-height:1.5">
+        A whisper is a kind or playful note from someone close to you — a friend who has you saved — without their name
+        (“💌 Someone close to you says…”). ButterflAI checks it’s kind before it reaches you, and keeps who sent it so
+        nobody can use whispers to be mean. Don’t want more from someone? Tell your ButterflAI “mute whoever sent that”.
+      </p>
+      <p id="whispers-muted" style="font-size:13px;color:#555;margin-top:6px" hidden></p>
+    </div>
+  </section>
+
   <!-- Test user / help improve -->
   <section>
     <h2>🧪 Help improve ButterflAI</h2>
@@ -742,6 +759,17 @@
     });
   }
 
+  async function loadWhispers() {
+    const s = await fetch('/api/whispers/settings').then((r) => r.json()).catch(() => null);
+    if (!s) return;
+    document.getElementById('whispers-toggle').checked = !s.off;
+    const m = document.getElementById('whispers-muted');
+    m.hidden = !s.muted;
+    m.innerHTML = s.muted ? `You’ve muted ${s.muted} sender${s.muted === 1 ? '' : 's'}. <a href="#" onclick="event.preventDefault(); unmuteWhispers()">Unmute all</a>` : '';
+  }
+  async function setWhispers(on) { await fetch('/api/whispers/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ off: !on }) }).catch(() => {}); loadWhispers(); }
+  async function unmuteWhispers() { await fetch('/api/whispers/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unmute_all: true }) }).catch(() => {}); loadWhispers(); }
+  loadWhispers();
   async function toggleTestUser(enabled) {
     const status = document.getElementById('test-user-status');
     try {
