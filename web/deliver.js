@@ -46,9 +46,10 @@ function stripSender(user, message) {
 }
 
 // A chat card in a user's history, pushed live if they're connected.
-function addCard(userId, kind, text) {
-  db.appendConversation(userId, 'assistant', text, null, kind);
-  return sse.push(userId, { role: 'assistant', kind, text, ts: now() });
+function addCard(userId, kind, text, about = null) {
+  const id = db.appendConversation(userId, 'assistant', text, null, kind);
+  if (about) require('./reactions').markAbout(id, about.userId, about.what);
+  return sse.push(userId, { id, role: 'assistant', kind, text, ts: now(), can_react: !!about });
 }
 
 function senderCard(fromUser, contact, body, via) {
@@ -83,7 +84,7 @@ async function deliverToContact({ fromUser, contact, message, forceText = false 
   const recipient = contact.phone ? db.getUserByPhone(contact.phone) : null;
 
   if (recipient && recipient.id !== fromUser.id) {
-    const online = addCard(recipient.id, 'incoming', `💬 From ${firstName(fromUser)}'s ButterflAI: ${body}`);
+    const online = addCard(recipient.id, 'incoming', `💬 From ${firstName(fromUser)}'s ButterflAI: ${body}`, { userId: fromUser.id, what: `your message: “${body.length > 70 ? body.slice(0, 67) + '…' : body}”` });
     const canPush = canPushTo(recipient.id);
     const textNow = forceText || (!online && !canPush);
 

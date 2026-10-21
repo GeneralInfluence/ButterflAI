@@ -96,7 +96,7 @@ function planFor(eventId, viewerId) {
 
   const ended = ['set', 'open'].includes(dates.kind) ? dates.end < t : ['proposed', 'days'].includes(dates.kind) ? (Date.parse(dates.last + 'T23:59:59Z') / 1000) < t - 86400 : false;
   const stage = e.status === 'cancelled' ? 'cancelled'
-    : ended ? 'past'
+    : ended || e.status === 'completed' ? 'past'   // done = over, whatever its date (🐛 #84: "I dropped it at the front desk … it's completed")
     : !isHost && mine?.status === 'invited' ? 'invited'
     : dates.kind === 'tbd' ? 'idea'
     : e.tentative ? 'proposed'
@@ -125,7 +125,7 @@ function planFor(eventId, viewerId) {
     host: { name: first(host?.name), is_you: isHost }, role: isHost ? 'host' : 'guest',
     invitation: mine ? { id: mine.id, status: mine.status, going: mine.status === 'accepted' && (!!mine.going || !e.tentative), must_ask: !!mine.needs_owner_decision && mine.status !== 'declined',
       deferred_to: parseJson(mine.defers_to, []) } : null,
-    tentative: !!e.tentative, stage, dates, days: dates.days, at: dates.kind === 'set' ? dates.start : null,
+    tentative: !!e.tentative, stage, done: e.status === 'completed', dates, days: dates.days, at: dates.kind === 'set' ? dates.start : null,
     group: e.group_id ? (db._raw().prepare('SELECT id, name FROM contact_groups WHERE id = ?').get(e.group_id) || null) : null,
     people, interested, going, waiting_on: waiting, out: plain.filter((p) => p.status === 'declined').map((p) => p.name),
     deferring: people.filter((p) => p.deferring_to.length).map((p) => ({ who: p.name, to: p.deferring_to })),

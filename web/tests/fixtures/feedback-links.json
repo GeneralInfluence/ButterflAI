@@ -259,5 +259,25 @@
   "80": {
     "note_starts": "I don't like the design of this feeling tab",
     "test": "tests/integration/outnow.test.js › 🐛 #80: on Home, Out and about is one line that opens Explore (with the form open)"
+  },
+  "81": {
+    "note_starts": "It's awesome that Alex responded and said she's going",
+    "test": "tests/integration/reactions.test.js › Alex says yes → Sean's ButterflAI tells him → Sean ❤️s it → Alex gets \"❤️ Sean loved your yes for Rocky Horror Picture Show\", once"
+  },
+  "82": {
+    "note_starts": "You put exactly what I said into the title of the list",
+    "test": "tests/integration/short-items.test.js › Sean's sentence → \"Get the exact paperwork\", the sentence in its notes"
+  },
+  "83": {
+    "note_starts": "We need to add the ability to suggest things that we find from social media",
+    "test": "tests/integration/screenshot-explore.test.js › Sean's exact message: a plan per event is refused and pointed to add_to_explore"
+  },
+  "84": {
+    "note_starts": "The power cord was done",
+    "test": "tests/integration/plan-done.test.js › Sean's exact words, read by understand: done in code, with an Undo"
+  },
+  "85": {
+    "note_starts": "Why do I still see all the events from that screenshot",
+    "test": "tests/integration/screenshot-explore.test.js › Sean's day, replayed"
   }
 }

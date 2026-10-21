@@ -569,7 +569,8 @@ describe('✨ Feed', () => {
     let ask = null;
     for (let k = 0; k < 50 && (!ask || ask.status === 'working'); k++) { await new Promise((x) => setTimeout(x, 20)); ask = (await request.get('/api/ideas/asks').set('Cookie', c)).body.asks[0]; }
     assert.equal(ask.label, 'Pumpkin carving');
-    assert.match(prompts[0], /Things like this \(from a screenshot\): Plans: Pumpkin carving night at Brasserie Saint James/);
+    // 🐛 #83: a screenshot is looked up as itself (each listed thing), not "things like this".
+    assert.match(prompts[0], /From a screenshot they shared: Plans: Pumpkin carving night at Brasserie Saint James/);
     assert.ok(html.includes('onchange="askFromShot(this)"'));
   });
 });

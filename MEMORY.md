@@ -1053,6 +1053,31 @@ plan it shows "Its time has passed". 🐛 #80 ("the home screen is supposed to b
 follow-up screen"): Home's Out and about is one line (`data-summary` in outnow-ui.js) — "Out and about? ›" opens Explore with
 the form open (`?out=1`), "You're out · N nearby ›", "You're in tonight"; a friend saying hi still shows.
 
+## 24h. Screenshots to Explore; done is done; short item names; ❤️ reactions `[2026-10-21]`
+
+- **🐛 #83/#85 — a screenshot of things to do goes to Explore, not plans.** Sean shared an Instagram list of Reno events
+  ("find all of these events"); his agent made 6 plans (the after-reply check even pushed it to), then for "none of them
+  should stay … exploration opportunities" saved 16 wishes and left the plans. Now: `create_social_event` is refused when the
+  message carries a screenshot and their own words (before it) don't ask for a plan (`agent.shotNotAPlan`, FOR_EXPLORE);
+  `manage_wishes add` is refused when they said "explore"; tool **`add_to_explore`** puts the things on Explore as a search
+  (`spells.ask`, "From a screenshot they shared: …") and cancels plans made by mistake (`instead_of_plan_ids`, never one
+  someone said yes to), pointing out any still standing. A screenshot's list is looked up as itself — one idea per listed
+  thing on its date, even weeks out (spells prompt; focus kept to 600 chars). **Explore has a clear "📷 Add from a
+  screenshot" card** (Sean: "in the explore tab, give my screenshot, which is more intuitive"), and a screenshot shared
+  from another app lands on Explore asking "Things to do — find them" / "Someone I'm talking to" (→ Quick note). Retro:
+  such plans cancelled, such wishes removed, the things searched on Explore, told once. Test: `screenshot-explore.test.js`.
+- **🐛 #84 — done is done:** "dropped it off at the front desk … it's completed" → `update_event done: true` (status
+  `completed`, stage `past` — off every list, kept, "marked it done" in Recent changes; host / co-hosts; `done: false`
+  reopens). understand.js reads it (`done`, plan or item, applied in code with Undo). Retro: plans whose day came and whose
+  last message says it's done. Test: `plan-done.test.js`.
+- **🐛 #82 — short item names:** a Creating item's name is short; a sentence becomes its first clause without "I need to
+  …" and the sentence goes to its notes (`todos.shortName`, in `todos.add`). Retro shortens existing ones. Test:
+  `short-items.test.js`.
+- **🐛 #81 — ❤️ reactions:** a chat message from or about one friend (their ButterflAI's message; your agent's news of
+  their yes — `about_user_id`, migration 083) shows ♡ → ❤️ 👍 😂 🎉 😮; the first reaction reaches them once, in the app
+  ("❤️ Sean loved your yes for Rocky Horror Picture Show"); never to someone who avoids you (`reactions.js`,
+  `POST /api/chat/messages/:id/react`). Retro marks the last 30 days' incoming messages. Test: `reactions.test.js`.
+
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 
 Owner: "I want to be told when the grants or any other types of connections expire so that way

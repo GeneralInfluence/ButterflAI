@@ -726,7 +726,7 @@ describe('Chat shows who messages are from / to', () => {
     assert.ok(html.includes('m.created_at, true, m.kind'), 'history keeps card kind');
   });
   test('a live card does not clear the "thinking" indicator', () => {
-    assert.match(html, /data\.role === 'assistant' && data\.kind\)[\s\S]{0,300}appendMessage\('bot', data\.text, data\.ts, true, data\.kind\)/);
+    assert.match(html, /data\.role === 'assistant' && data\.kind\)[\s\S]{0,300}appendMessage\('bot', data\.text, data\.ts, true, data\.kind(, null, data)?\)/);   // + the reaction info (🐛 #81)
   });
 });
 

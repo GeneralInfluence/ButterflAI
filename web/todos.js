@@ -15,6 +15,33 @@ const topics = require('./topics');
 const names = require('./names');
 
 const MAX_TEXT = 200;
+
+/**
+ * A Creating item's name is short; what was said is its notes (🐛 #82 — "You put exactly what I said into the title of
+ * the list. You should summarize what I say and then you have the details … after I click on it"). A sentence becomes
+ * its first clause, without "I need to / we should …": "I need to get the exact paperwork so we can review it together
+ * and finish it" → "Get the exact paperwork" + the sentence in notes. Short names are left alone.
+ */
+const SHORT = 40;
+function shortName(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= SHORT && t.split(' ').length <= 6) return { name: t, said: null };
+  const lead = /^(ok(ay)?|so|and|also|oh|hey)[, ]|^(i|we|you|someone|somebody)\s+(really\s+)?(need|needs|have|has|want|wants|gotta|should|must|ought|will|'ll|'d like|would like)\b|^(need|have|want|remember|don'?t forget) to\b|^(let'?s|please|can you|could you)\s/i;
+  const clause = /\s*(?:[.,;:!?(—–]\s|\s-\s|\s(?:so|so that|because|cause|cuz|since|and then|then|which|when|while|before|after|until|if|but)\s)/i;
+  // A name that's just a bit long ("Book massages at Carson City Hot Springs") stays; a sentence is shortened.
+  if (!lead.test(t) && !clause.test(t) && t.split(' ').length <= 10) return { name: t, said: null };
+  let x = t.replace(/^(ok(ay)?|so|and|also|oh|hey)[, ]+/i, '')
+    .replace(/^(i|we|you|someone|somebody)\s+(really\s+)?(need|needs|have|has|want|wants|gotta|should|must|ought|will|'ll|'d like|would like)( to)?\s+/i, '')
+    .replace(/^(need|have|want|remember|don'?t forget) to\s+/i, '')
+    .replace(/^(let'?s|please|can you|could you)\s+/i, '');
+  x = x.split(clause)[0];
+  const w = x.split(' ');
+  if (w.length > 7) x = w.slice(0, 7).join(' ');
+  x = x.replace(/[\s,.;:!?]+$/, '');
+  for (let y = ''; y !== x;) { y = x; x = x.replace(/\s+(the|a|an|to|for|of|and|with|at|on|in|my|our|his|her|their|your|about|from|by|some|this|that)$/i, ''); }
+  if (!x) x = t.split(' ').slice(0, 5).join(' ');
+  return { name: x.charAt(0).toUpperCase() + x.slice(1), said: t };
+}
 const now = () => Math.floor(Date.now() / 1000);
 const first = (s) => String(s || '').trim().split(/\s+/)[0] || 'Someone';
 
@@ -166,8 +193,10 @@ function leave(userId, todoId) {
 function add(userId, eventId, { text, assignee, suggested = false, day = null, when_text, place, notes }) {
   if (!topics.canSee(userId, eventId)) return { error: 'NOT_IN_PLAN' };
   if (!suggested) { try { require('./planops').inferInterested(eventId, userId, 'you added to what we’re making happen'); } catch (_) {} }
-  const t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT);
+  const sn = shortName(String(text || '').slice(0, MAX_TEXT));
+  const t = sn.name;
   if (!t) return { error: 'EMPTY' };
+  if (sn.said && !String(notes || '').includes(sn.said)) notes = notes ? `${sn.said} — ${notes}` : sn.said;
   const dup = repeats(eventId, t);
   if (dup) return { error: 'ALREADY_ON_LIST', todo_id: dup, message: `Already on the list: "${db._raw().prepare('SELECT text FROM event_todos WHERE id = ?').get(dup).text}" — add to that item (manage_todos update with its todo_id) instead.` };
   // Whoever suggests a thing leads it, unless they gave it to someone (ButterflAI's own suggestions: nobody yet).
@@ -323,4 +352,4 @@ async function together(userId, todoId) {
   return { ok: true, event_id: eventId, with: people.slice(0, 6).map((p) => first(p.name)) };
 }
 
-module.exports = { together, list, add, update, remove, join, leave, team, onTeam, mine, forHome, members, progressFor, repeats, keyWords, STATUSES };
+module.exports = { shortName, together, list, add, update, remove, join, leave, team, onTeam, mine, forHome, members, progressFor, repeats, keyWords, STATUSES };

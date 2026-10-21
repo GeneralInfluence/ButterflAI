@@ -106,7 +106,7 @@ What you know (their own):
 - Liked lately by people around them (anonymous — a hint at what's good nearby): ${(c.around || []).join('; ') || 'nothing yet'}
 
 ${user.city ? `Search the web once or twice for what's actually on in or near ${user.city} in the next two weeks (shows, music, markets, classes, outdoor things) and use real ones.` : ''}
-${c.focus ? `They just asked Explore for: "${c.focus}". If that's a search, imagine 8 ideas that answer it (any kinds that fit, real things first — a place they asked about, on the day they mean if they said one; what's open or running there counts even without a dated event); if it's feedback about their ideas ("more outdoors", "less concerts"), follow it and imagine 8 that fit it. Kinds:` : 'Imagine 8 ideas, two of each kind:'}
+${c.focus ? `They just asked Explore for: "${c.focus}". If it's from a screenshot that lists particular events or places (🐛 #83 — an events list from Instagram), make one idea for EACH listed one (up to 8, soonest first; on its listed date even if that's weeks away), linked to its own page — those things themselves, not other things like them. If that's a search, imagine 8 ideas that answer it (any kinds that fit, real things first — a place they asked about, on the day they mean if they said one; what's open or running there counts even without a dated event); if it's feedback about their ideas ("more outdoors", "less concerts"), follow it and imagine 8 that fit it. Kinds:` : 'Imagine 8 ideas, two of each kind:'}
 - "nearby": something real happening near them soon (name, day, place; include the link) — the best ones fit around a plan they already have (a pre-show drink before a show they're going to, brunch the morning after).
 
 - "reconnect": doing something with a friend they haven't seen in a while (only friends listed above) — or making one of the things they're making happen into time together: figuring it out over a drink, a coffee or a quick call with the people on it ("Plan the massages over a drink with Melanie?").
@@ -127,7 +127,7 @@ async function generate(user, { force = false, more = false, focus = null, askId
   if (!c || !user) return 0;
   const last = db._raw().prepare('SELECT max(created_at) t FROM spells WHERE user_id = ?').get(user.id).t || 0;
   if (!force && now() - last < EVERY) return 0;
-  const ctx = { ...contextFor(user), focus: focus ? clean(focus, 200) : null };
+  const ctx = { ...contextFor(user), focus: focus ? clean(focus, 600) : null };   // a screenshot's list is long (🐛 #83)
   const today = new Date().toLocaleDateString('en-CA', { timeZone: user.timezone || 'America/Los_Angeles' });
   const messages = [{ role: 'user', content: PROMPT(user, ctx, today) }];
   // A search gets more looking (🐛 #60 — a detailed Virginia City question needs a few searches).

@@ -205,6 +205,9 @@ function queueHostRsvpNotice({ title, scheduled_at, host_user_id }, inviteeUser,
     from_id: host.id,
     channel: 'agent',
     text: `[Agent-to-Agent RSVP] ${emoji} ${contactName} has ${status} the invite for "${title}" on ${ts}. Update the host and notify them now.`,
+    // The host's reply about it can be ❤️'d back to them (🐛 #81).
+    about_user_id: inviteeUser?.id && status === 'accepted' ? inviteeUser.id : null,
+    about_what: `your yes for ${title}`,
   });
   return true;
 }

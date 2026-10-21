@@ -455,6 +455,14 @@ whisper** (so whispers can't be used to harass) and the sender is told so; the r
 their ButterflAI never guesses. The receiver can answer (the sender sees who answered) or mute the sender without
 learning who. Avoid lists apply both ways and the sender only hears "couldn't be sent".
 
+## ❤️ Reactions `[2026-10-21]`
+
+A person can react (❤️ 👍 😂 🎉 😮) to a message in their own chat that came from, or is about, one friend — a friend's
+ButterflAI message, or their agent's news that the friend said yes (`reactions.js`). The first reaction reaches that friend
+once, in the app only ("❤️ Sean loved your yes for …"); it says only the emoji, the reactor's name as the friend knows them,
+and what it was about. The person tapped it, so it's theirs to send. Never delivered to someone with the reactor on their
+avoid list (the reactor isn't told).
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

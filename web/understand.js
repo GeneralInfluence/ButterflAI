@@ -37,8 +37,8 @@ function client() {
   return _client;
 }
 
-const KINDS = ['add_todo', 'update_item', 'rsvp', 'set_details', 'lock_in', 'find_options', 'message', 'cancel'];
-const APPLIED_KINDS = new Set(['add_todo', 'update_item', 'rsvp', 'set_details', 'lock_in']);
+const KINDS = ['add_todo', 'update_item', 'rsvp', 'set_details', 'lock_in', 'done', 'find_options', 'message', 'cancel'];
+const APPLIED_KINDS = new Set(['add_todo', 'update_item', 'rsvp', 'set_details', 'lock_in', 'done']);
 const APPLY_AT = 0.75;   // at or above: done in code
 const ASK_AT = 0.5;      // between: one question with the choices
 const KEEP_DAYS = 90;
@@ -80,6 +80,7 @@ Kinds:
 - rsvp {event_id, answer: "going"|"interested"|"declined"}: their own answer to a plan they're invited to. "I'm going"/"count me in" = going; "sounds fun, maybe"/"I'm interested" = interested.
 - set_details {event_id, when?, proposed_dates?: [{from,to}], venue_name?, duration_mins?}: the HOST deciding details. when = their words for a single date/time ("Friday Oct 23 at noon"). Not options still being discussed.
 - lock_in {event_id}: the host making it final.
+- done {item_id? | event_id?}: they say something is finished ("I dropped the power cord off at the front desk, it's completed", "booked it, that's handled"). item_id if it's an item on the Creating list; event_id when the plan itself was the task (an errand, a pickup) or they say the plan is over.
 - find_options {event_id?, what, near?}: they want suggestions or places looked up ("find massage places", "any good spas near there?", "what's open late"). The assistant should search and list options — don't treat it as a question to them.
 - message {who, gist}: tell or ask a specific person something.
 - cancel {event_id}: cancel a plan.
@@ -114,7 +115,7 @@ function decide(actions, { userId, userText, eventId, plans, isNamed }) {
   return actions.map((a) => {
     const out = { ...a, confidence: Math.max(0, Math.min(1, Number(a.confidence) || 0)) };
     if (!quoted(userText, a.quote)) return { ...out, decision: 'drop', why: 'not in their words' };
-    if (a.kind === 'update_item') {
+    if (a.kind === 'update_item' || (a.kind === 'done' && a.item_id)) {
       const it = db._raw().prepare('SELECT event_id FROM event_todos WHERE id = ?').get(a.item_id);
       if (!it) return { ...out, decision: 'drop', why: 'no such item' };
       out.event_id = a.event_id = it.event_id;
@@ -124,9 +125,11 @@ function decide(actions, { userId, userText, eventId, plans, isNamed }) {
     if (a.event_id && eventId && a.event_id !== eventId && !isNamed(userText, byId.get(a.event_id).title)) {
       return { ...out, decision: 'drop', why: 'a different plan than this discussion' };
     }
-    if (!a.event_id && eventId && ['add_todo', 'rsvp', 'set_details', 'lock_in', 'cancel'].includes(a.kind) && byId.has(eventId)) out.event_id = eventId;
+    if (!a.event_id && eventId && ['add_todo', 'rsvp', 'set_details', 'lock_in', 'cancel', 'done'].includes(a.kind) && byId.has(eventId)) out.event_id = eventId;
     const p = out.event_id ? byId.get(out.event_id) : null;
-    if (['add_todo', 'update_item', 'rsvp', 'set_details', 'lock_in', 'cancel'].includes(a.kind) && !p) return { ...out, decision: 'drop', why: 'no plan' };
+    if (['add_todo', 'update_item', 'rsvp', 'set_details', 'lock_in', 'cancel', 'done'].includes(a.kind) && !p) return { ...out, decision: 'drop', why: 'no plan' };
+    // A whole plan is marked done by its host / co-hosts (🐛 #84); a guest's "it's done" is for the agent to pass on.
+    if (a.kind === 'done' && !a.item_id && !['host', 'cohost'].includes(p.role === 'host' ? 'host' : p.my_role)) return { ...out, decision: 'agent', why: 'only the host or a co-host marks the plan done' };
     // Guests suggest, hosts and co-hosts decide (2026-10-19): a guest's set_details / lock_in
     // still "applies" — planops turns it into a suggestion. Only the host cancels.
     if (a.kind === 'cancel' && p.role !== 'host') return { ...out, decision: 'agent', why: 'only the host can cancel' };
@@ -174,6 +177,21 @@ function applyOne(userId, a, { contextDay }) {
     const what = Object.entries(changes).map(([k, v]) => (k === 'status' ? v : k === 'when_text' ? v : k === 'place' ? `at ${v}` : 'notes')).join(', ');
     return { ok: true, ref: JSON.stringify({ item: a.item_id, before: Object.fromEntries(Object.keys(changes).map((k) => [k, before[k] ?? (k === 'status' ? 'idea' : '')])) }), label: `${item}${what ? ': ' + what : ''}${a.taking_on ? ' · you\'re on it' : ''}`,
       toolLog: { name: 'manage_todos', input: { event_id: a.event_id, action: 'update', todo_id: a.item_id, ...changes }, result: r } };
+  }
+  if (a.kind === 'done') {
+    if (a.item_id) {
+      const r = todos.update(userId, a.item_id, { done: true }, { join: true });
+      if (r.error) return r;
+      const item = db._raw().prepare('SELECT text FROM event_todos WHERE id = ?').get(a.item_id)?.text || 'item';
+      if (r.suggested) return suggestedResult(r, item, a);
+      return { ok: true, ref: JSON.stringify({ item: a.item_id, before: { done: false } }), label: `Done: ${item}`,
+        toolLog: { name: 'manage_todos', input: { event_id: a.event_id, action: 'update', todo_id: a.item_id, done: true }, result: r } };
+    }
+    const r = planops.update(userId, a.event_id, { done: true }, { via: 'understood' });
+    if (r.error) return r;
+    if (!r.updated?.length) return { error: 'NOTHING_CHANGED' };
+    const at = db._raw().prepare('SELECT max(created_at) at FROM plan_changes WHERE event_id = ? AND via = ?').get(a.event_id, 'understood').at;
+    return { ok: true, ref: String(at), label: `Done · ${title}`, toolLog: { name: 'update_event', input: { event_id: a.event_id, done: true }, result: r } };
   }
   if (a.kind === 'rsvp') {
     const u = db.getUser(userId);
@@ -291,7 +309,7 @@ function undo(userId, id, { answer } = {}) {
   let res;
   if (String(r.ref || '').startsWith('suggestion:')) res = require('./suggestions').withdraw(userId, r.ref.slice(11));
   else if (r.kind === 'add_todo') res = require('./todos').remove(userId, r.ref);
-  else if (r.kind === 'update_item') { const x = JSON.parse(r.ref); res = require('./todos').update(userId, x.item, x.before, { decided: true }); }
+  else if (r.kind === 'update_item' || (r.kind === 'done' && String(r.ref || '').startsWith('{'))) { const x = JSON.parse(r.ref); res = require('./todos').update(userId, x.item, x.before, { decided: true }); }
   else if (r.kind === 'rsvp') {
     if (!['going', 'interested', 'declined'].includes(answer)) return { error: 'ANSWER_REQUIRED' };
     const u = db.getUser(userId);
@@ -317,4 +335,4 @@ function purgeOld({ days = KEEP_DAYS } = {}) {
   return db._raw().prepare("DELETE FROM understood WHERE created_at < strftime('%s','now') - ?").run(days * 86400).changes;
 }
 
-module.exports = { run, extract, decide, noteFor, quoted, chipsForMessages, undo, corrections, purgeOld, contextFor, PROMPT, KINDS, _setClient };
+module.exports = { run, extract, decide, noteFor, quoted, chipsForMessages, undo, corrections, purgeOld, contextFor, PROMPT, KINDS, _setClient, _applyOne: applyOne };

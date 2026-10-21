@@ -825,6 +825,92 @@ const TASKS = [
       return out.join(', ') || 'not as found';
     },
   },
+  {
+    id: '2026-10-22-screenshot-plans-to-explore',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: '🐛 #83/#85: plans made all at once from a screenshot their words didn\'t ask to plan (nobody said yes) are cancelled and the things go to Explore as a search; wishes made all at once when they asked for "exploration" are removed (they\'re in that search). They\'re told once.',
+    run(user) {
+      const raw = db._raw();
+      const shots = raw.prepare("SELECT text, created_at FROM conversation_history WHERE user_id = ? AND role = 'user' AND text LIKE '%[What was on my screen]%' AND created_at > strftime('%s','now') - 30 * 86400").all(user.id);
+      const PLAN_WORDS = /\b(plans?|calendar|invite|book|tickets?|rsvp|we'?re going|i'?m going|we'?ll go|let'?s (go|do)|sign (me|us) up|count (me|us) in)\b/i;
+      const gone = [];
+      for (const m of shots) {
+        if (PLAN_WORDS.test(m.text.slice(0, m.text.indexOf('[What was on my screen]')))) continue;
+        const made = raw.prepare(`SELECT se.id, se.title, se.scheduled_at FROM social_events se WHERE se.host_user_id = ? AND COALESCE(se.status, 'open') = 'open'
+          AND se.created_at BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM event_invitations ei WHERE ei.event_id = se.id AND ei.status = 'accepted')`).all(user.id, m.created_at, m.created_at + 180);
+        if (made.length < 2) continue;
+        for (const e of made) if (!require('./planops').update(user.id, e.id, { cancel: true }, { via: 'retro' }).error) gone.push(e);
+      }
+      // Wishes added in one go after they asked for "exploration".
+      const asked = raw.prepare("SELECT created_at FROM conversation_history WHERE user_id = ? AND role = 'user' AND lower(text) LIKE '%explor%' AND created_at > strftime('%s','now') - 30 * 86400").all(user.id);
+      const wishes = [];
+      for (const a of asked) {
+        const w = raw.prepare("SELECT id, text FROM wishes WHERE user_id = ? AND created_at BETWEEN ? AND ?").all(user.id, a.created_at, a.created_at + 120);
+        if (w.length < 3) continue;
+        for (const x of w) { require('./wishes').remove(user.id, x.id); wishes.push(x.text); }
+      }
+      if (!gone.length && !wishes.length) return 'none';
+      const names = [...new Set([...gone.map((e) => e.title), ...wishes])];
+      const r = require('./spells').ask(user.id, `From a screenshot they shared: ${names.join('; ')}`);
+      const where = r.ask ? `Explore under "${r.ask.label}"` : 'Explore';
+      db.appendConversation(user.id, 'assistant', `Fixed: ${gone.length ? `the ${gone.length} plans I made from your screenshot are gone` : ''}${gone.length && wishes.length ? ', and ' : ''}${wishes.length ? `the ${wishes.length} wishes I saved instead are gone too` : ''}. The things from it are on ${where} — each one looked up, so you can pick what to make a plan.`, null, 'notice');
+      return `cancelled ${gone.length}, removed ${wishes.length} wishes`;
+    },
+  },
+  {
+    id: '2026-10-22-finished-plans-done',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: '🐛 #84: plans they host whose day has come and whose discussion ends with them saying it\'s done ("dropped it off … it\'s completed") are marked done.',
+    run(user) {
+      const raw = db._raw();
+      let n = 0;
+      for (const e of raw.prepare("SELECT id FROM social_events WHERE host_user_id = ? AND COALESCE(status, 'open') = 'open' AND date_tbd = 0 AND scheduled_at < strftime('%s','now')").all(user.id)) {
+        const last = raw.prepare("SELECT text FROM conversation_history WHERE user_id = ? AND event_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1").get(user.id, e.id);
+        if (!last || !/\b(it'?s|this is|that'?s|all|we'?re|i'?m) (done|completed|finished|handled|taken care of)\b|\b(dropped (it )?off|delivered|picked (it )?up)\b.*\b(done|completed)\b/i.test(last.text)) continue;
+        if (!require('./planops').update(user.id, e.id, { done: true }, { via: 'retro' }).error) n++;
+      }
+      return `done ${n}`;
+    },
+  },
+  {
+    id: '2026-10-22-short-item-names',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: '🐛 #82: Creating items they added whose name is a whole sentence get a short name; the sentence moves to the item\'s notes.',
+    run(user) {
+      const todos = require('./todos');
+      let n = 0;
+      for (const t of db._raw().prepare('SELECT id, text, notes FROM event_todos WHERE created_by = ? AND done_at IS NULL').all(user.id)) {
+        const sn = todos.shortName(t.text);
+        if (!sn.said) continue;
+        const notes = String(t.notes || '').includes(sn.said) ? t.notes : (t.notes ? `${sn.said} — ${t.notes}` : sn.said);
+        db._raw().prepare('UPDATE event_todos SET text = ?, notes = ? WHERE id = ?').run(sn.name, String(notes).slice(0, 500), t.id);
+        n++;
+      }
+      return `shortened ${n}`;
+    },
+  },
+  {
+    id: '2026-10-22-reactions-on-recent-messages',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: '🐛 #81: messages from friends\' ButterflAIs in the last 30 days can take a ❤️ (who sent each is found from the delivery record).',
+    run(user) {
+      const raw = db._raw();
+      let n = 0;
+      for (const m of raw.prepare("SELECT id, text, created_at FROM conversation_history WHERE user_id = ? AND kind = 'incoming' AND about_user_id IS NULL AND created_at > strftime('%s','now') - 30 * 86400").all(user.id)) {
+        const d = raw.prepare('SELECT from_user_id, body FROM deliveries WHERE to_user_id = ? AND created_at BETWEEN ? AND ?').all(user.id, m.created_at - 60, m.created_at + 60)
+          .find((x) => m.text.includes(String(x.body).slice(0, 60)));
+        if (!d) continue;
+        const b = String(d.body);
+        require('./reactions').markAbout(m.id, d.from_user_id, `your message: “${b.length > 70 ? b.slice(0, 67) + '…' : b}”`);
+        n++;
+      }
+      return `marked ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

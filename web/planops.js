@@ -107,7 +107,7 @@ async function create(hostId, input, { via = 'agent' } = {}) {
 /**
  * Change a plan. changes: any of title, activity_type, notes, venue_name, venue_address,
  * scheduled_at (or when), proposed_dates, tentative, flexible_time, duration_mins,
- * event_type, host_attending, cancel / status:'cancelled'.
+ * event_type, host_attending, cancel / status:'cancelled', done (status 'completed').
  */
 function update(actorId, eventId, changes, { via = 'agent' } = {}) {
   const e = db._raw().prepare('SELECT * FROM social_events WHERE id = ?').get(eventId);
@@ -118,7 +118,7 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
     if (plan.roleOf(eventId, actorId) === 'guest' && via !== 'suggestion') return require('./suggestions').create(actorId, eventId, changes);
     return { error: 'NOT_IN_PLAN', message: 'Only people in the plan can change or suggest changes to it.' };
   }
-  if (!isHost && HOST_ONLY.some((k) => changes[k] !== undefined && !(k === 'status' && changes[k] === 'open'))) {
+  if (!isHost && HOST_ONLY.some((k) => changes[k] !== undefined && !(k === 'status' && ['open', 'completed'].includes(changes[k])))) {
     return { error: 'HOST_ONLY', message: `Only the host can ${changes.cancel || changes.status === 'cancelled' ? 'cancel the plan' : 'change who can see it or whether they\'re going'} — offer to ask them.` };
   }
   const u = {};
@@ -182,7 +182,9 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
   if (changes.host_attending !== undefined) u.host_attending = changes.host_attending ? 1 : 0;
   if (changes.group_id !== undefined && db.getContactGroups(actorId).some((g) => g.id === changes.group_id)) u.group_id = changes.group_id;
   if (changes.cancel === true || changes.status === 'cancelled') { u.status = 'cancelled'; if (e.status !== 'cancelled') u.cancelled_at = Math.floor(Date.now() / 1000); }
-  else if (changes.status === 'open') { u.status = 'open'; u.cancelled_at = null; }
+  // Done (🐛 #84): an errand or plan that's finished — over, off everyone's list, kept (not cancelled).
+  else if (changes.done === true || changes.status === 'completed') u.status = 'completed';
+  else if (changes.done === false || changes.status === 'open') { u.status = 'open'; u.cancelled_at = null; }
 
   const fields = Object.keys(u).filter((k) => SET_FIELDS.includes(k) && String(u[k] ?? '') !== String(e[k] ?? ''));
   if (!fields.length) return { ok: true, event_id: eventId, updated: [], note: 'Nothing changed' };
@@ -506,7 +508,7 @@ function revert(actorId, eventId, { at, via = 'undo' } = {}) {
 // How a logged change reads to a person ("ButterflAI changed the notes", "You locked it in").
 const FIELD_WORDS = { time_tbd: 'the time', title: 'the name', notes: 'the notes', venue_name: 'the place', venue_address: 'the address', scheduled_at: 'the date/time',
   date_tbd: 'the date', proposed_dates: 'the proposed dates', tentative: 'locked in / tentative', flexible_time: 'the time', duration_mins: 'how long',
-  status: 'cancelled / reopened', group_id: 'the group', event_type: 'who can see it', host_attending: 'whether you\'re going', activity_type: 'what it is' };
+  status: 'cancelled / done / reopened', group_id: 'the group', event_type: 'who can see it', host_attending: 'whether you\'re going', activity_type: 'what it is' };
 const VIA_WORDS = { agent: 'ButterflAI', app: 'You', undo: 'Undo', retro: 'ButterflAI (cleanup)', negotiation: 'Agents', desire: 'ButterflAI', share: 'You', ripple: 'ButterflAI', understood: 'ButterflAI (from your message)', suggestion: 'Accepted suggestion', wish: 'ButterflAI (a shared wish)', out_now: 'ButterflAI (out nearby)' };
 
 /**
@@ -533,7 +535,7 @@ function recentChanges(eventId, limit = 5) {
     .filter((r) => FIELD_WORDS[r.field]);
   // What happened, in words: "locked it in", "changed the notes".
   const phrase = (r) => r.field === 'tentative' ? (String(r.new_value) === '0' ? 'locked it in' : 'made it tentative again')
-    : r.field === 'status' ? (r.new_value === 'cancelled' ? 'cancelled it' : 'reopened it') : `changed ${FIELD_WORDS[r.field]}`;
+    : r.field === 'status' ? (r.new_value === 'cancelled' ? 'cancelled it' : r.new_value === 'completed' ? 'marked it done' : 'reopened it') : `changed ${FIELD_WORDS[r.field]}`;
   const groups = [];
   for (const r of rows) {
     const g = groups.find((x) => x.at === r.created_at && x.via === r.via && x.actor_id === r.actor_id);

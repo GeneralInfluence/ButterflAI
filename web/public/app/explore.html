@@ -112,7 +112,17 @@
       .bottom-nav a.active { color: #6c47ff; }
       .bottom-nav .tab-icon { font-size: 22px; line-height: 1; }
     }
-  </style>
+      .shot-btn { display: flex; align-items: center; gap: 12px; background: #fff; border: 1.5px dashed #a78bfa; border-radius: 16px; padding: 12px 14px; margin: 0 0 12px; cursor: pointer; }
+    .shot-btn .shot-ico { font-size: 24px; }
+    .shot-btn .shot-words { display: flex; flex-direction: column; font-size: 15px; color: #1c1c1e; }
+    .shot-btn .shot-words span { font-size: 13px; color: #8e8e93; }
+    .shot-btn.busy { opacity: .6; pointer-events: none; }
+    #shot-choose { background: #fff; border-radius: 16px; padding: 14px; margin: 0 0 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    #shot-choose img { max-width: 100%; max-height: 180px; border-radius: 10px; display: block; margin: 0 auto 10px; }
+    #shot-choose .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    #shot-choose button { flex: 1 1 140px; border: none; border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; background: #f2f2f7; color: #1c1c1e; }
+    #shot-choose button.primary { background: #6c47ff; color: #fff; }
+</style>
 </head>
 <body>
 <header>
@@ -126,6 +136,10 @@
   <div class="ask-bar"><form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><label class="ask-cam" title="Search from a screenshot" aria-label="Search from a screenshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h1.8l1.4-2h6.6l1.4 2h1.8A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><circle cx="12" cy="12.8" r="3.6"/></svg><input type="file" accept="image/*" hidden onchange="askFromShot(this)"></label><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas" autocomplete="off" onfocus="showDrop(true)" onblur="setTimeout(() => showDrop(false), 200)"><button type="submit">Go</button>
     <div id="ask-drop" hidden></div></form>
     <div class="ask-pills" id="ask-pills" hidden></div></div>
+  <!-- 📷 Share what you found elsewhere (🐛 #83 — "in the explore tab, give my screenshot, which is more intuitive"):
+       an events list, a flyer, a post. Each thing in it is looked up and shows here as an idea, under its own pill. -->
+  <label class="shot-btn" id="shot-btn"><span class="shot-ico">📷</span><span class="shot-words"><b>Add from a screenshot</b><span>An events list, a flyer, a post you saw — I'll look each one up</span></span><input type="file" accept="image/*" hidden onchange="askFromShot(this)"></label>
+  <div id="shot-choose" hidden></div>
   <div id="asked"></div>
   <div id="my-plans"></div>
   <div class="stories" id="stories" hidden></div>
@@ -351,15 +365,35 @@
   }
   async function askFromShot(input) {
     const f = input.files && input.files[0]; input.value = ''; if (!f) return;
+    return askFromImage(f);
+  }
+  async function askFromImage(f) {
     const el = document.getElementById('ask-text'); const text = el.value.trim(); el.value = '';
     let image; try { image = await shrinkShot(f); } catch (_) { alert('That picture couldn’t be opened'); return; }
     scrollTo({ top: 0, behavior: 'smooth' });
+    const btn = document.getElementById('shot-btn'); const words = btn.querySelector('b');
+    btn.classList.add('busy'); words.textContent = 'Reading your screenshot…';
     el.placeholder = '🔎 Reading your screenshot…';
     const r = await fetch('/api/ideas/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, image }) }).then((x) => x.json()).catch(() => ({}));
     el.placeholder = '🔎 Search or steer your ideas';
+    btn.classList.remove('busy'); words.textContent = 'Add from a screenshot';
     if (r.ask) { askOpen = r.ask.id; asksList = [r.ask, ...asksList.filter((a) => a.id !== r.ask.id)]; renderAsks(); setTimeout(loadAsks, 3000); }
     else alert(r.message || 'Couldn’t search from that picture');
   }
+  // A screenshot shared to ButterflAI from another app lands here (sw.js): things to find, or someone you're talking to?
+  (async () => {
+    if (!/[?&]shot=1\b/.test(location.search)) return;
+    history.replaceState(null, '', location.pathname);
+    let blob = null;
+    try { const c = await caches.open('butterflai-share-v1'); const r = await c.match('/pending-shot'); if (r) blob = await r.blob(); } catch (_) {}
+    if (!blob) return;
+    const box = document.getElementById('shot-choose');
+    box.innerHTML = '<img alt="Your screenshot"><div style="font-weight:600;margin-bottom:8px">What’s in it?</div><div class="row"><button class="primary" id="sc-find">🧭 Things to do — find them</button><button id="sc-quick">✍️ Someone I’m talking to</button></div>';
+    box.querySelector('img').src = URL.createObjectURL(blob);
+    box.hidden = false;
+    box.querySelector('#sc-find').onclick = async () => { box.hidden = true; try { (await caches.open('butterflai-share-v1')).delete('/pending-shot'); } catch (_) {} askFromImage(blob); };
+    box.querySelector('#sc-quick').onclick = () => { location.href = '/app/quick?shot=1'; };   // Quick note reads the same pending screenshot
+  })();
   async function askAgain(id) {
     const r = await fetch('/api/ideas/asks/' + encodeURIComponent(id) + '/again', { method: 'POST' }).then((x) => x.json()).catch(() => ({}));
     if (r.ask) { askOpen = r.ask.id; asksList = [r.ask, ...asksList.filter((a) => a.id !== r.ask.id)]; renderAsks(); }

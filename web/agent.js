@@ -465,6 +465,13 @@ const TOOL_DEFINITIONS = [
       action: { type: 'string', enum: ['add', 'list', 'remove'] }, text: { type: 'string' }, wish_id: { type: 'string' }, open_to_new: { type: 'boolean' } }, required: ['action'] },
   },
   {
+    name: 'add_to_explore',
+    description: 'Put things to look into on your user\'s 🧭 Explore tab (🐛 #83): a screenshot of events from Instagram/TikTok, a list of shows, "find out more about these", "exploration opportunities", "suggest these later". ButterflAI looks each one up (its own page, date, place) and they show as ideas under their own search pill — your user picks what to make a plan. Not plans, not wishes. If you made plans for these by mistake, pass their ids in instead_of_plan_ids and they\'re cancelled.',
+    input_schema: { type: 'object', properties: {
+      text: { type: 'string', description: 'What to look up, as they gave it — each thing with its date and place, e.g. "Reno, November: Sierra Nevada Ballet: Dracula (Nov 1); 38 Special (Nov 1); Dragon Lights (Nov 2–29)…"' },
+      instead_of_plan_ids: { type: 'array', items: { type: 'string' }, description: 'Plans you made for these that shouldn\'t be plans (nobody has said yes)' } }, required: ['text'] },
+  },
+  {
     name: 'send_whisper',
     description: '💌 Send a friend a message WITHOUT your user\'s name on it ("anonymously tell Sean he\'s a dork", "start a rumor that…", "don\'t let her know it\'s from me"). Only to people who have each other saved and are on ButterflAI; checked to be kind or playful first. Write it warm and playful from the gist (never their raw words). The receiver sees "Someone close to you says…".',
     input_schema: { type: 'object', properties: {
@@ -701,6 +708,7 @@ const TOOL_DEFINITIONS = [
         tentative:     { type: 'boolean', description: 'false once the plan is settled (dates/place agreed); true if it\'s back to being figured out' },
         proposed_dates:{ type: 'array', items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from'] }, description: 'Replace the date options still being decided ([{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}]); [] clears them. When a date is chosen, set scheduled_at and clear these.' },
         cancel:        { type: 'boolean', description: 'true to cancel the plan (it\'s not happening). Only when your user says so.' },
+        done:          { type: 'boolean', description: 'true when the plan is finished — an errand done ("dropped it off, it\'s completed"), or it happened and is over. It leaves everyone\'s lists (kept, not cancelled). false reopens it.' },
         title:         { type: 'string' },
         duration_mins: { type: 'number' },
         when:          { type: 'string', description: 'The date (and time, only if your user said one) in your user\'s words — "October 30", "friday at 8pm". A day with no time is saved as that day, time TBD; never add a time they didn\'t give.' },
@@ -1618,11 +1626,13 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'manage_wishes': {
       const w = require('./wishes');
+      if (toolInput.action === 'add' && /\bexplor/i.test(currentTurn?.userText || '')) return { error: 'FOR_EXPLORE', message: 'They asked for Explore, not wishes — use add_to_explore (wishes are for "I wish…", matched with friends).' };   // 🐛 #83
       if (toolInput.action === 'add') return w.add(userId, { text: toolInput.text, open_to_new: toolInput.open_to_new !== false });
       if (toolInput.action === 'remove') return w.remove(userId, toolInput.wish_id);
       return w.forUser(userId);
     }
 
+    case 'add_to_explore': return addToExplore(userId, toolInput);
     case 'send_whisper': return await require('./whispers').send(userId, toolInput.contact_id, toolInput.message);
     case 'reply_whisper': return await require('./whispers').reply(userId, toolInput.message);
     case 'mute_whisper': return require('./whispers').muteLatest(userId);
@@ -2006,6 +2016,9 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'create_social_event': {
+      // A screenshot of things to do is for Explore unless their own words ask for a plan (🐛 #83 — an Instagram
+      // events list became 6 plans).
+      if (shotNotAPlan(currentTurn)) return { error: 'FOR_EXPLORE', message: 'They shared a screenshot to find things, not to make plans. Use add_to_explore with what\'s in it (each thing with its date and place) — they make a plan from Explore. Make a plan only for one they ask to plan.' };
       // Every plan change goes through planops.js (one plan per name, dates, group, invites).
       noInventedTime(userId, toolInput);
       const made = await planops.create(userId, toolInput, { via: 'agent' });
@@ -2646,6 +2659,9 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   SCREENSHOTS: "[What was on my screen]" in your user's message is what ButterflAI read from a screenshot they attached (the picture isn't kept) — treat it as what they're showing you and act on it like their own words: dates, times, places and people in it are what to plan with (as written — never invent a missing time), a flyer or event page is something to plan around, and a conversation shows what's been said. If it's unclear what they want done with it, do the obvious thing for the plan being discussed (or ask once). Never describe anyone's looks.
   WHISPERS (anonymous messages): every message ButterflAI passes on says who it's from ("From Allie's ButterflAI") — except a 💌 whisper. When your user wants a friend to get something without their name ("anonymously tell Sean…", "start a rumor", "don't let her know it's from me"), use send_whisper (never send_logistics_sms or message_agent): write it short, kind or playful, with no hint of who sent it. It only reaches friends on ButterflAI who have each other saved; tell your user exactly what happened (sent / not sent and why). When your user got a whisper ("💌 Someone close to you says…") and tells you what to say back, use reply_whisper; if they don't want more from that person, mute_whisper. Never guess or hint who sent a whisper.
   NUMBERS ARE THEIRS: never add how many people ("for 4", "party of 6") that your user didn't say — not to another agent, not in a plan's notes, not on Creating. If it matters, ask. "Booked a massage" is one massage, for them.
+  SCREENSHOTS OF THINGS TO DO GO TO EXPLORE: a screenshot (or list) of events, shows or places they want found, "looked into" or saved for later ("exploration opportunities", "suggest these later") → add_to_explore — never a plan for each one. A plan only for something they say they're going to or want to plan. If you already made plans for them by mistake, pass those ids to add_to_explore (instead_of_plan_ids) and say they're gone — "none of them should stay" means cancel every one.
+  DONE IS DONE: when your user says a plan or errand is done ("dropped it off at the front desk, it's completed", "that's handled") → update_event done: true for the plan (or manage_todos done for an item) — it leaves everyone's lists. Don't just note it.
+  SHORT ITEM NAMES: a Creating item is a short name, 2–6 words ("Get the paperwork"); what they said goes in its notes. Never their whole sentence as the name.
   WISHES ARE NOT PLANS: "I wish…", "I'd love to someday…", "it'd be great to…" with no date, place or people decided → manage_wishes add (ButterflAI looks for others who wish for the same thing). A concrete plan (people, a day, "let's do X") → create_social_event. Never tell your user anyone else's wishes; matches reach them on their own.
   PLANS ARE MADE TOGETHER — GUESTS SUGGEST, HOSTS AND CO-HOSTS DECIDE: the host and co-hosts (the person a plan is for is one automatically; the host can add more with set_cohost) change a plan for everyone. A guest's change still goes through update_event / merge_plans — it becomes a suggestion the host and co-hosts accept or decline; tell your user "suggested to X", never "changed", and never "I can't". Only the host cancels. When your user decides on a suggestion ("yes, do Melanie's idea"), use decide_suggestion.
   CREATING ITEMS HAVE A LEAD AND A TEAM: whoever brings an item up leads it. Before adding, check the list — if it's already there in other words, add details to that item (manage_todos update), never a second one. Only the item's team edits it; your user's ideas about someone else's item go to them as a suggestion, unless your user is taking it on themselves ("I'll book it" → join: true).
@@ -2980,6 +2996,37 @@ const PRIVATE_PLACEHOLDER = '🔒 Private message';
 // Private mode (owner decision 4): the message is kept, but only encrypted. Anything
 // reading conversation_history.text — including this agent's own history — sees the
 // placeholder; only the owner's chat view decrypts it.
+// ── Screenshots of things to do → Explore (🐛 #83) ──
+const SHOT_MARK = '[What was on my screen]';
+const PLAN_WORDS = /\b(plans?|calendar|invite|book|tickets?|rsvp|we'?re going|i'?m going|we'?ll go|let'?s (go|do)|sign (me|us) up|count (me|us) in)\b/i;
+/** Their message carries a screenshot and their own words (before it) don't ask for a plan. */
+function shotNotAPlan(turn) {
+  const t = String(turn?.userText || '');
+  const i = t.indexOf(SHOT_MARK);
+  if (i < 0 || turn?.intent === 'new_plan') return false;
+  return !PLAN_WORDS.test(t.slice(0, i));
+}
+function addToExplore(userId, { text, instead_of_plan_ids: ids }) {
+  const cancelled = [];
+  for (const id of Array.isArray(ids) ? ids.slice(0, 30) : []) {
+    const e = db._raw().prepare("SELECT id, title, host_user_id FROM social_events WHERE id = ? AND COALESCE(status, 'open') = 'open'").get(String(id));
+    if (!e || e.host_user_id !== userId) continue;
+    const yes = db._raw().prepare("SELECT count(*) n FROM event_invitations WHERE event_id = ? AND status = 'accepted'").get(e.id).n;
+    if (yes) continue;   // someone said yes — that's a real plan; leave it to your user
+    if (!planops.update(userId, e.id, { cancel: true }, { via: 'agent' }).error) cancelled.push(e.title);
+  }
+  const r = require('./spells').ask(userId, `From a screenshot they shared: ${String(text || '')}`);
+  if (r.error) return { ...r, cancelled };
+  // Plans still standing for the same things (so nothing silently stays — 🐛 #85).
+  const words = (x) => new Set(String(x).toLowerCase().match(/[a-z0-9]{4,}/g) || []);
+  const asked = words(text);
+  const still = db._raw().prepare(`SELECT se.id, se.title FROM social_events se WHERE se.host_user_id = ? AND COALESCE(se.status, 'open') = 'open'
+    AND se.created_at > strftime('%s','now') - 7 * 86400 AND NOT EXISTS (SELECT 1 FROM event_invitations ei WHERE ei.event_id = se.id AND ei.status = 'accepted')`).all(userId)
+    .filter((e) => [...words(e.title)].some((w) => asked.has(w)));
+  return { ok: true, explore_search: r.ask.label, cancelled, still_plans: still.length ? still : undefined,
+    note: `On Explore under "${r.ask.label}" in a minute or two.${cancelled.length ? ` Cancelled: ${cancelled.join(', ')}.` : ''}${still.length ? ' These plans for the same things still stand — if they were a mistake, call add_to_explore again with their ids in instead_of_plan_ids (or ask your user).' : ''}` };
+}
+
 function appendHistory(userId, role, text, isPrivate) {
   if (!isPrivate) return db.appendConversation(userId, role, text);
   const e = sensitive.encrypt(String(text).slice(0, 4000));
@@ -3038,7 +3085,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
   const turnStart = Math.floor(Date.now() / 1000);   // chat rows from here on belong to this turn (topics.js)
   currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id, eventId: msg.event_id || null,
-    contextDay: msg.context_day || null, spellId: msg.spell_id || null };
+    contextDay: msg.context_day || null, spellId: msg.spell_id || null, intent: msg.intent || null };
   // Talking in a plan's discussion while still not answered → interested (Allie, 2026-10-21).
   // (From the second message on — a first "sounds fun" gets the going-or-interested question instead.)
   if (USER_CHANNELS.includes(msg.channel) && msg.event_id && msg.event_id !== topics.GENERAL
@@ -3261,10 +3308,11 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
       lastReplyText = replyText || '';
       if (replyText) {
         // Store reply in conversation history before sending
-        appendHistory(userId, 'assistant', replyText, isPrivate);
+        const replyRow = appendHistory(userId, 'assistant', replyText, isPrivate);
+        if (msg.about_user_id && !isPrivate) require('./reactions').markAbout(replyRow, msg.about_user_id, msg.about_what);   // 🐛 #81
         turnTrace.reply(replyText);
         // Push to web UI via SSE if connected
-        const online = sse.push(userId, { role: 'assistant', text: replyText, ts: Math.floor(Date.now() / 1000) });
+        const online = sse.push(userId, { id: replyRow, role: 'assistant', text: replyText, ts: Math.floor(Date.now() / 1000), can_react: !!(msg.about_user_id && !isPrivate) });
         if (userPhone && msg.channel === 'sms') {
           // They texted us → answer by text.
           console.log(`[agent] replying to ${userPhone}: "${replyText.slice(0, 60)}"`);

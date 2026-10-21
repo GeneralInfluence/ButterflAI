@@ -319,7 +319,11 @@
       font-size: 14px;
     }
     .empty .emoji { font-size: 40px; }
-  </style>
+      .react { display: inline-flex; gap: 2px; margin-right: 6px; }
+    .react button { border: none; background: transparent; font-size: 15px; line-height: 1; padding: 3px 4px; border-radius: 999px; cursor: pointer; }
+    .react .react-add { color: #8e8e93; font-size: 17px; }
+    .react .react-chip, .react .react-pick.on { background: #ede9fe; }
+</style>
 </head>
 <body>
   <!-- No page header (owner, 2026-10-20): the pills and the switcher say where you are.
@@ -602,7 +606,7 @@
         }
         if (messages.length) {
           emptyEl.remove();
-          messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind, m.understood));
+          messages.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind, m.understood, m));
           scrollToBottom();
         }
       } catch {}
@@ -634,7 +638,7 @@
           agentStatusEl.textContent = '';
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
-          toRender.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind, m.understood));
+          toRender.forEach(m => appendMessage(m.role === 'user' ? 'me' : 'bot', m.text, m.created_at, true, m.kind, m.understood, m));
           scrollToBottom();
         } else if (pendingSince > 0) {
           // We sent a message but no reply yet — keep the typing indicator visible
@@ -671,7 +675,7 @@
           // A message card ("💬 From …" / "📤 To …") — not the reply we may be waiting
           // for, so leave the typing indicator alone.
           if (emptyEl.parentNode) emptyEl.remove();
-          appendMessage('bot', data.text, data.ts, true, data.kind);
+          appendMessage('bot', data.text, data.ts, true, data.kind, null, data);
         } else if (data.role === 'assistant') {
           if (newPlanSince) openNewPlan();
           loadTodos();   // the agent may have changed the plan's to-dos
@@ -680,7 +684,7 @@
           agentStatusEl.textContent = '';
           typingEl.classList.remove('visible');
           if (emptyEl.parentNode) emptyEl.remove();
-          appendMessage('bot', data.text, data.ts);
+          appendMessage('bot', data.text, data.ts, true, null, null, data);
         }
         if (data.redirect) { location.href = data.redirect; }
       };
@@ -860,7 +864,38 @@
       }
     }
 
-    function appendMessage(role, text, ts, updateTs = true, kind = null, understood = null) {
+    // ❤️ Reactions (🐛 #81): a message from or about a friend (their message, their yes) can be reacted to — it
+    // reaches them once, in the app.
+    const REACTIONS = ['❤️', '👍', '😂', '🎉', '😮'];
+    function renderReaction(div, m) {
+      let box = div.querySelector('.react');
+      if (!box) { box = document.createElement('div'); box.className = 'react'; div.querySelector('.msg-foot').prepend(box); }
+      box.innerHTML = '';
+      if (m.reaction) {
+        const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'react-chip'; chip.textContent = m.reaction;
+        chip.title = 'Change your reaction'; chip.addEventListener('click', () => openReactions(div, m)); box.appendChild(chip);
+      } else {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'react-add'; b.textContent = '♡';
+        b.title = 'React'; b.setAttribute('aria-label', 'React to this'); b.addEventListener('click', () => openReactions(div, m)); box.appendChild(b);
+      }
+    }
+    function openReactions(div, m) {
+      const box = div.querySelector('.react'); box.innerHTML = '';
+      for (const e of REACTIONS) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'react-pick' + (m.reaction === e ? ' on' : ''); b.textContent = e;
+        b.addEventListener('click', async () => {
+          const emoji = m.reaction === e ? '' : e;
+          try {
+            const r = await fetch('/api/chat/messages/' + encodeURIComponent(m.id) + '/react', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emoji }) });
+            if (r.ok) m.reaction = (await r.json()).reaction;
+          } catch (_) {}
+          renderReaction(div, m);
+        });
+        box.appendChild(b);
+      }
+    }
+
+    function appendMessage(role, text, ts, updateTs = true, kind = null, understood = null, react = null) {
       if (role === 'bot' && updateTs && alreadyShown(text, ts)) return;
       // Strip and handle {"action":"REQUEST_LOCATION"} anywhere in bot messages
       if (role === 'bot') {
@@ -884,6 +919,7 @@
       const copyBtn = div.querySelector('.copy-btn');
       if (copyBtn) copyBtn.addEventListener('click', () => copyText(text, copyBtn));
       if (role === 'me' && understood) renderChips(div, understood);
+      if (role === 'bot' && react && react.can_react && react.id) renderReaction(div, { id: react.id, reaction: react.reaction || null });
       // Insert before typing indicator so anchor stays last
       messagesEl.insertBefore(div, typingEl);
       // Track latest message timestamp for catch-up polling — only from server-sourced messages,

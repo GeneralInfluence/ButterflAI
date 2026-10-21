@@ -1563,7 +1563,7 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const since = parseInt(req.query.since) || 0;
   let msgs;
-  const cols = 'id, role, text, created_at, private_ct, private_iv, private_tag, kind';
+  const cols = 'id, role, text, created_at, private_ct, private_iv, private_tag, kind, about_user_id';
   // ?event=<id>: only that plan's discussion (2026-10-09). Host or invitee only.
   let eventInfo = null;
   const eventId = req.query.event ? String(req.query.event) : null;
@@ -1596,17 +1596,26 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   }
   // What each of their messages was understood as and done (understand.js): chips.
   const chips = require('./understand').chipsForMessages(req.user.id, msgs.filter((m) => m.role === 'user').map((m) => m.id));
+  const reacted = require('./reactions').forMessages(req.user.id, msgs.filter((m) => m.about_user_id).map((m) => m.id));
   // Private-mode messages are decrypted only here, for their owner (the query is scoped
   // to req.user.id). Not access-logged per poll: this is the owner reading their own chat.
   res.json({
     event: eventInfo || undefined,
-    messages: msgs.map(({ private_ct, private_iv, private_tag, ...m }) => {
+    messages: msgs.map(({ private_ct, private_iv, private_tag, about_user_id, ...m }) => {
       if (chips.has(m.id)) m.understood = chips.get(m.id);
+      if (about_user_id) { m.can_react = true; if (reacted.has(m.id)) m.reaction = reacted.get(m.id); }   // 🐛 #81
       if (!private_ct) return m;
       try { return { ...m, text: sensitive.decrypt(private_ct, private_iv, private_tag), private: true }; }
       catch (_) { return { ...m, private: true }; }
     }),
   });
+});
+
+// ❤️ React to a message from or about a friend (🐛 #81): it reaches them once, in the app. { emoji } ('' removes).
+app.post('/api/chat/messages/:id/react', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./reactions').react(req.user.id, String(req.params.id), String(req.body?.emoji || ''));
+  if (r.error) return res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r);
+  res.json(r);
 });
 
 // Undo (or change) what ButterflAI did from one of your messages — a chip under it
@@ -1749,7 +1758,7 @@ app.post('/api/ideas/ask', webAuth.requireAuth, async (req, res) => {
     if (!sr.MEDIA.test(image)) return res.status(400).json({ error: 'That picture can\'t be read' });
     const seen = await sr.read(image);
     if (!seen || /Nothing useful on screen/i.test(seen)) return res.status(400).json({ error: 'NOTHING_READ', message: 'Couldn’t make out anything to look for in that picture.' });
-    text = `${text ? `${text} — ` : ''}Things like this (from a screenshot): ${seen.replace(/\s+/g, ' ')}`.slice(0, 600);
+    text = `${text ? `${text} — ` : ''}From a screenshot they shared: ${seen.replace(/\s+/g, ' ')}`.slice(0, 600);
   }
   const r = require('./spells').ask(req.user.id, text);
   return r.error ? res.status(400).json(r) : res.json(r);
