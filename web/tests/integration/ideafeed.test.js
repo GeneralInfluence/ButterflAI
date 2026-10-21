@@ -310,5 +310,8 @@ describe('✨ Feed', () => {
     assert.equal((await request.post('/api/ideas/ask').set('Cookie', c).send({ text: ' ' })).status, 400);
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
     assert.ok(html.includes('id="ask-text"') && html.includes("fetch('/api/ideas/ask'"));
+    // Sean, 2026-10-21: "The search box at the top of explorer should always be there as I scroll".
+    assert.match(html, /\.ask \{[^}]*position: sticky; top: 52px/);
+    assert.ok(html.includes("scrollTo({ top: 0, behavior: 'smooth' });   // the answer shows at the top"));
   });
 });

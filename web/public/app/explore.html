@@ -65,7 +65,8 @@
     .chip { border: 1px solid #e5e5e5; background: #fff; color: #1c1c1e; border-radius: 999px; padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; }
     .chip.on { background: #ede9fe; border-color: #6c47ff; color: #6c47ff; }
     .chip.static { cursor: default; }
-    .ask { display: flex; gap: 8px; margin: 2px 0 12px; }
+    /* Always there while you scroll, just under the header (Sean: "I didn't realize that it was all the way at the top"). */
+    .ask { display: flex; gap: 8px; position: sticky; top: 52px; z-index: 9; background: #f2f2f7; margin: 0 -16px 12px; padding: 8px 16px; box-shadow: 0 1px 0 #e5e5e5; }
     .ask input { flex: 1; min-width: 0; height: 40px; border: 1.5px solid #e5e5e5; border-radius: 999px; padding: 0 14px; font: inherit; font-size: 16px; background: #fff; }
     .ask input:focus { outline: none; border-color: #6c47ff; }
     .ask button { flex: none; border: none; background: #6c47ff; color: #fff; border-radius: 999px; padding: 0 16px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
@@ -107,7 +108,7 @@
 <div id="map-wrap" hidden><div id="map"></div><div class="legend">When<div class="bar"></div><div class="ends"><span>Today</span><span>2+ weeks</span></div><div style="margin-top:4px;color:#8e8e93">● grey: no date</div></div></div>
 <main id="list-view">
   <!-- 🔎 Search for something, or steer what you see (🐛 #50) -->
-  <form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Look for something, or “more outdoors”" aria-label="Look for something or steer your ideas"><button type="submit">Go</button></form>
+  <form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas"><button type="submit">Go</button></form>
   <div id="asked"></div>
   <div class="stories" id="stories" hidden></div>
   <!-- Out and about — the same panel as Home's Feeling, starting as one line here (🐛 #40). -->
@@ -268,6 +269,8 @@
     const el = document.getElementById('ask-text'); const text = el.value.trim(); if (!text) return;
     const box = document.getElementById('asked');
     box.innerHTML = `<div class="asked-head">🔎 Looking for “${esc(text)}”…</div>`;
+    el.blur();
+    scrollTo({ top: 0, behavior: 'smooth' });   // the answer shows at the top — asked from anywhere down the feed
     const r = await fetch('/api/ideas/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }).then((x) => x.json()).catch(() => ({}));
     el.value = '';
     const items = r.items || [];
