@@ -55,10 +55,14 @@ function onePerEvent(items) {
   for (const i of items) {
     if (i.type !== 'idea') { kept.push(i); continue; }
     const w = spells.words(i.title);
-    const dup = kept.some((k) => k.type === 'idea' && (spells.alike(w, spells.words(k.title))
+    const k = kept.find((k) => k.type === 'idea' && (spells.alike(w, spells.words(k.title))
       || (i.link && k.link && i.link === k.link && (i.date || '') === (k.date || ''))
       || (i.date && i.place && k.date === i.date && k.place && k.place.toLowerCase() === i.place.toLowerCase())));
-    if (!dup) kept.push(i);
+    if (!k) { kept.push({ ...i, also: [] }); continue; }
+    // 🐛 #70: "I'd rather see one event with the different links" — its other pages go on the one card.
+    if (i.link && i.link !== k.link && !k.also.some((a) => a.link === i.link)) k.also.push({ id: i.id, link: i.link, site: i.source_site || spells.host(i.link) });
+    if (!k.date && i.date) k.date = i.date;
+    if (!k.place && i.place) k.place = i.place;
   }
   return kept;
 }

@@ -211,5 +211,21 @@
   "68": {
     "note_starts": "What API key do I need",
     "test": "tests/integration/ideafeed.test.js › 🐛 #46: places found by address or by name — only near your town and only a name that matches, a plain street map"
+  },
+  "69": {
+    "note_starts": "I think you should show the date of the event",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #69 / #70 / #72: the date up top (also from older titles), one card with all its links, search from a screenshot"
+  },
+  "70": {
+    "note_starts": "You already suggested this event through a different link",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #69 / #70 / #72: the date up top (also from older titles), one card with all its links, search from a screenshot"
+  },
+  "72": {
+    "note_starts": "This ability to share an image and have it then get the information",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #69 / #70 / #72: the date up top (also from older titles), one card with all its links, search from a screenshot"
+  },
+  "71": {
+    "note_starts": "You're suggesting the same things over and over and over",
+    "test": "tests/integration/ideafeed.test.js › the same event is one card across your ideas, passed-on ones and around town, tomorrow's batch remembers what was suggested"
   }
 }

@@ -100,7 +100,7 @@ app.use(cookieParser());
 // else keeps the default.
 const jsonDefault = express.json();
 const jsonFeedback = express.json({ limit: '4mb' });
-app.use((req, res, next) => (['/api/feedback', '/api/quick', '/api/chat/send', '/api/ideas'].includes(req.path) ? jsonFeedback : jsonDefault)(req, res, next));
+app.use((req, res, next) => (['/api/feedback', '/api/quick', '/api/chat/send', '/api/ideas', '/api/ideas/ask'].includes(req.path) ? jsonFeedback : jsonDefault)(req, res, next));
 app.use(express.urlencoded({ extended: true }));
 
 // All /api/* responses must never be cached
@@ -1710,8 +1710,18 @@ app.post('/api/spells/more', webAuth.requireAuth, async (req, res) => {   // �
 app.get('/app/explore', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/explore.html')));
 app.get('/app/feed', (req, res) => res.redirect(301, '/app/explore'));   // its first name
 // 🔎 Ask Explore (🐛 #50): runs in the background and is kept (🐛 #54) — poll /api/ideas/asks for its ideas.
-app.post('/api/ideas/ask', webAuth.requireAuth, express.json(), (req, res) => {
-  const r = require('./spells').ask(req.user.id, req.body?.text);
+// 🐛 #72: a screenshot of something seen on other social media → read once (screenread.js, never kept) → the search.
+app.post('/api/ideas/ask', webAuth.requireAuth, async (req, res) => {
+  let text = String(req.body?.text || '').trim();
+  const image = typeof req.body?.image === 'string' ? req.body.image : null;
+  if (image) {
+    const sr = require('./screenread');
+    if (!sr.MEDIA.test(image)) return res.status(400).json({ error: 'That picture can\'t be read' });
+    const seen = await sr.read(image);
+    if (!seen || /Nothing useful on screen/i.test(seen)) return res.status(400).json({ error: 'NOTHING_READ', message: 'Couldn’t make out anything to look for in that picture.' });
+    text = `${text ? `${text} — ` : ''}Things like this (from a screenshot): ${seen.replace(/\s+/g, ' ')}`.slice(0, 600);
+  }
+  const r = require('./spells').ask(req.user.id, text);
   return r.error ? res.status(400).json(r) : res.json(r);
 });
 app.post('/api/ideas/items', webAuth.requireAuth, express.json({ limit: '100kb' }), (req, res) => res.json(require('./ideafeed').items(req.user.id, req.body?.ids)));   // 🐛 #57

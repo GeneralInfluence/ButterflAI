@@ -510,7 +510,7 @@ describe('✨ Feed', () => {
 
   // Sean, 2026-10-21: "You're suggesting the same things over and over through different links or sometimes just over
   // and over … it needs to be consolidated and there needs to be new options presented".
-  test('the same event is one card across your ideas, passed-on ones and around town; tomorrow\'s batch remembers what was suggested', async () => {
+  test('the same event is one card across your ideas, passed-on ones and around town, tomorrow\'s batch remembers what was suggested', async () => {
     const me = mkUser('Sean Rep'); const o = mkUser('Other Rep');
     const d = new Date(Date.now() + 3 * 86400e3).toISOString().slice(0, 10);
     const mine = idea(me, { title: 'New Constellations at Cargo Thursday' });
@@ -539,5 +539,37 @@ describe('✨ Feed', () => {
     const fresh = spells.forUser(me.id).map((x) => x.title);
     assert.ok(!fresh.some((t) => /New Constellations/.test(t)), 'not suggested again in other words');
     assert.deepEqual(fresh.filter((t) => /Wedge/.test(t)), ['Pottery night at The Wedge'], 'one idea per venue');
+  });
+
+  // 🐛 #69: "show the date of the event you're suggesting if there is one". 🐛 #70: "If there is the same event through
+  // multiple links, I'd rather see one event with the different links rather than it be suggested to me over and over".
+  // 🐛 #72: "share an image … should also be part of the explorer tab so … I can search things that I find on other social media".
+  test('🐛 #69 / #70 / #72: the date up top (also from older titles), one card with all its links, search from a screenshot', async () => {
+    const me = mkUser('Sean S70');
+    const hp = idea(me, { title: 'Harry Potter in Concert at Grand Theatre Oct 30–31' });
+    const a = idea(me, { title: 'Free Throw & Microwave Saturday at Cargo' });
+    const b = idea(me, { title: 'Free Throw and Microwave at Cargo on Saturday' });
+    db._raw().prepare("UPDATE spells SET link = 'https://cargoreno.test/ft', link_ok = 1 WHERE id = ?").run(a);
+    db._raw().prepare("UPDATE spells SET link = 'https://songkick.test/ft', link_ok = 1 WHERE id = ?").run(b);
+    const items = ideafeed.page(me.id).items.filter((i) => i.type === 'idea');
+    assert.match(items.find((i) => i.id === hp).date, /^\d{4}-10-30$/, 'read from the title');
+    const ft = items.filter((i) => /Free Throw/.test(i.title));
+    assert.equal(ft.length, 1);
+    assert.deepEqual(ft[0].also.map((x) => x.site), ['songkick.test']);
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes("${when ? `📅 ${esc(when)}` : 'ButterflAI'}") && html.includes('Also on: '));
+    // A screenshot → read once → the search.
+    const sr = require('../../screenread');
+    sr._setClient({ messages: { create: async () => ({ content: [{ type: 'text', text: 'Plans: Pumpkin carving night at Brasserie Saint James, Oct 28' }] }) } });
+    const prompts = [];
+    spells._setClient({ messages: { create: async (req) => { prompts.push(req.messages[0].content); return { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"label":"Pumpkin carving","spells":[{"kind":"reconnect","title":"Pumpkin carving with friends","why":"x"}]}' }] }; } } });
+    const c = await cookieFor(me);
+    const r = await request.post('/api/ideas/ask').set('Cookie', c).send({ image: 'data:image/jpeg;base64,' + Buffer.from('shot').toString('base64') });
+    assert.equal(r.status, 200);
+    let ask = null;
+    for (let k = 0; k < 50 && (!ask || ask.status === 'working'); k++) { await new Promise((x) => setTimeout(x, 20)); ask = (await request.get('/api/ideas/asks').set('Cookie', c)).body.asks[0]; }
+    assert.equal(ask.label, 'Pumpkin carving');
+    assert.match(prompts[0], /Things like this \(from a screenshot\): Plans: Pumpkin carving night at Brasserie Saint James/);
+    assert.ok(html.includes('onchange="askFromShot(this)"'));
   });
 });

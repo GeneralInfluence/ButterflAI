@@ -240,7 +240,7 @@ async function more(userId, { focus = null, askId = null } = {}) {
  * leave Explore and come back, or run it again. Its ideas carry the ask's id (spells.asked).
  */
 function ask(userId, text, { wait = false } = {}) {
-  const t = clean(text, 200);
+  const t = clean(text, 600);
   if (!t) return wait ? Promise.resolve({ error: 'EMPTY' }) : { error: 'EMPTY' };
   // The same search in other words (🐛 #55 — three "Liam's party" searches) is one search: run again, kept together.
   const same = db._raw().prepare('SELECT id, text FROM explore_asks WHERE user_id = ? AND created_at > ? ORDER BY created_at DESC').all(userId, now() - 7 * 86400)
@@ -368,7 +368,7 @@ function echo(fromUserId, spell) {
 // A link is shown only once it's been checked to open securely (🐛 #41).
 const view = (s) => ({ id: s.id, kind: s.kind, title: s.title, why: s.why, status: s.status,
   image: s.image || null, link: s.link_ok === 1 ? s.link : null, asked: s.asked || null, link_ok: s.link_ok, source_site: s.link ? host(s.link) : null,
-  date: s.date || null, place: s.place || null, lat: s.lat ?? null, lng: s.lng ?? null, you_said: s.note || null, event_id: s.event_id || null, passed_on: s.source === 'echo' || s.echoes > 0, liked_by: s.echoes || undefined, can_spread: !!s.public_title && PUBLIC_KINDS.includes(s.kind) });
+  date: s.date || dateIn(s.title, s.created_at), place: s.place || null, lat: s.lat ?? null, lng: s.lng ?? null, you_said: s.note || null, event_id: s.event_id || null, passed_on: s.source === 'echo' || s.echoes > 0, liked_by: s.echoes || undefined, can_spread: !!s.public_title && PUBLIC_KINDS.includes(s.kind) });
 function forUser(userId) {
   // An idea about something happening whose page didn't open isn't suggested (🐛 #51).
   return db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND status = 'new' AND expires_at > ? AND NOT (kind IN ('nearby', 'new') AND (link IS NULL OR COALESCE(link_ok, 1) = 0)) ORDER BY CASE kind WHEN 'nearby' THEN 0 WHEN 'reconnect' THEN 1 WHEN 'wish' THEN 2 ELSE 3 END, echoes DESC, created_at DESC")
@@ -471,6 +471,13 @@ async function fillOnce({ limit = 12 } = {}) {
     }
   } catch (err) { console.warn('[spells] images:', err.message); }
   return n;
+}
+
+// 🐛 #69 ("show the date of the event you're suggesting if there is one"): ideas from before dates were stored
+// say it in their title ("Harry Potter in Concert at Grand Theatre Oct 30–31") — read it from there.
+function dateIn(title, createdAt) {
+  if (!/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d|\b\d{1,2}\/\d{1,2}\b|\b(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?\b|\btonight\b/i.test(String(title || ''))) return null;
+  try { return require('./datetime').resolveDateOnly(title, 'America/Los_Angeles', new Date((createdAt || Date.now() / 1000) * 1000))?.date || null; } catch (_) { return null; }
 }
 
 // ── Keeping ideas true (🐛 #41) ──

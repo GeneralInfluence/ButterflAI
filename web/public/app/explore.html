@@ -65,6 +65,9 @@
     .chip.on { background: #ede9fe; border-color: #6c47ff; color: #6c47ff; }
     .chip.static { cursor: default; }
     /* Always there while you scroll, just under the header (Sean: "I didn't realize that it was all the way at the top"). */
+    .ask-cam { position: absolute; right: 86px; top: 50%; transform: translateY(-50%); color: #6e6e76; cursor: pointer; display: flex; padding: 6px; z-index: 2; }
+    .ask-cam svg { width: 20px; height: 20px; }
+    .ask input#ask-text { padding-right: 42px; }
     .ask-bar { position: sticky; top: 52px; z-index: 9; background: #f2f2f7; margin: 0 -16px 12px; padding: 8px 16px; box-shadow: 0 1px 0 #e5e5e5; }
     .ask { display: flex; gap: 8px; position: relative; }
     /* One pill per search (🐛 #63): "For you" is the feed; a search's pill makes the feed that search */
@@ -120,7 +123,7 @@
 <div id="map-wrap" hidden style="position:relative"><div id="map"></div><div class="legend" id="map-note" hidden style="top:12px;right:12px;left:auto;bottom:auto"></div><div class="legend">When<div class="bar"></div><div class="ends"><span>Today</span><span>2+ weeks</span></div><div style="margin-top:4px;color:#8e8e93">● grey: no date</div></div></div>
 <main id="list-view">
   <!-- 🔎 Search for something, or steer what you see (🐛 #50) -->
-  <div class="ask-bar"><form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas" autocomplete="off" onfocus="showDrop(true)" onblur="setTimeout(() => showDrop(false), 200)"><button type="submit">Go</button>
+  <div class="ask-bar"><form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><label class="ask-cam" title="Search from a screenshot" aria-label="Search from a screenshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h1.8l1.4-2h6.6l1.4 2h1.8A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><circle cx="12" cy="12.8" r="3.6"/></svg><input type="file" accept="image/*" hidden onchange="askFromShot(this)"></label><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas" autocomplete="off" onfocus="showDrop(true)" onblur="setTimeout(() => showDrop(false), 200)"><button type="submit">Go</button>
     <div id="ask-drop" hidden></div></form>
     <div class="ask-pills" id="ask-pills" hidden></div></div>
   <div id="asked"></div>
@@ -192,7 +195,7 @@
     const src = i.source_site ? (i.link ? `Found in a web search · ${esc(i.source_site)}` : `Found in a web search · ${esc(i.source_site)} (checking its page…)`)
       : i.kind === 'nearby' || i.kind === 'new' ? 'Imagined by ButterflAI — no web page to check' : 'Imagined by ButterflAI from your plans and chats';
     return `<article class="post" data-id="${esc(i.id)}">
-      <div class="post-head"><div class="avatar">${ICON[i.kind] || '✨'}</div><div class="who">ButterflAI<small>${esc(from)}</small></div>
+      <div class="post-head"><div class="avatar">${ICON[i.kind] || '✨'}</div><div class="who">${when ? `📅 ${esc(when)}` : 'ButterflAI'}<small>${esc(from)}</small></div>
         <button class="x" title="Not for me" aria-label="Not for me" onclick="answer('${esc(i.id)}','dismiss',this)">✕</button></div>
       ${picHtml(i)}
       <div class="actions"><button class="act" onclick="answer('${esc(i.id)}','wish',this)">✨ Sounds fun</button><button class="act" onclick="answer('${esc(i.id)}','plan',this)">Make it a plan</button><button class="act" aria-label="Say what you think of this one" title="Say what you think of this one" onclick="this.closest('.post').classList.toggle('commenting'); const f = this.closest('.post').querySelector('.comment input'); if (f) f.focus();">💬</button>
@@ -200,7 +203,8 @@
       ${liked ? `<div class="liked">${liked}</div>` : ''}
       <div class="caption"><b>${esc(i.title)}</b>${why ? ` <span>${esc(why)}</span>` : ''}</div>
       ${i.you_said ? `<div class="facts" style="color:#6c47ff">💬 You said: ${esc(i.you_said)}</div>` : ''}
-      ${when || i.place ? `<div class="facts">${when ? `<span>📅 ${esc(when)}</span>` : ''}${i.place ? `<span>📍 ${esc(i.place)}</span>` : ''}</div>` : ''}
+      ${i.place ? `<div class="facts"><span>📍 ${esc(i.place)}</span></div>` : ''}
+      ${(i.also || []).length ? `<div class="src" style="padding-bottom:4px">Also on: ${i.also.map((a) => `<a href="/app/view?id=${encodeURIComponent(a.id)}" style="color:#6c47ff;text-decoration:none">${esc(a.site)}</a>`).join(' · ')}</div>` : ''}
       <div class="src">${src}</div>
       <form class="comment" onsubmit="event.preventDefault(); commentOn('${esc(i.id)}', this);"><input maxlength="500" placeholder="What do you think of this one?"><button type="submit">Save</button></form>
     </article>`;
@@ -339,6 +343,22 @@
     const r = await fetch('/api/ideas/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }).then((x) => x.json()).catch(() => ({}));
     if (r.ask) { askOpen = r.ask.id; asksList = [r.ask, ...asksList.filter((a) => a.id !== r.ask.id)]; renderAsks(); }
     setTimeout(loadAsks, 3000);
+  }
+  // 🐛 #72 ("share an image and have it get the information off of it … in the explorer tab so I can search things
+  // I find on other social media"): a screenshot becomes the search — read once on the server, never kept.
+  function shrinkShot(file) {
+    return new Promise((ok, no) => { const img = new Image(); img.onload = () => { const k = Math.min(1, 1600 / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src); ok(c.toDataURL('image/jpeg', 0.8)); }; img.onerror = no; img.src = URL.createObjectURL(file); });
+  }
+  async function askFromShot(input) {
+    const f = input.files && input.files[0]; input.value = ''; if (!f) return;
+    const el = document.getElementById('ask-text'); const text = el.value.trim(); el.value = '';
+    let image; try { image = await shrinkShot(f); } catch (_) { alert('That picture couldn’t be opened'); return; }
+    scrollTo({ top: 0, behavior: 'smooth' });
+    el.placeholder = '🔎 Reading your screenshot…';
+    const r = await fetch('/api/ideas/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, image }) }).then((x) => x.json()).catch(() => ({}));
+    el.placeholder = '🔎 Search or steer your ideas';
+    if (r.ask) { askOpen = r.ask.id; asksList = [r.ask, ...asksList.filter((a) => a.id !== r.ask.id)]; renderAsks(); setTimeout(loadAsks, 3000); }
+    else alert(r.message || 'Couldn’t search from that picture');
   }
   async function askAgain(id) {
     const r = await fetch('/api/ideas/asks/' + encodeURIComponent(id) + '/again', { method: 'POST' }).then((x) => x.json()).catch(() => ({}));
