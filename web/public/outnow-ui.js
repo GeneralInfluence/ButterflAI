@@ -24,6 +24,8 @@ function outEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =
 })();
 let outFormOpen = false;
 function openOutForm() { outFormOpen = true; renderOut(); }
+async function outStayIn() { outFormOpen = false; await fetch('/api/out/in', { method: 'POST' }).catch(() => {}); loadOut(false); }
+async function outNotIn() { await fetch('/api/out/in', { method: 'DELETE' }).catch(() => {}); outFormOpen = true; loadOut(false); }
 // ── 🌴 I'm out: who's near you now (outnow.js, owner 2026-10-20) ──
 let outPicks = new Set(['drink']);
 let outMinutes = 20;   // how far they'll go (owner: "willing to drive 5–10 minutes")
@@ -64,10 +66,17 @@ function renderOut() {
   const asks = (v.asks || []).map((a) => `<div class="card feed-item needs-you"><span class="feed-icon">👋</span><div style="flex:1;min-width:0">
     <div class="card-title">${outEsc(a.name)} is out near you</div><div class="card-sub">Up for ${outEsc(a.activity)}</div>
     <div class="share-row" style="margin:6px 0 0"><button class="chip-btn" onclick="answerAsk('${outEsc(a.id)}', true, this)">I’m in</button><button class="chip-btn" onclick="answerAsk('${outEsc(a.id)}', false, this)">Not now</button></div></div></div>`).join('');
+  // 🏠 In tonight (🐛 #62): it stops asking — one quiet line to change your mind.
+  if (!v.me && v.in_until && !outFormOpen) {
+    el.innerHTML = asks + `<div class="card feed-item" style="padding:10px 14px"><span class="feed-icon">🏠</span><div style="flex:1;min-width:0">
+      <div class="card-sub" style="margin:0">You’re in tonight</div></div>
+      <button class="chip-btn" style="flex-shrink:0;padding:6px 12px" onclick="outNotIn()">I’m out after all</button></div>`;
+    return;
+  }
   if (!v.me && el.dataset.compact && !outFormOpen) {   // Explore: one line that opens the form
     el.innerHTML = asks + `<div class="card feed-item"><span class="feed-icon">🌴</span><div style="flex:1;min-width:0">
       <div class="card-title">Out and about?</div><div class="card-sub">See who’s nearby and up for something</div></div>
-      <button class="chip-btn" style="background:#6c47ff;color:#fff;border-color:#6c47ff;flex-shrink:0" onclick="openOutForm()">I’m out</button></div>`;
+      <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0"><button class="chip-btn" style="background:#6c47ff;color:#fff;border-color:#6c47ff" onclick="openOutForm()">I’m out</button><button class="chip-btn" onclick="outStayIn()">I’m in</button></div></div>`;
     return;
   }
   if (!v.me) {
@@ -80,6 +89,7 @@ function renderOut() {
       <label style="display:block;font-size:13px;color:#3a3a3c;margin-top:6px"><input type="checkbox" id="out-new" onchange="document.getElementById('out-adult-row').style.display = this.checked ? 'block' : 'none'"> Open to meeting new people</label>
       <label id="out-adult-row" style="display:none;font-size:13px;color:#3a3a3c"><input type="checkbox" id="out-adult"> I’m 18 or older</label>
       <button class="chip-btn" style="margin-top:8px;background:#6c47ff;color:#fff;border-color:#6c47ff" onclick="goOut(this)">I’m out</button>
+      <button class="chip-btn" style="margin-top:8px" onclick="outStayIn()">I’m in tonight</button>
       <div class="card-sub" id="out-err"></div></div></div>`;
     return;
   }

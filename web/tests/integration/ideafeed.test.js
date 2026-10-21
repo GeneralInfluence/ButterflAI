@@ -319,7 +319,8 @@ describe('✨ Feed', () => {
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
     assert.ok(html.includes('id="ask-text"') && html.includes("fetch('/api/ideas/ask'") && html.includes("fetch('/api/ideas/asks')"));
     // Sean, 2026-10-21: "The search box at the top of explorer should always be there as I scroll".
-    assert.match(html, /\.ask \{[^}]*position: sticky; top: 52px/);
+    // The sticky part is the bar holding the box and (since 🐛 #63) the search pills.
+    assert.match(html, /\.ask-bar \{[^}]*position: sticky; top: 52px/);
     assert.ok(html.includes("scrollTo({ top: 0, behavior: 'smooth' });   // the answer shows at the top"));
   });
 
@@ -420,7 +421,7 @@ describe('✨ Feed', () => {
     assert.match(none.message, /its fault, not your question/);
     assert.ok(!/say it another way/.test(none.message));
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
-    assert.ok(html.includes('function askAgain') && html.includes('you can keep scrolling or leave and come back'));
+    assert.ok(html.includes('function askAgain') && html.includes('you can switch to ✨ For you or leave and come back'));
   });
 
   // 🐛 #55 (Sean, 2026-10-21): "The searches should be part of a drop-down. When I click in the search area, it
@@ -465,5 +466,40 @@ describe('✨ Feed', () => {
     const c = await cookieFor(me);
     const r = await request.post('/api/ideas/items').set('Cookie', c).send({ ids: [bad, ok] });
     assert.deepEqual(r.body.items.map((i) => i.id), [ok]);
+  });
+
+  // 🐛 #61 (Sean, 2026-10-21): "I don't want to see all the past searches … some summary of past searches comes up …
+  // but not everything in every detail". 🐛 #63: "It says there are five ideas … but I can't get to any of the ideas
+  // … The different search efforts should each have their own pill, so the feed is customized to that particular search".
+  test('🐛 #61 / #63: searches have short names and their own pills, a search\'s pill turns the feed into it', async () => {
+    const me = mkUser('Sean S63');
+    const prompts = [];
+    spells._setClient({ messages: { create: async (req) => { prompts.push(req.messages[0].content); return { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"label":"Kids · Virginia City","spells":[{"kind":"reconnect","title":"Mine tour with the kids","why":"x"}]}' }] }; } } });
+    const a = await spells.ask(me.id, "So are there any events or things going on in Virginia City around the time of Liam's birthday party? mine tours, wild west shows", { wait: true });
+    assert.match(prompts[0], /Also give "label": a 2–5 word name for this search/);
+    assert.equal(a.label, 'Kids · Virginia City');
+    assert.equal(spells.shortLabel("So are there any events in Virginia City"), 'So Are There Any', 'without a name from the model: its first words');
+    const c = await cookieFor(me);
+    assert.equal((await request.delete(`/api/ideas/asks/${a.id}`).set('Cookie', c)).status, 200);
+    assert.equal(spells.asks(me.id).length, 0, 'the pill is gone');
+    assert.equal(db._raw().prepare("SELECT status FROM spells WHERE user_id = ? AND title = 'Mine tour with the kids'").get(me.id).status, 'new', 'its ideas stay');
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes('id="ask-pills"') && html.includes('✨ For you') && html.includes("classList.toggle('searching', !!a)") && html.includes('main.searching #feed'));
+    assert.ok(html.includes('<span class="t">${esc(a.label)}</span>'), 'the dropdown shows short names');
+  });
+  // 🐛 #62: "It's asking if I'm out and about. I should also be able to say if I'm in so it stops asking me".
+  test('🐛 #62: I\'m in tonight — it stops asking until the night ends, going out clears it', async () => {
+    const out = require('../../outnow');
+    const me = mkUser('Sean S62');
+    const c = await cookieFor(me);
+    assert.equal((await request.post('/api/out/in').set('Cookie', c)).status, 200);
+    const v = (await request.get('/api/out').set('Cookie', c)).body;
+    assert.ok(v.in_until > Date.now() / 1000);
+    out.goOut(me.id, { up_for: ['drink'], lat: 39.5, lng: -119.8 });
+    assert.equal(out.nearby(me.id).in_until, undefined, 'out after all');
+    out.stop(me.id);
+    assert.equal(out.nearby(me.id).in_until, null);
+    const ui = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/outnow-ui.js'), 'utf8');
+    assert.ok(ui.includes('You’re in tonight') && ui.includes('onclick="outStayIn()">I’m in</button>') && ui.includes('I’m out after all'));
   });
 });

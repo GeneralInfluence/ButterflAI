@@ -66,12 +66,19 @@
     .chip.on { background: #ede9fe; border-color: #6c47ff; color: #6c47ff; }
     .chip.static { cursor: default; }
     /* Always there while you scroll, just under the header (Sean: "I didn't realize that it was all the way at the top"). */
-    .ask { display: flex; gap: 8px; position: sticky; top: 52px; z-index: 9; background: #f2f2f7; margin: 0 -16px 12px; padding: 8px 16px; box-shadow: 0 1px 0 #e5e5e5; }
+    .ask-bar { position: sticky; top: 52px; z-index: 9; background: #f2f2f7; margin: 0 -16px 12px; padding: 8px 16px; box-shadow: 0 1px 0 #e5e5e5; }
+    .ask { display: flex; gap: 8px; position: relative; }
+    /* One pill per search (🐛 #63): "For you" is the feed; a search's pill makes the feed that search */
+    .ask-pills { display: flex; gap: 6px; overflow-x: auto; padding-top: 8px; scrollbar-width: none; }
+    .ask-pills::-webkit-scrollbar { display: none; }
+    .ask-pills button { flex: none; border: 1px solid #e5e5e5; background: #fff; color: #1c1c1e; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
+    .ask-pills button.on { background: #6c47ff; border-color: #6c47ff; color: #fff; font-weight: 600; }
+    main.searching #feed, main.searching #stories, main.searching #out-now, main.searching #my-plans, main.searching #sentinel, main.searching #status { display: none !important; }
     .ask input { flex: 1; min-width: 0; height: 40px; border: 1.5px solid #e5e5e5; border-radius: 999px; padding: 0 14px; font: inherit; font-size: 16px; background: #fff; }
     .ask input:focus { outline: none; border-color: #6c47ff; }
     .ask button { flex: none; border: none; background: #6c47ff; color: #fff; border-radius: 999px; padding: 0 16px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
     /* Your searches: a dropdown when you tap the box (🐛 #55), not a list that's always there */
-    #ask-drop { position: absolute; left: 16px; right: 16px; top: calc(100% - 2px); background: #fff; border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.15); overflow: hidden; z-index: 20; }
+    #ask-drop { position: absolute; left: 0; right: 0; top: calc(100% + 6px); background: #fff; border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.15); overflow: hidden; z-index: 20; }
     #ask-drop button { display: flex; width: 100%; align-items: center; gap: 8px; border: none; background: none; text-align: left; font: inherit; font-size: 15px; padding: 12px 14px; border-top: 1px solid #f2f2f7; cursor: pointer; color: #1c1c1e; }
     #ask-drop button:first-child { border-top: none; }
     #ask-drop .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -114,8 +121,9 @@
 <div id="map-wrap" hidden><div id="map"></div><div class="legend">When<div class="bar"></div><div class="ends"><span>Today</span><span>2+ weeks</span></div><div style="margin-top:4px;color:#8e8e93">● grey: no date</div></div></div>
 <main id="list-view">
   <!-- 🔎 Search for something, or steer what you see (🐛 #50) -->
-  <form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas" autocomplete="off" onfocus="showDrop(true)" onblur="setTimeout(() => showDrop(false), 200)"><button type="submit">Go</button>
+  <div class="ask-bar"><form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas" autocomplete="off" onfocus="showDrop(true)" onblur="setTimeout(() => showDrop(false), 200)"><button type="submit">Go</button>
     <div id="ask-drop" hidden></div></form>
+    <div class="ask-pills" id="ask-pills" hidden></div></div>
   <div id="asked"></div>
   <div id="my-plans"></div>
   <div class="stories" id="stories" hidden></div>
@@ -291,24 +299,33 @@
   // background and is kept — your recent searches stay here with their ideas; open one, or run it again. ──
   let asksList = [], askOpen = null, askPoll = null;
   const askState = (a) => (a.status === 'working' ? 'looking…' : a.items.length ? `${a.items.length} idea${a.items.length === 1 ? '' : 's'}` : (a.message ? 'nothing found' : 'nothing yet'));
-  // The search you opened (from the box or the dropdown): its ideas here, ✕ to close it.
+  // Searches as pills (🐛 #63): "✨ For you" is your feed; a search's pill turns the feed into that search's ideas.
   function renderAsks() {
     for (const a of asksList) for (const i of a.items) if (!rendered.some((r) => r.id === i.id)) rendered.push(i);
+    const pills = document.getElementById('ask-pills');
+    pills.hidden = !asksList.length;
+    pills.innerHTML = `<button class="${askOpen ? '' : 'on'}" onclick="openAsk(null)">✨ For you</button>`
+      + asksList.map((a) => `<button class="${askOpen === a.id ? 'on' : ''}" onclick="openAsk('${esc(a.id)}')">🔎 ${esc(a.label)}${a.status === 'working' ? ' …' : ''}</button>`).join('');
     const a = asksList.find((x) => x.id === askOpen);
-    document.getElementById('asked').innerHTML = !a ? '' : `<div class="asked-head">🔎 ${esc(a.text.length > 70 ? a.text.slice(0, 67) + '…' : a.text)}
+    document.getElementById('list-view').classList.toggle('searching', !!a);
+    document.getElementById('asked').innerHTML = !a ? '' : `<div class="asked-head">🔎 ${esc(a.text.length > 90 ? a.text.slice(0, 87) + '…' : a.text)}
         <span class="sub" style="margin:0;font-weight:400">· ${esc(askState(a))}</span>
         <button aria-label="Run it again" title="Run it again" onclick="askAgain('${esc(a.id)}')">↻</button>
-        <button aria-label="Close" onclick="askOpen = null; renderAsks()">✕</button></div>`
-      + (a.status === 'working' ? '<div class="sub" style="margin:0 2px 14px">✨ ButterflAI is looking — this takes a few seconds; you can keep scrolling or leave and come back.</div>'
+        <button aria-label="Remove this search" title="Remove this search" onclick="dropAsk('${esc(a.id)}')">✕</button></div>`
+      + (a.status === 'working' ? '<div class="sub" style="margin:0 2px 14px">✨ ButterflAI is looking — this can take a minute; you can switch to ✨ For you or leave and come back.</div>'
         : a.items.map((i) => cardHtml({ type: 'idea', ...i })).join('') + (a.message && !a.items.length ? `<div class="sub" style="margin:0 2px 14px">${esc(a.message)}</div>` : ''));
     renderDrop();
   }
-  // Your recent searches, merged when they're about the same thing (🐛 #55) — shown when you tap the box.
+  async function dropAsk(id) {
+    await fetch('/api/ideas/asks/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
+    asksList = asksList.filter((a) => a.id !== id); if (askOpen === id) askOpen = null; renderAsks();
+  }
+  // Your recent searches, by their short names (🐛 #55, #61) — shown when you tap the box.
   function renderDrop() {
-    document.getElementById('ask-drop').innerHTML = asksList.map((a) => `<button type="button" onmousedown="event.preventDefault()" onclick="openAsk('${esc(a.id)}')"><span>🔎</span><span class="t">${esc(a.text)}</span><span class="n">${esc(askState(a))}</span></button>`).join('');
+    document.getElementById('ask-drop').innerHTML = asksList.map((a) => `<button type="button" onmousedown="event.preventDefault()" onclick="openAsk('${esc(a.id)}')"><span>🔎</span><span class="t">${esc(a.label)}</span><span class="n">${esc(askState(a))}</span></button>`).join('');
   }
   function showDrop(on) { const d = document.getElementById('ask-drop'); d.hidden = !on || !asksList.length; }
-  function openAsk(id) { askOpen = id; renderAsks(); showDrop(false); document.getElementById('ask-text').blur(); scrollTo({ top: 0, behavior: 'smooth' }); }
+  function openAsk(id) { askOpen = id; renderAsks(); showDrop(false); document.getElementById('ask-text').blur(); scrollTo({ top: 0, behavior: 'smooth' }); if (!id && !document.querySelector('#feed .post')) loadMore(); }
   async function loadAsks() {
     const d = await fetch('/api/ideas/asks').then((r) => r.json()).catch(() => null);
     if (!d) return;

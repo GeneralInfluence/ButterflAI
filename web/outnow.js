@@ -88,6 +88,7 @@ function goOut(userId, { up_for = [], lat, lng, hours = 4, open_to_new = false, 
   if (!acts.length) return { error: 'UP_FOR', message: 'Pick what you’re up for.' };
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return { error: 'LOCATION', message: 'Need your location to find people nearby.' };
   if (open_to_new && !adult) return { error: 'ADULT', message: 'Meeting new people is for 18 and over.' };
+  db._raw().prepare('DELETE FROM staying_in WHERE user_id = ?').run(userId);   // out after all
   const until = now() + Math.max(1, Math.min(12, Number(hours) || 4)) * 3600;
   const maxKm = REACH[Number(minutes)] || RADIUS_KM;
   db._raw().prepare(`INSERT INTO out_now (user_id, up_for, lat, lng, open_to_new, until, updated_at, max_km) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -101,6 +102,20 @@ function refresh(userId, { lat, lng }) {
   const r = db._raw().prepare('UPDATE out_now SET lat = ?, lng = ?, updated_at = ? WHERE user_id = ? AND until > ?').run(round(lat), round(lng), now(), userId, now());
   return r.changes ? { ok: true } : { error: 'NOT_OUT' };
 }
+/**
+ * 🏠 I'm in tonight (🐛 #62 — "I should also be able to say if I'm in so it stops asking me"): until the night
+ * ends (4am their time). Going out after all clears it.
+ */
+function stayIn(userId) {
+  const u = db.getUser(userId);
+  const until = require('./datetime').resolveUntil('tonight', u?.timezone || 'America/Los_Angeles').ts;
+  db._raw().prepare('INSERT INTO staying_in (user_id, until) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET until = excluded.until').run(userId, until);
+  stop(userId);
+  return { ok: true, in_until: until };
+}
+function notIn(userId) { db._raw().prepare('DELETE FROM staying_in WHERE user_id = ?').run(userId); return { ok: true }; }
+const inTonight = (userId) => db._raw().prepare('SELECT until FROM staying_in WHERE user_id = ? AND until > ?').get(userId, now())?.until || null;
+
 /** Change what you're up for while out (e.g. add something people around you are up for). */
 function setUpFor(userId, up_for) {
   const r = row(userId);
@@ -139,7 +154,7 @@ const words = (acts) => acts.map(labelOf).join(' or ');
 /** Who's near you now: friends (named) and, when you're both open to new people, others (anonymous). */
 function nearby(userId) {
   const me = row(userId);
-  if (!me) return { me: null, friends: [], others: [], asks: asksFor(userId), choices: choices(userId), around: [] };
+  if (!me) return { me: null, in_until: inTonight(userId), friends: [], others: [], asks: asksFor(userId), choices: choices(userId), around: [] };
   const meU = db.getUser(userId);
   const out = { me: mine(userId), friends: [], others: [], asks: asksFor(userId), choices: choices(userId), around: [] };
   const around = new Map();   // what people you could meet are up for nearby (counts only, no one named)
@@ -236,4 +251,4 @@ function purgeOld() {
   return ended.length;
 }
 
-module.exports = { goOut, setUpFor, choices, kindsOf, labelOf, overlaps, refresh, stop, nearby, reach, answer, purgeOld, mine, ACTIVITIES, RADIUS_KM, REACH, _km: km };
+module.exports = { goOut, stayIn, notIn, setUpFor, choices, kindsOf, labelOf, overlaps, refresh, stop, nearby, reach, answer, purgeOld, mine, ACTIVITIES, RADIUS_KM, REACH, _km: km };

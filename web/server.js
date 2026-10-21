@@ -1678,6 +1678,9 @@ app.post('/api/out/refresh', webAuth.requireAuth, express.json(), (req, res) => 
   return r.error ? res.status(400).json(r) : res.json(r);
 });
 app.delete('/api/out', webAuth.requireAuth, (req, res) => res.json(require('./outnow').stop(req.user.id)));
+// 🏠 I'm in tonight (🐛 #62) — and back out of it.
+app.post('/api/out/in', webAuth.requireAuth, (req, res) => res.json(require('./outnow').stayIn(req.user.id)));
+app.delete('/api/out/in', webAuth.requireAuth, (req, res) => res.json(require('./outnow').notIn(req.user.id)));
 app.patch('/api/out', webAuth.requireAuth, express.json(), (req, res) => {
   const r = require('./outnow').setUpFor(req.user.id, req.body?.up_for);
   return r.error ? res.status(400).json(r) : res.json(r);
@@ -1706,6 +1709,10 @@ app.post('/api/ideas/ask', webAuth.requireAuth, express.json(), (req, res) => {
 });
 app.post('/api/ideas/items', webAuth.requireAuth, express.json({ limit: '100kb' }), (req, res) => res.json(require('./ideafeed').items(req.user.id, req.body?.ids)));   // 🐛 #57
 app.get('/api/ideas/asks', webAuth.requireAuth, (req, res) => res.json({ asks: require('./spells').asks(req.user.id) }));
+app.delete('/api/ideas/asks/:id', webAuth.requireAuth, (req, res) => {   // close a search's pill (🐛 #63)
+  const r = require('./spells').dropAsk(req.user.id, String(req.params.id));
+  return r.error ? res.status(404).json(r) : res.json(r);
+});
 app.post('/api/ideas/asks/:id/again', webAuth.requireAuth, (req, res) => {
   const r = require('./spells').askAgain(req.user.id, String(req.params.id));
   return r.error ? res.status(404).json(r) : res.json(r);

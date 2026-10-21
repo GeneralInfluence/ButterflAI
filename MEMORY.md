@@ -1213,6 +1213,15 @@ the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (
   know it's from me"; it sent it and said "Sent", but every message says who it's from (§10). Now refused in
   code (`agent.asksAnonymous` on send_logistics_sms / message_agent → ANONYMOUS_NOT_POSSIBLE) and the agent says
   so; prompt NO ANONYMOUS MESSAGES. Test: `no-anonymous.test.js`.
+- **Search pills (#61/#63 — "each search effort should have its own pill, so the feed is customized to that
+  search"; "some summary of past searches … not every detail"):** under the 🔎 box, "✨ For you" + one pill per
+  search; a search's pill turns Explore into that search's ideas (the feed, stories and panels step aside —
+  `main.searching`); ↻ runs it again, ✕ removes it (`DELETE /api/ideas/asks/:id`, its ideas stay). Searches have
+  short names (`explore_asks.label`, migration 081 — the model names them, else `spells.shortLabel`), used in the
+  pills and the dropdown.
+- **I'm in tonight (#62):** Out and about has "I'm in" → it stops asking until the night ends (`staying_in`,
+  `outnow.stayIn`/`notIn`, `POST/DELETE /api/out/in`); one quiet line "You're in tonight · I'm out after all";
+  going out clears it.
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`

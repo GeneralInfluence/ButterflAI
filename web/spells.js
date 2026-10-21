@@ -116,7 +116,7 @@ Every idea is something fun to do — never an errand, a chore or a reminder ("C
 Each: a short, inviting title (under 70 characters, like "Jazz at Shea's Thursday with Allie?") and one line why. Warm, specific, never pushy. Only use friends' first names from the list above.
 For "nearby" and "new" ideas also give "public_title": the same idea with no person named and nothing about them (like "Jazz at Shea's Thursday") — it may be passed on to others.
 Facts must come from your search results: "link" only to a page you actually found (the event's own page if you found it), "date" (YYYY-MM-DD) when it's on a day, "place" — the venue's real name as it appears on a map ("Cargo Concert Hall", never "a cozy spot") — and "address" (its street address) when you found it. Today is ${today}; get weekdays right. Never two ideas about the same event.
-Reply with JSON only: {"spells":[{"kind":"nearby","title":"…","public_title":"…","why":"…","link":"https://…","date":"YYYY-MM-DD","place":"…","address":"…"}, …]}`;
+${c.focus ? 'Also give "label": a 2–5 word name for this search, like a tab ("Kids · Virginia City", "Live jazz").\n' : ''}Reply with JSON only: {${c.focus ? '"label":"…",' : ''}"spells":[{"kind":"nearby","title":"…","public_title":"…","why":"…","link":"https://…","date":"YYYY-MM-DD","place":"…","address":"…"}, …]}`;
 
 /** Imagine today's spells for one person (once a day). Returns how many were made. */
 async function generate(user, { force = false, more = false, focus = null, askId = null } = {}) {
@@ -139,7 +139,7 @@ async function generate(user, { force = false, more = false, focus = null, askId
     if (r.stop_reason !== 'pause_turn') break;
     messages.push({ role: 'assistant', content: r.content });
   }
-  const parse = (t) => { try { return JSON.parse(String(t).match(/\{[\s\S]*\}/)[0]).spells || null; } catch (_) { return null; } };
+  const parse = (t) => { try { const o = JSON.parse(String(t).match(/\{[\s\S]*\}/)[0]); if (askId && o.label) saveLabel(askId, o.label); return o.spells || null; } catch (_) { return null; } };
   let list = parse(text);
   if (!list || !list.length) {
     // It answered in prose (🐛 #54: "I cannot generate the 8 specific ideas without more specific information…")
@@ -245,6 +245,15 @@ function ask(userId, text, { wait = false } = {}) {
     });
   return wait ? run : { ok: true, ask: askView(userId, db._raw().prepare('SELECT * FROM explore_asks WHERE id = ?').get(id)) };
 }
+function saveLabel(askId, label) {
+  const l = clean(label, 40);
+  if (l) db._raw().prepare('UPDATE explore_asks SET label = ? WHERE id = ?').run(l, askId);
+}
+/** A short name for a search when the model didn't give one: its first few telling words. */
+function shortLabel(text) {
+  const w = [...words(text)].slice(0, 4);
+  return w.length ? w.map((x) => x[0].toUpperCase() + x.slice(1)).join(' ') : clean(text, 30);
+}
 /** Two searches about the same thing (most of the shorter one's words are in the other). */
 function askAlike(x, y) {
   const a = words(x), b = words(y);
@@ -254,7 +263,7 @@ function askAlike(x, y) {
 function askView(userId, a) {
   const items = db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND asked = ? AND status = 'new' AND NOT (kind IN ('nearby', 'new') AND (link IS NULL OR COALESCE(link_ok, 1) = 0)) ORDER BY created_at")
     .all(userId, a.id).map(view);
-  return { id: a.id, text: a.text, status: a.status, made: a.made, at: a.created_at, items,
+  return { id: a.id, text: a.text, label: a.label || shortLabel(a.text), status: a.status, made: a.made, at: a.created_at, items,
     // 🐛 #60: "You couldn't find anything in a search because I gave too much information?" — it was never the question.
     message: a.status === 'none' ? 'ButterflAI came back empty-handed this time (its fault, not your question) — tap ↻ to look again' : a.status === 'limit' ? 'That’s plenty of ideas for today — more tomorrow' : null };
 }
@@ -270,6 +279,12 @@ function asks(userId) {
     if (v.items.length && v.status === 'none') { v.status = 'done'; v.message = null; }
     return v;
   });
+}
+/** Close a search (its pill goes; ideas it found stay yours). */
+function dropAsk(userId, askId) {
+  const r = db._raw().prepare('DELETE FROM explore_asks WHERE id = ? AND user_id = ?').run(askId, userId);
+  if (r.changes) db._raw().prepare('UPDATE spells SET asked = NULL WHERE user_id = ? AND asked = ?').run(userId, askId);
+  return r.changes ? { ok: true } : { error: 'NOT_FOUND' };
 }
 /** Run a search again. */
 function askAgain(userId, askId) {
@@ -492,4 +507,4 @@ function adopt(userId, originId) {
   return id;
 }
 
-module.exports = { pickLink, generate, more, ask, asks, askAgain, tick, forUser, answer, react, page, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
+module.exports = { pickLink, generate, more, ask, asks, askAgain, dropAsk, shortLabel, tick, forUser, answer, react, page, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
