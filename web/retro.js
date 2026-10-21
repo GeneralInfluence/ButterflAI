@@ -760,6 +760,24 @@ const TASKS = [
       return `filed ${n}`;
     },
   },
+  {
+    id: '2026-10-21-one-idea-per-event',
+    added: Date.UTC(2026, 9, 21, 12) / 1000,
+    kind: 'internal',
+    about: 'Sean: "You\'re suggesting the same things over and over through different links". This user\'s open ideas that repeat an earlier one (same words, same page, or same place on the same day) are set aside, keeping the first of each.',
+    run(user) {
+      const spells = require('./spells');
+      const rows = db._raw().prepare("SELECT id, title, link, date, place FROM spells WHERE user_id = ? AND status = 'new' ORDER BY created_at, rowid").all(user.id);
+      const kept = []; let n = 0;
+      for (const r of rows) {
+        const w = spells.words(r.title);
+        const dup = kept.some((k) => spells.alike(w, spells.words(k.title)) || (r.link && r.link === k.link && (r.date || '') === (k.date || ''))
+          || (r.date && r.place && k.date === r.date && k.place && k.place.toLowerCase() === r.place.toLowerCase()));
+        if (dup) { db._raw().prepare("UPDATE spells SET status = 'stale' WHERE id = ?").run(r.id); n++; } else kept.push(r);
+      }
+      return `set aside ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

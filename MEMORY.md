@@ -1234,6 +1234,12 @@ the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (
   short names (`explore_asks.label`, migration 081 — the model names them, else `spells.shortLabel`), used in the
   pills and the dropdown. The open pill has no second header repeating it — "↻ Look again · ✕ Remove this search"
   sit at the end of its ideas (🐛 #67).
+- **No repeats (Sean, 2026-10-21: "suggesting the same things over and over through different links … it needs to be
+  consolidated and there needs to be new options"):** Explore shows one card per event across your ideas, passed-on
+  ones and around town (`ideafeed.onePerEvent`: same words, same page, or same place same day); the daily batch keeps
+  yesterday's untouched ideas as `stale` (deleted after 30 days) instead of forgetting them, the prompt lists everything
+  suggested in two weeks ("never again, not even in other words or with another link") and asks for NEW places and
+  kinds, and code skips repeats, the same event, and a second idea at one venue per batch. Retro sets aside repeats.
 - **I'm in tonight (#62):** Out and about has "I'm in" → it stops asking until the night ends (`staying_in`,
   `outnow.stayIn`/`notIn`, `POST/DELETE /api/out/in`); one quiet line "You're in tonight · I'm out after all";
   going out clears it.

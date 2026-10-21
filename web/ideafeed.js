@@ -45,6 +45,24 @@ function pool(user, have) {
       why: 'Found around you', liked_by: g.likes.size || undefined, around: true }));
 }
 
+/**
+ * One card per event (Sean, 2026-10-21: "You're suggesting the same things over and over through different links"):
+ * your ideas, ideas passed on to you and ideas from around town are merged — the same title in other words, the same
+ * page, or the same place on the same day is one card (the first one, which is yours when you have it).
+ */
+function onePerEvent(items) {
+  const kept = [];
+  for (const i of items) {
+    if (i.type !== 'idea') { kept.push(i); continue; }
+    const w = spells.words(i.title);
+    const dup = kept.some((k) => k.type === 'idea' && (spells.alike(w, spells.words(k.title))
+      || (i.link && k.link && i.link === k.link && (i.date || '') === (k.date || ''))
+      || (i.date && i.place && k.date === i.date && k.place && k.place.toLowerCase() === i.place.toLowerCase())));
+    if (!dup) kept.push(i);
+  }
+  return kept;
+}
+
 /** What's happening right now (first page). */
 function rightNow(user) {
   const out = [];
@@ -85,7 +103,7 @@ function page(userId, { seen = [] } = {}) {
   const shown = new Set((Array.isArray(seen) ? seen : []).slice(0, 2000).map(String));
   const mine = spells.forUser(userId).filter((s) => !s.asked).map((s) => ({ type: 'idea', ...s }));   // a search's ideas sit under it
   const have = new Set(db._raw().prepare('SELECT lower(title) t, lower(public_title) p FROM spells WHERE user_id = ?').all(userId).flatMap((r) => [r.t, r.p]).filter(Boolean));
-  const all = [...(shown.size ? [] : rightNow(user)), ...mine, ...pool(user, have)].filter((i) => !shown.has(i.id));
+  const all = [...(shown.size ? [] : rightNow(user)), ...onePerEvent([...mine, ...pool(user, have)])].filter((i) => !shown.has(i.id));
   const items = all.slice(0, PAGE);
   // Pictures still to look up get looked up now, for the next scroll (in the background).
   if (items.some((i) => i.type === 'idea' && ((i.source_site && !i.link && !i.image) || (i.place && i.lat == null)))) spells.fillImages().catch(() => {});
@@ -118,4 +136,4 @@ function items(userId, ids) {
   return { items: ids.map(String).filter((id) => want.has(id) && byId.has(id)).map((id) => byId.get(id)) };
 }
 
-module.exports = { page, pool, rightNow, map, items, PAGE };
+module.exports = { page, pool, rightNow, map, items, onePerEvent, PAGE };

@@ -67,7 +67,8 @@ function contextFor(user) {
     AND created_at > ? ORDER BY created_at DESC LIMIT 25`).all(user.id, t - 30 * 86400).map((r) => clean(r.text, 200));
   const wishes = db._raw().prepare("SELECT text FROM wishes WHERE user_id = ? AND status = 'active'").all(user.id).map((r) => r.text);
   const dismissed = db._raw().prepare("SELECT title FROM spells WHERE user_id = ? AND status = 'dismissed' ORDER BY created_at DESC LIMIT 12").all(user.id).map((r) => r.title);
-  const current = db._raw().prepare("SELECT title FROM spells WHERE user_id = ? AND status = 'new' AND expires_at > ?").all(user.id, t).map((r) => r.title);
+  // Everything suggested in the last two weeks, shown or not — never again in other words.
+  const current = [...new Set(db._raw().prepare("SELECT title FROM spells WHERE user_id = ? AND created_at > ? ORDER BY created_at DESC LIMIT 60").all(user.id, t - 14 * 86400).map((r) => r.title))];
   // Ideas people around them liked lately (no names) — how people nearby influence each other (🐛 #37).
   const around = [...new Set(associates(user.id).filter((u) => sameTown(user, u))
     .flatMap((u) => db._raw().prepare(`SELECT public_title FROM spells WHERE user_id = ? AND status = 'kept' AND public_title IS NOT NULL AND created_at > ?`).all(u.id, t - 14 * 86400).map((r) => r.public_title)))].slice(0, 10);
@@ -101,7 +102,7 @@ What you know (their own):
 - What they've asked Explore for lately (searches and steering — follow it): ${(c.asks || []).map((a) => `"${a}"`).join('; ') || 'nothing yet'}
 - What they said about ideas they looked at (their taste — follow it): ${(c.notes || []).join('; ') || 'nothing yet'}
 - Ideas they've already answered (with what they did or said — don't suggest these again): ${(c.answered || []).join('; ') || 'none yet'}
-- Ideas they already have (don't repeat): ${(c.current || []).join('; ') || 'none'}
+- Already suggested in the last two weeks — never again, not even in other words or with another link: ${(c.current || []).join('; ') || 'none'}
 - Liked lately by people around them (anonymous — a hint at what's good nearby): ${(c.around || []).join('; ') || 'nothing yet'}
 
 ${user.city ? `Search the web once or twice for what's actually on in or near ${user.city} in the next two weeks (shows, music, markets, classes, outdoor things) and use real ones.` : ''}
@@ -112,6 +113,7 @@ ${c.focus ? `They just asked Explore for: "${c.focus}". If that's a search, imag
 - "new": something that widens their circle — a class, a group, a meetup, a new scene.
 - "wish": a way one of their wishes could happen (or, with no wishes, something they'd likely love from what they said).
 Ideas they've already answered are listed above — never suggest them again or anything like them; build on them instead.
+Bring NEW options: different places and kinds of things than those already suggested — at most one idea per venue, and two ideas are never the same event.
 Every idea is something fun to do — never an errand, a chore or a reminder ("Confirm Zack's name with Liam" is not an idea).
 Each: a short, inviting title (under 70 characters, like "Jazz at Shea's Thursday with Allie?") and one line why. Warm, specific, never pushy. Only use friends' first names from the list above.
 For "nearby" and "new" ideas also give "public_title": the same idea with no person named and nothing about them (like "Jazz at Shea's Thursday") — it may be passed on to others.
@@ -164,15 +166,25 @@ async function generate(user, { force = false, more = false, focus = null, askId
   const checked = new Map(await Promise.all(links.map(async (l) => [l, await require('./ogimage').check(l).catch(() => null)])));
   let made = 0;
   // Today's replace yesterday's untouched ones; "More ideas" adds to them. Passed-on ideas stay.
-  if (!more) db._raw().prepare("DELETE FROM spells WHERE user_id = ? AND status = 'new' AND source = 'own'").run(user.id);
+  // (Remembered as 'stale', not deleted — so tomorrow's batch knows what was already suggested. Sean, 2026-10-21:
+  // "You're suggesting the same things over and over through different links or sometimes just over and over".)
+  if (!more) db._raw().prepare("UPDATE spells SET status = 'stale' WHERE user_id = ? AND status = 'new' AND source = 'own' AND asked IS NULL").run(user.id);
   const have = new Set(db._raw().prepare("SELECT lower(title) t FROM spells WHERE user_id = ? AND status = 'new'").all(user.id).map((r) => r.t));
   // Ideas already around (new, or answered this week): a near-repeat in other words is skipped.
   // (Passed-on ideas aren't here: one matching yours is merged into it below.)
-  const recent = db._raw().prepare("SELECT title FROM spells WHERE user_id = ? AND source = 'own' AND (status = 'new' OR created_at > ?)").all(user.id, now() - 7 * 86400).map((r) => words(r.title));
+  // (An unanswered idea passed on to them isn't here — one that matches theirs is merged into it below.)
+  const recentRows = db._raw().prepare("SELECT title, public_title, link, date, place FROM spells WHERE user_id = ? AND (source = 'own' OR status != 'new') AND (status = 'new' OR created_at > ?)").all(user.id, now() - 14 * 86400);
+  const recent = recentRows.flatMap((r) => [words(r.title), r.public_title ? words(r.public_title) : null]).filter(Boolean);
+  const sameEvent = (x) => recentRows.some((r) => (x.date && x.place && r.date === x.date && r.place && r.place.toLowerCase() === String(x.place).toLowerCase()));
+  const venues = new Map();   // one idea per venue per batch
   for (const s of list.filter((x) => x && KINDS.includes(x.kind) && clean(x.title)).filter(ok)) {
     if (made >= PER_BATCH) break;
     if (have.has(clean(s.title, 90).toLowerCase())) continue;
-    if (recent.some((w) => alike(w, words(s.title)))) continue;
+    if (recent.some((w) => alike(w, words(s.title)) || (s.public_title && alike(w, words(s.public_title))))) continue;
+    if (sameEvent(s)) continue;
+    const venue = String(s.place || '').toLowerCase();
+    if (venue && venues.has(venue)) continue;
+    if (venue) venues.set(venue, true);
     // A link only to a site the search actually returned; never plain http (🐛 #41).
     let link = /^https:\/\//.test(String(s.link || '')) ? String(s.link).slice(0, 400) : null;
     if (link && !found.has(host(link))) link = null;
@@ -420,7 +432,8 @@ function react(userId, id, { verdict, note } = {}) {
 
 /** Kept 7 days; dismissed titles kept 60 days (so similar ones stop), then gone. */
 function purgeOld() {
-  return db._raw().prepare("DELETE FROM spells WHERE (status != 'dismissed' AND expires_at < ?) OR (status = 'dismissed' AND created_at < ?)").run(now(), now() - 60 * 86400).changes;
+  return db._raw().prepare("DELETE FROM spells WHERE (status NOT IN ('dismissed', 'stale') AND expires_at < ?) OR (status = 'dismissed' AND created_at < ?) OR (status = 'stale' AND created_at < ?)")
+    .run(now(), now() - 60 * 86400, now() - 30 * 86400).changes;
 }
 
 /** For ideas with a link: does it open securely (🐛 #41), and its share picture (🐛 #39) — once per link.

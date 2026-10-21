@@ -109,7 +109,8 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
     seen = model([...first.slice(0, 2), ...batch('Second')]);
     const r = await spells.more(sean.id);
     assert.equal(r.made, 8, 'the two repeats are skipped');
-    assert.match(seen[0].messages[0].content, /Ideas they already have \(don't repeat\): First jazz night/);
+    // (Worded since 2026-10-21 as everything suggested in the last two weeks.)
+    assert.match(seen[0].messages[0].content, /Already suggested in the last two weeks — never again, not even in other words or with another link: .*First jazz night/);
     assert.equal(spells.forUser(sean.id).length, 16, 'More adds to today\'s; nothing replaced');
     // The cap is MAX_PER_DAY (80 since the ✨ Feed asks for more as you scroll — 10 batches).
     for (let i = 3; i * 8 <= spells.MAX_PER_DAY; i++) { model(batch(`B${i}`)); assert.equal((await spells.more(sean.id)).made, 8); }

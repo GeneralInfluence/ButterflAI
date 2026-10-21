@@ -507,4 +507,37 @@ describe('✨ Feed', () => {
     const ui = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/outnow-ui.js'), 'utf8');
     assert.ok(ui.includes('You’re in tonight') && ui.includes('onclick="outStayIn()">I’m in</button>') && ui.includes('I’m out after all'));
   });
+
+  // Sean, 2026-10-21: "You're suggesting the same things over and over through different links or sometimes just over
+  // and over … it needs to be consolidated and there needs to be new options presented".
+  test('the same event is one card across your ideas, passed-on ones and around town; tomorrow\'s batch remembers what was suggested', async () => {
+    const me = mkUser('Sean Rep'); const o = mkUser('Other Rep');
+    const d = new Date(Date.now() + 3 * 86400e3).toISOString().slice(0, 10);
+    const mine = idea(me, { title: 'New Constellations at Cargo Thursday' });
+    const x2 = idea(me, { title: 'New Constellations at Cargo Thursday Night' });
+    db._raw().prepare('UPDATE spells SET link = ? WHERE id = ?').run('https://songkick.test/nc', x2);
+    const venueDay = idea(me, { title: 'Indie show downtown' });
+    const sameNight = idea(me, { title: 'Late concert at Cargo' });
+    db._raw().prepare("UPDATE spells SET date = ?, place = 'Cargo Concert Hall' WHERE id IN (?, ?)").run(d, venueDay, sameNight);
+    idea(o, { title: 'New Constellations at Cargo — Thursday' });
+    const titles = ideafeed.page(me.id).items.filter((i) => i.type === 'idea').map((i) => i.title);
+    assert.equal(titles.filter((t) => /New Constellations/.test(t)).length, 1, 'one card for the same concert');
+    assert.equal(titles.filter((t) => t === 'Indie show downtown' || t === 'Late concert at Cargo').length, 1, 'same place, same day: one card');
+    void mine;
+    // Tomorrow: yesterday's untouched ideas are remembered, so the new batch can't bring them back in other words.
+    const prompts = [];
+    spells._setClient({ messages: { create: async (req) => { prompts.push(req.messages[0].content); return { stop_reason: 'end_turn', content: [
+      { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://cargo.test/nc' }, { type: 'web_search_result', url: 'https://other.test/p' }] },
+      { type: 'text', text: JSON.stringify({ spells: [
+        { kind: 'nearby', title: 'New Constellations live at Cargo Thursday', link: 'https://cargo.test/nc', why: 'again' },
+        { kind: 'nearby', title: 'Pottery night at The Wedge', link: 'https://other.test/p', why: 'new', place: 'The Wedge' },
+        { kind: 'nearby', title: 'Glaze class at The Wedge', link: 'https://other.test/p', why: 'same venue', place: 'The Wedge' }] }) }] }; } } });
+    await spells.generate(me, { force: true });
+    assert.equal(db._raw().prepare("SELECT status FROM spells WHERE id = ?").get(mine).status, 'stale', 'remembered, not deleted');
+    assert.match(prompts[0], /Already suggested in the last two weeks — never again[^\n]*New Constellations at Cargo Thursday/);
+    assert.match(prompts[0], /Bring NEW options/);
+    const fresh = spells.forUser(me.id).map((x) => x.title);
+    assert.ok(!fresh.some((t) => /New Constellations/.test(t)), 'not suggested again in other words');
+    assert.deepEqual(fresh.filter((t) => /Wedge/.test(t)), ['Pottery night at The Wedge'], 'one idea per venue');
+  });
 });
