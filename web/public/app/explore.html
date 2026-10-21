@@ -52,7 +52,7 @@
     .g-reconnect { background: linear-gradient(135deg, #f59e0b, #ef4444); }
     .g-wish { background: linear-gradient(135deg, #a78bfa, #6c47ff); }
     .actions { display: flex; align-items: center; gap: 8px; padding: 10px 12px 2px; flex-wrap: wrap; }
-    .act { border: 1px solid #e5e5e5; background: #fff; color: #1c1c1e; border-radius: 999px; padding: 8px 14px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .act { border: 1px solid #e5e5e5; background: #fff; color: #1c1c1e; border-radius: 999px; padding: 7px 11px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .act.on { background: #ede9fe; border-color: #6c47ff; color: #6c47ff; }
     .act.link { margin-left: auto; border: none; color: #6c47ff; font-weight: 500; text-decoration: none; padding: 8px 4px; }
     .liked { font-size: 14px; font-weight: 600; padding: 6px 12px 0; }
@@ -65,6 +65,16 @@
     .chip { border: 1px solid #e5e5e5; background: #fff; color: #1c1c1e; border-radius: 999px; padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; }
     .chip.on { background: #ede9fe; border-color: #6c47ff; color: #6c47ff; }
     .chip.static { cursor: default; }
+    .ask { display: flex; gap: 8px; margin: 2px 0 12px; }
+    .ask input { flex: 1; min-width: 0; height: 40px; border: 1.5px solid #e5e5e5; border-radius: 999px; padding: 0 14px; font: inherit; font-size: 16px; background: #fff; }
+    .ask input:focus { outline: none; border-color: #6c47ff; }
+    .ask button { flex: none; border: none; background: #6c47ff; color: #fff; border-radius: 999px; padding: 0 16px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .asked-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin: 0 2px 10px; }
+    .asked-head button { margin-left: auto; background: none; border: none; color: #8e8e93; font-size: 16px; cursor: pointer; }
+    .comment { display: none; gap: 6px; padding: 4px 12px 12px; }
+    .post.commenting .comment { display: flex; }
+    .comment input { flex: 1; min-width: 0; height: 36px; border: 1.5px solid #e5e5e5; border-radius: 999px; padding: 0 12px; font: inherit; font-size: 16px; }
+    .comment button { flex: none; border: none; background: #6c47ff; color: #fff; border-radius: 999px; padding: 0 14px; font: inherit; font-size: 14px; cursor: pointer; }
     .facts { font-size: 13px; color: #3a3a3c; padding: 0 12px 2px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
     .src { font-size: 12px; color: #8e8e93; padding: 0 12px 12px; }
     .view-switch { margin-left: auto; display: flex; background: #f2f2f7; border-radius: 999px; padding: 3px; }
@@ -96,6 +106,9 @@
 </header>
 <div id="map-wrap" hidden><div id="map"></div><div class="legend">When<div class="bar"></div><div class="ends"><span>Today</span><span>2+ weeks</span></div><div style="margin-top:4px;color:#8e8e93">● grey: no date</div></div></div>
 <main id="list-view">
+  <!-- 🔎 Search for something, or steer what you see (🐛 #50) -->
+  <form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Look for something, or “more outdoors”" aria-label="Look for something or steer your ideas"><button type="submit">Go</button></form>
+  <div id="asked"></div>
   <div class="stories" id="stories" hidden></div>
   <!-- Out and about — the same panel as Home's Feeling, starting as one line here (🐛 #40). -->
   <div id="out-now" data-compact="1"></div>
@@ -166,12 +179,13 @@
       <div class="post-head"><div class="avatar">${ICON[i.kind] || '✨'}</div><div class="who">ButterflAI<small>${esc(from)}</small></div>
         <button class="x" title="Not for me" aria-label="Not for me" onclick="answer('${esc(i.id)}','dismiss',this)">✕</button></div>
       ${picHtml(i)}
-      <div class="actions"><button class="act" onclick="answer('${esc(i.id)}','wish',this)">✨ Sounds fun</button><button class="act" onclick="answer('${esc(i.id)}','plan',this)">Make it a plan</button>
+      <div class="actions"><button class="act" onclick="answer('${esc(i.id)}','wish',this)">✨ Sounds fun</button><button class="act" onclick="answer('${esc(i.id)}','plan',this)">Make it a plan</button><button class="act" aria-label="Say what you think of this one" title="Say what you think of this one" onclick="this.closest('.post').classList.toggle('commenting'); const f = this.closest('.post').querySelector('.comment input'); if (f) f.focus();">💬</button>
         ${i.link ? `<a class="act link" href="/app/view?id=${encodeURIComponent(i.id)}">More ›</a>` : ''}</div>
       ${liked ? `<div class="liked">${liked}</div>` : ''}
       <div class="caption"><b>${esc(i.title)}</b>${why ? ` <span>${esc(why)}</span>` : ''}</div>
       ${when || i.place ? `<div class="facts">${when ? `<span>📅 ${esc(when)}</span>` : ''}${i.place ? `<span>📍 ${esc(i.place)}</span>` : ''}</div>` : ''}
       <div class="src">${src}</div>
+      <form class="comment" onsubmit="event.preventDefault(); commentOn('${esc(i.id)}', this);"><input maxlength="500" placeholder="What do you think of this one?"><button type="submit">Save</button></form>
     </article>`;
   }
 
@@ -184,7 +198,7 @@
       const d = await r.json();
       for (const i of d.items || []) {
         seen.push(i.id);
-        if (i.type === 'idea') feedEl.insertAdjacentHTML('beforeend', cardHtml(i));
+        if (i.type === 'idea') { rendered.push(i); feedEl.insertAdjacentHTML('beforeend', cardHtml(i)); }
         else if (!['friend_out', 'around', 'go_out'].includes(i.type)) addStory(i);   // those are in the Out and about panel
       }
       if (d.done) {
@@ -202,19 +216,79 @@
       } else statusEl.textContent = '';
     } catch (_) { statusEl.textContent = 'Couldn’t load — pull to try again.'; }
     loading = false;
+    remember();
     if (!finished && (d_visible())) loadMore();
+  }
+
+  // ── Back where you were (🐛 #48): what was shown and how far down, for 30 minutes ──
+  const rendered = [];
+  let restoring = false;
+  function remember() {
+    if (restoring) return;
+    // The post at the top of the screen and how far down it sits — things above it can still be loading.
+    const top = [...document.querySelectorAll('.post')].find((p) => p.getBoundingClientRect().bottom > 60);
+    try { sessionStorage.setItem('bfly-explore', JSON.stringify({ at: Date.now(), seen, rendered: rendered.filter((i) => document.querySelector(`.post[data-id="${CSS.escape(i.id)}"]`)), stories, finished, y: scrollY,
+      anchor: top ? { id: top.dataset.id, top: top.getBoundingClientRect().top } : null })); } catch (_) {}
+  }
+  function restore() {
+    let s = null;
+    try { s = JSON.parse(sessionStorage.getItem('bfly-explore') || localStorage.getItem('bfly-explore') || 'null'); } catch (_) {}
+    if (!s || Date.now() - s.at > 30 * 60 * 1000 || !(s.rendered || []).length) return false;
+    restoring = true;
+    seen = s.seen || []; finished = !!s.finished;
+    for (const i of s.stories || []) addStory(i);
+    for (const i of s.rendered) { rendered.push(i); feedEl.insertAdjacentHTML('beforeend', cardHtml(i)); }
+    // Back to that post (again as the Out and about panel and stories finish loading above it), unless you've scrolled.
+    let moved = false;
+    const mark = () => { moved = true; };
+    addEventListener('touchmove', mark, { once: true, passive: true }); addEventListener('wheel', mark, { once: true, passive: true });
+    const place = () => {
+      if (moved) return;
+      const el = s.anchor && document.querySelector(`.post[data-id="${CSS.escape(s.anchor.id)}"]`);
+      scrollTo(0, el ? el.getBoundingClientRect().top + scrollY - s.anchor.top : s.y || 0);
+    };
+    requestAnimationFrame(place);
+    setTimeout(place, 400); setTimeout(() => { place(); restoring = false; }, 1200);
+    return true;
+  }
+  let saveTimer = null;
+  addEventListener('scroll', () => { clearTimeout(saveTimer); saveTimer = setTimeout(remember, 250); }, { passive: true });
+  addEventListener('pagehide', () => { remember(); try { localStorage.setItem('bfly-explore', sessionStorage.getItem('bfly-explore')); } catch (_) {} });
+
+  // ── 💬 on one post (🐛 #49): what you think of THIS suggestion — saved on it, shapes your ideas ──
+  async function commentOn(id, form) {
+    const input = form.querySelector('input'); const note = input.value.trim(); if (!note) return;
+    const r = await fetch('/api/spells/' + encodeURIComponent(id) + '/react', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }) }).then((x) => x.json()).catch(() => ({}));
+    input.value = '';
+    input.placeholder = r.error ? 'Couldn’t save — try again' : '✓ Saved — this shapes your ideas';
+  }
+
+  // ── 🔎 Ask Explore (🐛 #50): a search, or steering ("more outdoors") that sticks ──
+  async function askExplore() {
+    const el = document.getElementById('ask-text'); const text = el.value.trim(); if (!text) return;
+    const box = document.getElementById('asked');
+    box.innerHTML = `<div class="asked-head">🔎 Looking for “${esc(text)}”…</div>`;
+    const r = await fetch('/api/ideas/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }).then((x) => x.json()).catch(() => ({}));
+    el.value = '';
+    const items = r.items || [];
+    for (const i of items) { seen.push(i.id); rendered.push(i); }
+    box.innerHTML = `<div class="asked-head">🔎 For “${esc(text)}”${items.length ? '' : ' — ' + esc(r.message || 'nothing found right now')}<button aria-label="Clear" onclick="document.getElementById('asked').innerHTML=''">✕</button></div>`
+      + items.map((i) => cardHtml({ type: 'idea', ...i })).join('')
+      + (items.length ? '<div class="sub" style="margin:0 2px 14px">ButterflAI will keep this in mind for your ideas from now on.</div>' : '');
   }
   function d_visible() { const r = document.getElementById('sentinel').getBoundingClientRect(); return r.top < innerHeight + 400; }
 
   async function answer(id, ans, btn) {
     const card = btn.closest('.post');
+    // Make it a plan: the idea opens in ＋ New plan to change before anything's made (🐛 #47); the idea rides along (#45).
+    if (ans === 'plan' && window.bflyNewPlan) {
+      const it = rendered.find((x) => x.id === id) || {};
+      window.bflyNewPlan(String(it.title || '').replace(/\?$/, ''), { spell: id, about: it.title });
+      return;
+    }
     btn.disabled = true;
     const r = await fetch('/api/spells/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: ans }) }).then((x) => x.json()).catch(() => ({}));
-    if (ans === 'plan' && r.text) {
-      const p = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: r.text }) }).then((x) => x.json()).catch(() => null);
-      if (p && p.ts) { location.href = '/app/chat?new=' + encodeURIComponent(p.ts); return; }
-    }
-    if (ans === 'dismiss') { card.remove(); return; }
+    if (ans === 'dismiss') { card.remove(); remember(); return; }
     if (ans === 'wish') {
       btn.classList.add('on');
       btn.textContent = r.passed_on ? '✨ Kept · passed on' : '✨ Kept as a wish';
@@ -244,7 +318,8 @@
     try { await loadLeaflet(); } catch (_) { document.getElementById('map').innerHTML = '<div class="status">The map couldn’t load.</div>'; return; }
     if (!mapObj) {
       mapObj = L.map('map', { zoomControl: false }).setView([39.5, -119.8], 11);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap' }).addTo(mapObj);
+      // A plain street map — roads and neighborhoods, like the classic Google view (🐛 #46), not terrain.
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd', attribution: '© OpenStreetMap © CARTO' }).addTo(mapObj);
     }
     setTimeout(() => mapObj.invalidateSize(), 50);
     if (mapLoaded) return;
@@ -260,19 +335,29 @@
     }
     if (d.me) { L.circleMarker([d.me.lat, d.me.lng], { radius: 6, color: '#fff', weight: 2, fillColor: '#1c1c1e', fillOpacity: 1 }).addTo(mapObj).bindPopup('You'); pts.push([d.me.lat, d.me.lng]); }
     if (pts.length) mapObj.fitBounds(pts, { padding: [40, 40], maxZoom: 14 });
-    if (!(d.pins || []).length) L.popup().setLatLng(mapObj.getCenter()).setContent('Nothing on the map yet — ideas with a place show up here.').openOn(mapObj);
+    // How many ideas aren't on the map (no place found yet) — so an empty map isn't a mystery (🐛 #46).
+    const off = d.unplaced || 0;
+    if (off) {
+      const note = L.control({ position: 'topright' });
+      note.onAdd = () => { const el = L.DomUtil.create('div', 'legend'); el.style.position = 'static'; el.textContent = `${off} idea${off === 1 ? '' : 's'} without a place aren’t shown`; return el; };
+      note.addTo(mapObj);
+    }
+    if (!(d.pins || []).length) L.popup().setLatLng(mapObj.getCenter()).setContent('Nothing on the map yet — ideas at a real place show up here.').openOn(mapObj);
   }
   try { if (localStorage.getItem('bfly-explore-view') === 'map') showView('map'); } catch (_) {}
 
   new IntersectionObserver((e) => { if (e.some((x) => x.isIntersecting)) loadMore(); }, { rootMargin: '400px' }).observe(document.getElementById('sentinel'));
-  // Back to the tab later: start fresh so what changed around you is on top.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && Date.now() - (window._feedAt || 0) > 10 * 60 * 1000) { seen = []; finished = false; feedEl.innerHTML = ''; stories.length = 0; document.getElementById('stories').innerHTML = ''; window._feedAt = Date.now(); loadMore(); loadOut(true); }
-  });
-  window._feedAt = Date.now();
+  // Coming back keeps your place (🐛 #48 — it used to start over after 10 minutes, or on every visit).
   loadOut(true);   // 🌴 Out and about (and refresh where you are if you're out)
-  window.bflyFeedbackState = () => ({ screen: 'explore', shown: seen.slice(0, 60) });
-  loadMore();
+  // A 🐛 report says which posts were on screen — the one in the middle first (🐛 #49).
+  window.bflyFeedbackState = () => {
+    const mid = innerHeight / 2;
+    const onScreen = [...document.querySelectorAll('.post')].map((p) => ({ p, r: p.getBoundingClientRect() })).filter(({ r }) => r.bottom > 0 && r.top < innerHeight)
+      .sort((a, b) => Math.abs((a.r.top + a.r.bottom) / 2 - mid) - Math.abs((b.r.top + b.r.bottom) / 2 - mid))
+      .map(({ p }) => ({ id: p.dataset.id, title: (rendered.find((x) => x.id === p.dataset.id) || {}).title }));
+    return { screen: 'explore', looking_at: onScreen[0] || null, on_screen: onScreen, shown: seen.slice(0, 60) };
+  };
+  if (!restore()) loadMore();
 </script>
 <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
 <script src="/update-check.js"></script>

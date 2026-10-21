@@ -94,10 +94,11 @@ function map(userId) {
   if (!user) return { pins: [] };
   const mine = spells.forUser(userId).map((s) => ({ type: 'idea', ...s }));
   const have = new Set(db._raw().prepare('SELECT lower(title) t, lower(public_title) p FROM spells WHERE user_id = ?').all(userId).flatMap((r) => [r.t, r.p]).filter(Boolean));
-  const pins = [...mine, ...pool(user, have)].filter((i) => Number.isFinite(i.lat) && Number.isFinite(i.lng))
+  const all = [...mine, ...pool(user, have)];
+  const pins = all.filter((i) => Number.isFinite(i.lat) && Number.isFinite(i.lng))
     .map(({ id, kind, title, date, place, lat, lng, link, image, liked_by, why }) => ({ id, kind, title, date, place, lat, lng, link, image, liked_by, why }));
   const me = Number.isFinite(user.lat) && Number.isFinite(user.lng) ? { lat: user.lat, lng: user.lng } : null;
-  return { pins, me, today: new Date().toLocaleDateString('en-CA', { timeZone: user.timezone || 'America/Los_Angeles' }) };
+  return { pins, me, unplaced: all.length - pins.length, today: new Date().toLocaleDateString('en-CA', { timeZone: user.timezone || 'America/Los_Angeles' }) };
 }
 
 module.exports = { page, pool, rightNow, map, PAGE };

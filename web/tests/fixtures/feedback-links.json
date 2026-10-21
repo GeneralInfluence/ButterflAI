@@ -115,5 +115,29 @@
   "42": {
     "note_starts": "If I open a website through butterfly",
     "test": "tests/integration/ideafeed.test.js › 🐛 #42: back from a page — into it (kept, passed on), not for me (hidden), and a note that shapes your next ideas and reaches no one"
+  },
+  "45": {
+    "note_starts": "You asked me about what I said lunch and chat with Melanie",
+    "test": "tests/integration/idea-to-plan.test.js › you edit it first; the agent is told why it suggested it, that your words win, and that it's a new plan"
+  },
+  "47": {
+    "note_starts": "I liked the idea and wanted to run with it",
+    "test": "tests/integration/idea-to-plan.test.js › Explore opens ＋ New plan filled in with the idea, to change before it's made"
+  },
+  "46": {
+    "note_starts": "There are items on the list but no items on the map",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #46: places found by address or by name — only near your town and only a name that matches, a plain street map"
+  },
+  "48": {
+    "note_starts": "Every time I come back to explore it goes back to the beginning",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #48 / #49: Explore keeps your place, each post takes a comment, a 🐛 report knows the post you were looking at"
+  },
+  "49": {
+    "note_starts": "I need to give feedback about specific suggestions",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #48 / #49: Explore keeps your place, each post takes a comment, a 🐛 report knows the post you were looking at"
+  },
+  "50": {
+    "note_starts": "I need to be give and feedback about what I'm seeing",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #50: ask Explore — a search answered now, and steering that keeps shaping ideas"
   }
 }

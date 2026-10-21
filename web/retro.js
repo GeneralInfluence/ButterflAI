@@ -707,6 +707,16 @@ const TASKS = [
       return `requeued ${r.changes}`;
     },
   },
+  {
+    id: '2026-10-21-relocate-idea-places',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: '🐛 #46: places Nominatim couldn\'t find (it needs exact names — nothing for "Bartley Ranch Regional Park") are looked up again with Photon, so they show on Explore\'s map.',
+    run(user) {
+      const r = db._raw().prepare('UPDATE spells SET geo_checked = 0 WHERE user_id = ? AND place IS NOT NULL AND lat IS NULL AND geo_checked = 1').run(user.id);
+      return `requeued ${r.changes}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

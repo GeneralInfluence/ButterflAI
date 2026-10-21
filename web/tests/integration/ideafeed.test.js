@@ -168,14 +168,15 @@ describe('✨ Feed', () => {
   test('🐛 #43: a map of Explore — ideas with a place are pinned (looked up once per place), green today → purple later', async () => {
     const geo = require('../../geocode');
     const asked = [];
-    geo._setFetch(async (url) => { asked.push(decodeURIComponent(url)); return { ok: true, json: async () => [{ lat: '39.527', lon: '-119.813' }] }; });
+    // Photon's answer (🐛 #46 moved lookups from Nominatim): the town, then the place.
+    geo._setFetch(async (url) => { asked.push(decodeURIComponent(url)); return { ok: true, json: async () => ({ features: [{ geometry: { coordinates: [-119.813, 39.527] }, properties: { name: /Cargo/.test(decodeURIComponent(url)) ? 'Cargo Concert Hall' : 'Reno' } }] }) }; });
     const me = mkUser('Sean Map', 'Reno'); const o = mkUser('Other Map', 'Reno');
     const a = idea(me, { title: 'Bluegrass at Cargo' }); idea(o, { title: 'Comedy at Cargo' });
     db._raw().prepare("UPDATE spells SET place = 'Cargo Concert Hall', date = ? WHERE id = ?").run(new Date().toISOString().slice(0, 10), a);
     db._raw().prepare("UPDATE spells SET place = 'Cargo Concert Hall' WHERE title = 'Comedy at Cargo'").run();
     idea(me, { title: 'No place idea' });
     await spells.fillImages({ limit: 500 });
-    assert.equal(asked.filter((u) => u.includes('Cargo Concert Hall, Reno')).length, 1, 'once per place; only the place and town are sent');
+    assert.equal(asked.filter((u) => u.includes('Cargo Concert Hall Reno')).length, 1, 'once per place; only the place and town are sent');
     const m = ideafeed.map(me.id);
     assert.deepEqual(m.pins.map((p) => p.title).sort(), ['Bluegrass at Cargo', 'Comedy at Cargo']);
     assert.ok(m.pins.every((p) => p.lat === 39.527 && p.lng === -119.813));
@@ -184,6 +185,7 @@ describe('✨ Feed', () => {
     assert.equal((await request.get('/api/ideas/map').set('Cookie', c)).body.pins.length, 2);
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
     assert.ok(html.includes("showView('map')") && html.includes('leaflet') && html.includes('[0x34, 0xc7, 0x59], b = [0x6c, 0x47, 0xff]'), 'green → purple, never red');
+    assert.equal(m.unplaced, 1, 'how many ideas aren\'t on the map');
     assert.ok(html.includes('Found in a web search'), '🐛 #41: each post says where it came from');
   });
 
@@ -252,5 +254,61 @@ describe('✨ Feed', () => {
     const view = await request.get('/app/view?id=' + ok).set('Cookie', c);
     assert.equal(view.status, 200);
     assert.ok(view.text.includes('<iframe') && view.text.includes('referrerpolicy="no-referrer"') && view.text.includes('id="verdicts"') && view.text.includes('What do you think?') && view.text.includes('Only you and your ButterflAI see what you say'));
+  });
+
+  // 🐛 #46 (Sean, 2026-10-20): "There are items on the list but no items on the map. Plus the map is too
+  // detailed … just a simple map that shows roads and neighborhoods … the classic view from Google maps".
+  test('🐛 #46: places found by address or by name — only near your town and only a name that matches, a plain street map', async () => {
+    const geo = require('../../geocode');
+    assert.ok(geo.sameName('Bartley Ranch Regional Park', 'Bartley Ranch Park'));
+    assert.ok(!geo.sameName('Silver Apothecary Co.', 'Silver Creek Condominiums'), 'Photon offered this for the apothecary');
+    assert.ok(!geo.sameName('Mozy Studio', 'Studio B Salon & Barbershop'));
+    assert.ok(!geo.sameName('A cozy Reno spot', 'Reno'));
+    const urls = [];
+    geo._setFetch(async (url) => {
+      const q = decodeURIComponent(url); urls.push(q);
+      const f = (name, lng, lat) => ({ geometry: { coordinates: [lng, lat] }, properties: { name } });
+      if (/q=Tahoe/.test(q)) return { ok: true, json: async () => ({ features: [f('Tahoe City', -120.14, 39.17)] }) };
+      if (/1 Main St/.test(q)) return { ok: true, json: async () => ({ features: [f('', -120.15, 39.18)] }) };
+      if (/Far Place/.test(q)) return { ok: true, json: async () => ({ features: [f('Far Place', -73.9, 40.7)] }) };
+      return { ok: true, json: async () => ({ features: [f('Silver Creek Condominiums', -120.1, 39.2)] }) };
+    });
+    assert.deepEqual(await geo.find('Anything', 'Tahoe', { address: '1 Main St' }), { lat: 39.18, lng: -120.15 }, 'by address');
+    assert.equal(await geo.find('Silver Apothecary Co.', 'Tahoe'), null, 'a name that doesn\'t match');
+    assert.equal(await geo.find('Far Place', 'Tahoe'), null, 'far from their town');
+    assert.ok(urls.every((u) => u.startsWith('https://photon.komoot.io/api/')));
+    geo._setFetch(null);
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes('basemaps.cartocdn.com/rastertiles/voyager') && !html.includes('tile.openstreetmap.org'), 'roads and neighborhoods, not terrain');
+    assert.ok(html.includes('without a place aren’t shown'));
+    assert.match(spells.contextFor ? require('node:fs').readFileSync(require('node:path').join(__dirname, '../../spells.js'), 'utf8') : '', /never "a cozy spot"/);
+  });
+  // 🐛 #48: "Every time I come back to explore it goes back to the beginning".
+  // 🐛 #49: "I need to give feedback about specific suggestions … make sure that you know the difference".
+  test('🐛 #48 / #49: Explore keeps your place, each post takes a comment, a 🐛 report knows the post you were looking at', () => {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes('if (!restore()) loadMore();') && html.includes("sessionStorage.setItem('bfly-explore'") && !html.includes('10 * 60 * 1000'));
+    assert.ok(html.includes('What do you think of this one?') && html.includes('function commentOn'));
+    assert.ok(html.includes('looking_at: onScreen[0]'));
+  });
+  // 🐛 #50: "I need to … give feedback about what I'm seeing or do a search for what I'm looking for in my
+  // feed. It can't just be that I'm scrolling forever based on what you said".
+  test('🐛 #50: ask Explore — a search answered now, and steering that keeps shaping ideas', async () => {
+    const me = mkUser('Sean Q');
+    const prompts = [];
+    let call = 0;
+    spells._setClient({ messages: { create: async (req) => { prompts.push(req.messages[0].content); call++; return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ spells: call === 1
+      ? [{ kind: 'nearby', title: 'Hike to Galena Falls', why: 'You asked for hikes' }, { kind: 'new', title: 'Sunset trail run club', why: 'Outdoors' }]
+      : [] }) }] }; } } });
+    const c = await cookieFor(me);
+    const r = await request.post('/api/ideas/ask').set('Cookie', c).send({ text: 'hikes with a view this weekend' });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.items.map((i) => i.title), ['Hike to Galena Falls', 'Sunset trail run club']);
+    assert.match(prompts[0], /They just asked Explore for: "hikes with a view this weekend"/);
+    await spells.generate(me, { force: true });
+    assert.match(prompts[1], /What they've asked Explore for lately \(searches and steering — follow it\): "hikes with a view this weekend"/);
+    assert.equal((await request.post('/api/ideas/ask').set('Cookie', c).send({ text: ' ' })).status, 400);
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes('id="ask-text"') && html.includes("fetch('/api/ideas/ask'"));
   });
 });

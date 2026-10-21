@@ -964,6 +964,16 @@ function ownContact(userId, contactId) {
 // the contact's `tier`, which goes stale (2026-10-08: Bam Bam had been a ButterflAI user
 // since July but was "Tier 0" in Sean's contacts, so the agent kept saying he hadn't
 // joined and couldn't be messaged).
+// A ＋ New plan made from one of ButterflAI's own ideas (🐛 #45/#47 — "you should know why you suggested
+// it … it should be a new event"; "I didn't want to have coffee with her specifically … I need to be able
+// to edit things … before anything becomes final"): the idea and why it was suggested, for the agent.
+function spellNote(spellId, userId) {
+  if (!spellId) return '';
+  const s = db._raw().prepare('SELECT title, why, kind, date, place, link FROM spells WHERE id = ? AND user_id = ?').get(spellId, userId);
+  if (!s) return '';
+  return `\n\nThis plan comes from an idea YOU (ButterflAI) suggested to them in Explore: "${s.title}"${s.why ? ` — you suggested it because: ${s.why}` : ''}${s.date ? `; date in the idea: ${s.date}` : ''}${s.place ? `; place: ${s.place}` : ''}. You know why you suggested it — don't ask them what they meant. They edited it into the words above before tapping Make it: THEIR words win (anything they changed or left out — an activity, a place, a time — is not part of the plan). It's a NEW plan of its own, even when the idea was about one of their other plans (mention that plan in its notes; never merge into it). The people they named are invited as a tentative ask — they can say no or suggest something else (a co-host can change it).`;
+}
+
 function describeContact(c) {
   const onButterflai = !!(c.phone && db.getUserByPhone(c.phone));
   const optedOut = !!(c.phone && db.isOptedOut(c.phone));
@@ -3017,7 +3027,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   if (msg.intent === 'new_plan') {
     planRouted = true;   // it's a new plan by definition; no routing guess needed
     const last = messages[messages.length - 1];
-    messages[messages.length - 1] = { role: 'user', content: `${typeof last.content === 'string' ? last.content : msg.text}\n\n[ButterflAI — not from the user] Your user tapped ＋ New plan in the app and wrote the message above. Create the plan now with create_social_event: a short title, what it is, the people they named (look them up; invite them with contact_ids), and the date only in their words (when) — no date given means date TBD, tentative. If it's clearly the same as one of their open plans, say so and use that one instead. Then reply in one or two lines: what you set up, and the one thing still open (if any). Don't start a long discussion.` };
+    messages[messages.length - 1] = { role: 'user', content: `${typeof last.content === 'string' ? last.content : msg.text}\n\n[ButterflAI — not from the user] Your user tapped ＋ New plan in the app and wrote the message above. Create the plan now with create_social_event: a short title, what it is, the people they named (look them up; invite them with contact_ids), and the date only in their words (when) — no date given means date TBD, tentative. If it's clearly the same as one of their open plans, say so and use that one instead. Then reply in one or two lines: what you set up, and the one thing still open (if any). Don't start a long discussion.${spellNote(msg.spell_id, userId)}` };
   }
 
   while (iterations < MAX_ITERATIONS) {

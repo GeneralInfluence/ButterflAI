@@ -80,7 +80,8 @@ function contextFor(user) {
   // What they said about ideas after looking at them (🐛 #42) — their own taste, in their own words.
   const notes = db._raw().prepare("SELECT title, note, status FROM spells WHERE user_id = ? AND note IS NOT NULL ORDER BY created_at DESC LIMIT 12").all(user.id)
     .map((r) => `"${r.title}"${r.status === 'kept' ? ' (into it)' : r.status === 'dismissed' ? ' (not for them)' : ''}: ${clean(r.note, 160)}`);
-  return { plans, friends, said, wishes, dismissed, current, around, todos, notes, avoidedNames: (avoided || []).map((a) => a.name).filter(Boolean) };
+  const asks = db._raw().prepare('SELECT text FROM explore_asks WHERE user_id = ? AND created_at > ? ORDER BY created_at DESC LIMIT 8').all(user.id, t - 14 * 86400).map((r) => clean(r.text, 160));
+  return { plans, friends, said, wishes, dismissed, current, around, todos, notes, asks, avoidedNames: (avoided || []).map((a) => a.name).filter(Boolean) };
 }
 
 const PROMPT = (user, c, today) => `You are ButterflAI, imagining what could be fun for ${String(user.name || 'this person').split(' ')[0]} — gentle ideas ("spells") that might make good things happen with the people in their life and widen their circle. Today is ${today}${user.city ? `; they live in ${user.city}` : ''}.
@@ -92,12 +93,13 @@ What you know (their own):
 - Things they said lately: ${c.said.slice(0, 15).map((s) => `"${s}"`).join(' ') || 'nothing'}
 - Not into (dismissed before — don't suggest anything like these): ${c.dismissed.join('; ') || 'nothing yet'}
 - Things they're making happen in their plans (and who's on them): ${(c.todos || []).map((t) => `${t.text} (${t.plan}${t.with.length ? `, with ${t.with.join(' & ')}` : ''})`).join('; ') || 'none'}
+- What they've asked Explore for lately (searches and steering — follow it): ${(c.asks || []).map((a) => `"${a}"`).join('; ') || 'nothing yet'}
 - What they said about ideas they looked at (their taste — follow it): ${(c.notes || []).join('; ') || 'nothing yet'}
 - Ideas they already have (don't repeat): ${(c.current || []).join('; ') || 'none'}
 - Liked lately by people around them (anonymous — a hint at what's good nearby): ${(c.around || []).join('; ') || 'nothing yet'}
 
 ${user.city ? `Search the web once or twice for what's actually on in or near ${user.city} in the next two weeks (shows, music, markets, classes, outdoor things) and use real ones.` : ''}
-Imagine 8 ideas, two of each kind:
+${c.focus ? `They just asked Explore for: "${c.focus}". If that's a search, imagine 8 ideas that answer it (any kinds that fit, real things first); if it's feedback about their ideas ("more outdoors", "less concerts"), follow it and imagine 8 that fit it. Kinds:` : 'Imagine 8 ideas, two of each kind:'}
 - "nearby": something real happening near them soon (name, day, place; include the link).
 - "reconnect": doing something with a friend they haven't seen in a while (only friends listed above) — or making one of the things they're making happen into time together: figuring it out over a drink, a coffee or a quick call with the people on it ("Plan the massages over a drink with Melanie?").
 - "new": something that widens their circle — a class, a group, a meetup, a new scene.
@@ -105,16 +107,16 @@ Imagine 8 ideas, two of each kind:
 Every idea is something fun to do — never an errand, a chore or a reminder ("Confirm Zack's name with Liam" is not an idea).
 Each: a short, inviting title (under 70 characters, like "Jazz at Shea's Thursday with Allie?") and one line why. Warm, specific, never pushy. Only use friends' first names from the list above.
 For "nearby" and "new" ideas also give "public_title": the same idea with no person named and nothing about them (like "Jazz at Shea's Thursday") — it may be passed on to others.
-Facts must come from your search results: "link" only to a page you actually found (the event's own page if you found it), "date" (YYYY-MM-DD) when it's on a day, "place" (the venue's name) when it's somewhere. Today is ${today}; get weekdays right. Never two ideas about the same event.
-Reply with JSON only: {"spells":[{"kind":"nearby","title":"…","public_title":"…","why":"…","link":"https://…","date":"YYYY-MM-DD","place":"…"}, …]}`;
+Facts must come from your search results: "link" only to a page you actually found (the event's own page if you found it), "date" (YYYY-MM-DD) when it's on a day, "place" — the venue's real name as it appears on a map ("Cargo Concert Hall", never "a cozy spot") — and "address" (its street address) when you found it. Today is ${today}; get weekdays right. Never two ideas about the same event.
+Reply with JSON only: {"spells":[{"kind":"nearby","title":"…","public_title":"…","why":"…","link":"https://…","date":"YYYY-MM-DD","place":"…","address":"…"}, …]}`;
 
 /** Imagine today's spells for one person (once a day). Returns how many were made. */
-async function generate(user, { force = false, more = false } = {}) {
+async function generate(user, { force = false, more = false, focus = null } = {}) {
   const c = client();
   if (!c || !user) return 0;
   const last = db._raw().prepare('SELECT max(created_at) t FROM spells WHERE user_id = ?').get(user.id).t || 0;
   if (!force && now() - last < EVERY) return 0;
-  const ctx = contextFor(user);
+  const ctx = { ...contextFor(user), focus: focus ? clean(focus, 200) : null };
   const today = new Date().toLocaleDateString('en-CA', { timeZone: user.timezone || 'America/Los_Angeles' });
   const messages = [{ role: 'user', content: PROMPT(user, ctx, today) }];
   const tools = user.city ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2, ...(user.timezone ? { user_location: { type: 'approximate', city: user.city, timezone: user.timezone } } : {}) }] : undefined;
@@ -150,14 +152,15 @@ async function generate(user, { force = false, more = false } = {}) {
     if (date && date < today) continue;   // already over
     if (date) { s.title = fixWeekdays(s.title, date); s.why = fixWeekdays(s.why, date); if (s.public_title) s.public_title = fixWeekdays(s.public_title, date); }
     const place = clean(s.place, 80) || null;
+    const address = clean(s.address, 160) || null;
     const pub = PUBLIC_KINDS.includes(s.kind) && clean(s.public_title) && ok({ title: s.public_title, why: '' }) ? clean(s.public_title, 90) : null;
     // Its public title matches another of today's ideas (not a passed-on one, which is merged below): a repeat.
     const repeat = pub && pub.toLowerCase() !== clean(s.title, 90).toLowerCase() && have.has(pub.toLowerCase());
     have.add(clean(s.title, 90).toLowerCase());
     if (repeat && !db._raw().prepare("SELECT 1 FROM spells WHERE user_id = ? AND status = 'new' AND source = 'echo' AND lower(title) = lower(?)").get(user.id, pub)) continue;
     const sid = uuidv4();
-    db._raw().prepare('INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, date, place) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(sid, user.id, s.kind, clean(s.title, 90), clean(s.why, 200), link, now() + KEEP_DAYS * 86400, pub, date, place);
+    db._raw().prepare('INSERT INTO spells (id, user_id, kind, title, why, link, expires_at, public_title, date, place, address, asked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(sid, user.id, s.kind, clean(s.title, 90), clean(s.why, 200), link, now() + KEEP_DAYS * 86400, pub, date, place, address, focus ? clean(focus, 120) : null);
     recent.push(words(s.title));
     // The same idea was passed on to them already: one card — theirs — carrying who-many liked it.
     const dup = pub && db._raw().prepare("SELECT id, echoes FROM spells WHERE user_id = ? AND status = 'new' AND source = 'echo' AND lower(title) = lower(?)").get(user.id, pub);
@@ -179,12 +182,26 @@ async function tick({ limit = 5 } = {}) {
 }
 
 /** ✨ More ideas (🐛 #37): another batch on top of today's, up to MAX_PER_DAY. */
-async function more(userId) {
+async function more(userId, { focus = null } = {}) {
   const user = db.getUser(userId);
   const made = db._raw().prepare("SELECT count(*) n FROM spells WHERE user_id = ? AND source = 'own' AND created_at > ?").get(userId, now() - EVERY).n;
   if (made >= MAX_PER_DAY) return { error: 'ENOUGH', message: 'That’s plenty of ideas for today — more tomorrow.' };
-  const n = await generate(user, { force: true, more: true });
+  const n = await generate(user, { force: true, more: true, focus });
   return n ? { ok: true, made: n } : { error: 'NONE', message: 'Couldn’t imagine more right now — try again later.' };
+}
+
+/**
+ * 🔎 Ask Explore (🐛 #50): a search ("live music this weekend") or steering ("more outdoors, fewer concerts").
+ * Kept (14 days) so it keeps shaping ideas; answered now with a batch made for it.
+ */
+async function ask(userId, text) {
+  const t = clean(text, 200);
+  if (!t) return { error: 'EMPTY' };
+  db._raw().prepare('INSERT INTO explore_asks (id, user_id, text) VALUES (?, ?, ?)').run(uuidv4(), userId, t);
+  const before = now() - 1;
+  const r = await more(userId, { focus: t });
+  const items = db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND status = 'new' AND source = 'own' AND asked = ? AND created_at >= ? ORDER BY created_at").all(userId, t, before).map(view);
+  return { ok: !r.error || items.length > 0, asked: t, items, ...(r.error && !items.length ? { error: r.error, message: r.message } : {}) };
 }
 
 // ── Passing ideas on (🐛 #37) ──
@@ -342,11 +359,12 @@ async function fillOnce({ limit = 12 } = {}) {
         .run(c.image, c.ok ? 1 : 0, c.ok ? (c.frameable ? 1 : 0) : null, c.desc || null, r.link);
       if (c.image) n++;
     }
-    const places = db._raw().prepare(`SELECT s.id, s.place, u.city FROM spells s JOIN users u ON u.id = s.user_id
-      WHERE s.place IS NOT NULL AND s.geo_checked = 0 AND s.status IN ('new', 'kept') ORDER BY s.created_at DESC LIMIT ?`).all(limit);
+    const places = db._raw().prepare(`SELECT s.id, s.place, s.address, u.city, u.lat ulat, u.lng ulng FROM spells s JOIN users u ON u.id = s.user_id
+      WHERE (s.place IS NOT NULL OR s.address IS NOT NULL) AND s.geo_checked = 0 AND s.status IN ('new', 'kept') ORDER BY s.created_at DESC LIMIT ?`).all(limit);
     for (const p of places) {
-      const known = db._raw().prepare('SELECT lat, lng FROM spells WHERE lower(place) = lower(?) AND geo_checked = 1 AND lat IS NOT NULL LIMIT 1').get(p.place);
-      const g = known || await require('./geocode').find(p.place, p.city);
+      const known = p.place && db._raw().prepare('SELECT lat, lng FROM spells WHERE lower(place) = lower(?) AND geo_checked = 1 AND lat IS NOT NULL LIMIT 1').get(p.place);
+      const near = Number.isFinite(p.ulat) && Number.isFinite(p.ulng) ? { lat: p.ulat, lng: p.ulng } : null;
+      const g = known || await require('./geocode').find(p.place, p.city, { address: p.address, near });
       db._raw().prepare('UPDATE spells SET lat = ?, lng = ?, geo_checked = 1 WHERE id = ?').run(g?.lat ?? null, g?.lng ?? null, p.id);
     }
   } catch (err) { console.warn('[spells] images:', err.message); }
@@ -390,4 +408,4 @@ function adopt(userId, originId) {
   return id;
 }
 
-module.exports = { generate, more, tick, forUser, answer, react, page, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
+module.exports = { generate, more, ask, tick, forUser, answer, react, page, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };

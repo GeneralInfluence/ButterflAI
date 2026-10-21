@@ -405,8 +405,11 @@ internal ones are refused, including by redirect), nothing about the person is s
 then loads the picture from that site with no referrer, so the site learns an IP address but not which
 ButterflAI page showed it.
 **Checking links and places (🐛 #41, #43):** an idea's link is kept only if its site came back in the web
-search, and shown only after it opened over https. For the map, the idea's place name and town (e.g.
-"Cargo Concert Hall, Reno") are looked up on OpenStreetMap's Nominatim — nothing about the person. The
+search, and shown only after it opened over https. For the map, the idea's place name or street address and town (e.g.
+"Cargo Concert Hall Reno") are looked up on Photon (komoot, built on OpenStreetMap; Nominatim before
+2026-10-21), biased toward the person's town — nothing about the person. What someone types in Explore's
+🔎 box is kept 14 days with their own ideas' context (sent to Anthropic when ideas are made) and never
+shown to anyone else. The
 map shows ideas only — never where any person is.
 **What you thought of a page (🐛 #42):** back from an idea's page, a person can say what they thought.
 "Into it" works like ✨ Sounds fun (kept, its public title passed on); their written note stays theirs —

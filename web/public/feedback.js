@@ -61,7 +61,19 @@
       <div id="bfly-fb-actions" style="margin-top:10px"><button type="button" id="bfly-new-cancel">Cancel</button><button type="button" id="bfly-new-go" style="background:#6c47ff;color:#fff">Make it</button></div>
     </div>`;
   const newText = () => newSheet.querySelector('#bfly-new-text');
-  plus.addEventListener('click', () => { newSheet.hidden = false; setTimeout(() => newText().focus(), 50); });
+  // Pages can open it filled in — Explore's "Make it a plan" (🐛 #47: edit it before anything is made).
+  let fromSpell = null;
+  window.bflyNewPlan = (text, { spell = null, about = null } = {}) => {
+    fromSpell = spell;
+    newSheet.querySelector('h3').textContent = spell ? 'Make it yours, then make it' : "What's the plan?";
+    let hint = newSheet.querySelector('#bfly-new-from');
+    if (!hint) { hint = document.createElement('div'); hint.id = 'bfly-new-from'; hint.style.cssText = 'font-size:13px;color:#8e8e93;margin:-4px 0 8px'; newSheet.querySelector('h3').after(hint); }
+    hint.textContent = about ? `From ButterflAI’s idea: ${about} — change anything before it’s made` : '';
+    newText().value = text || '';
+    newSheet.hidden = false;
+    setTimeout(() => { const t = newText(); t.focus(); t.setSelectionRange(t.value.length, t.value.length); }, 50);
+  };
+  plus.addEventListener('click', () => { window.bflyNewPlan(''); });
   newSheet.addEventListener('click', (e) => { if (e.target === newSheet) newSheet.hidden = true; });
   newSheet.querySelector('#bfly-new-cancel').addEventListener('click', () => { newSheet.hidden = true; });
   newSheet.querySelector('#bfly-new-chips').addEventListener('click', (e) => {
@@ -75,7 +87,7 @@
     if (!text) { newText().focus(); return; }
     go.disabled = true; go.textContent = 'Making it…';
     try {
-      const r = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const r = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ...(fromSpell ? { spell_id: fromSpell } : {}) }) });
       if (!r.ok) throw new Error();
       const { ts } = await r.json();
       location.href = '/app/chat?new=' + encodeURIComponent(ts);   // the chat opens the new plan once it exists

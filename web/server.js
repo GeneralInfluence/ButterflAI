@@ -1652,7 +1652,15 @@ app.get('/app/quick', webAuth.requireAuthPage, (req, res) => res.sendFile(path.j
 app.post('/api/plans/new', webAuth.requireAuth, express.json(), (req, res) => {
   const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
   if (!text) return res.status(400).json({ error: 'Say what the plan is' });
-  db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text, intent: 'new_plan' });
+  // Made from one of ButterflAI's ideas (🐛 #45/#47): which one rides along; the idea counts as planned.
+  let spellId = null;
+  if (req.body?.spell_id) {
+    const spells = require('./spells');
+    let id = String(req.body.spell_id);
+    if (id.startsWith('pool:')) id = spells.adopt(req.user.id, id.slice(5));
+    if (id && db._raw().prepare('SELECT 1 FROM spells WHERE id = ? AND user_id = ?').get(id, req.user.id)) { spellId = id; spells.answer(req.user.id, id, 'plan'); }
+  }
+  db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text, intent: 'new_plan', spell_id: spellId });
   sse.push(req.user.id, { role: 'status', text: 'Making the plan…' });
   res.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
 });
@@ -1691,6 +1699,10 @@ app.post('/api/spells/more', webAuth.requireAuth, async (req, res) => {   // �
 // 🧭 Explore (ideafeed.js): a page at a time; the page sends the ids it already showed.
 app.get('/app/explore', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/explore.html')));
 app.get('/app/feed', (req, res) => res.redirect(301, '/app/explore'));   // its first name
+app.post('/api/ideas/ask', webAuth.requireAuth, express.json(), async (req, res) => {   // 🔎 🐛 #50
+  const r = await require('./spells').ask(req.user.id, req.body?.text);
+  return r.error && !r.items?.length ? res.status(r.error === 'EMPTY' ? 400 : 429).json(r) : res.json(r);
+});
 app.get('/api/ideas/map', webAuth.requireAuth, (req, res) => res.json(require('./ideafeed').map(req.user.id)));   // 🐛 #43
 app.post('/api/ideas', webAuth.requireAuth, express.json({ limit: '200kb' }), (req, res) => {
   res.json(require('./ideafeed').page(req.user.id, { seen: req.body?.seen }));

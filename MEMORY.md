@@ -1166,6 +1166,25 @@ friction that will lose people"):** More → `/app/view?id=` — the site itself
 sandboxed), else its preview (picture, `page_desc` = its own og:description, date/place, Open ↗). Pinned at
 the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (comments add up). Replaced the
 "back from a page" sheet. Migration 077; retro re-checks links checked before.
+**Same night, 🐛 #45–#50:**
+- **Make it a plan from an idea (#45/#47 — "I didn't want coffee with her specifically … edit things before
+  anything becomes final"; "you should know why you suggested it … a new event"):** opens ＋ New plan filled
+  with the idea to change first (`window.bflyNewPlan`, feedback.js); `POST /api/plans/new` takes `spell_id`
+  (`inbound_messages.spell_id`, migration 078) → the agent is told the idea + why it suggested it, their
+  words win, it's a NEW plan (never merged into the plan the idea was about), people named are a tentative
+  ask (`agent.spellNote`).
+- **Map (#46 — empty; "a simple map … roads and neighborhoods"):** Photon instead of Nominatim (Nominatim
+  found nothing for "Bartley Ranch Regional Park"), by `address` first, a name only if its distinctive
+  words match (`geocode.sameName` — Photon offered "Silver Creek Condominiums" for "Silver Apothecary Co."),
+  within 80 km of the person; ideas must name a real venue; CARTO Voyager tiles; "N ideas without a place
+  aren't shown". Retro re-looks-up places that failed. Older ideas have no place — they age out daily.
+- **Explore keeps your place (#48):** what was shown + the post at the top, restored for 30 min
+  (sessionStorage, re-anchored as the panel above loads); no more starting over.
+- **About THIS suggestion (#49):** 💬 on each post saves a note on it; a 🐛 report's state has `looking_at`
+  (the post in the middle of the screen) and `on_screen`.
+- **Ask Explore (#50 — "search for what I'm looking for … can't just be scrolling forever"):** 🔎 box at the
+  top — a search gets a batch made for it now (`spells.ask`, `POST /api/ideas/ask`, `spells.asked`); asks are
+  kept 14 days (`explore_asks`) and steer every later batch ("more outdoors").
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`
