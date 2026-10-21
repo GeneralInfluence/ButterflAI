@@ -227,5 +227,17 @@
   "71": {
     "note_starts": "You're suggesting the same things over and over and over",
     "test": "tests/integration/ideafeed.test.js › the same event is one card across your ideas, passed-on ones and around town, tomorrow's batch remembers what was suggested"
+  },
+  "73": {
+    "note_starts": "Why is my info for Melanie's birthday weekend different",
+    "test": "tests/integration/in-on-it.test.js › made a co-host → interested, told once; they now see the plan's details"
+  },
+  "74": {
+    "note_starts": "I'm able to see Melanie's comment but that's not down as an event",
+    "test": "tests/integration/in-on-it.test.js › talking in the plan's discussion: the second message puts them down as interested (the first gets the question)"
+  },
+  "75": {
+    "note_starts": "I'm confused by this. It says massages at Renaissance hotel booked",
+    "test": "tests/integration/in-on-it.test.js › 🐛 #75: asking your ButterflAI to change an item is taking it on — it changes, no suggestion left waiting"
   }
 }

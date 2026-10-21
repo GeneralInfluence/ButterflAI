@@ -22,6 +22,12 @@ module.exports = {
       if (d.source === 'public' && d.status !== 'accepted') continue;
       const e = db._raw().prepare('SELECT id, title, scheduled_at, host_user_id FROM social_events WHERE id = ?').get(c.event_id);
       if (!e) continue;
+      // Put down as interested because they're plainly in on it (planops.inferInterested) — not a yes they gave:
+      // the host's agent knows, nobody is pinged with "accepted" (2026-10-21).
+      if (c.via === 'inferred') {
+        db.appendConversation(e.host_user_id, 'system', `[System notification] ${d.name || 'A guest'} is in on ${e.title} (talking about it / co-host / on a Creating item) — put down as interested; they haven't said yes themselves.`);
+        continue;
+      }
       const text = d.by === 'public' ? `${d.name || 'A guest'} is attending ${e.title}.`
         : `${d.name || 'A guest'} ${d.status === 'accepted' ? 'accepted' : 'declined'} the invite to ${e.title}.`;
       db.appendConversation(e.host_user_id, 'system', `[System notification] ${text}`);

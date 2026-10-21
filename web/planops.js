@@ -251,6 +251,26 @@ function autoCohost(eventId, { via = 'agent' } = {}) {
 }
 
 /** The host makes someone a co-host, or not (host only). Tells them in the app. */
+/**
+ * Someone invited who hasn't answered but is plainly in on it — made a co-host, talking in the plan's discussion,
+ * taking on a Creating item — is put down as interested (Sean, 2026-10-21: Allie had sent 5 messages about Melanie's
+ * weekend and was a co-host, yet "still says she hasn't responded … either she needs to be prompted for this stuff, or
+ * you need to infer it"). They're told once, and can change it. Never for someone ButterflAI is still checking with
+ * (an avoid-list ask), never over a no.
+ */
+function inferInterested(eventId, userId, reason) {
+  const u = db.getUser(userId);
+  if (!u?.phone) return null;
+  const inv = db._raw().prepare(`SELECT ei.id FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id
+    WHERE ei.event_id = ? AND c.phone = ? AND ei.status = 'invited' AND COALESCE(ei.needs_owner_decision, 0) = 0`).get(eventId, u.phone);
+  if (!inv) return null;
+  const r = respond(inv.id, 'accepted', { by: 'guest', phone: u.phone, userId, via: 'inferred', going: false });
+  if (!r.ok) return null;
+  const t = db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(eventId)?.title || 'the plan';
+  require('./ripples/notice').inApp(userId, eventId, `I've put you down as interested in ${t} since ${reason} — you'll see all its details now. Not going? Just tell me (or tap No on the plan).`);
+  return r;
+}
+
 function setCohost(hostId, eventId, invitationId, on = true, { via = 'app' } = {}) {
   const g = guestRow(invitationId);
   if (!g || g.event_id !== eventId) return { error: 'INVITATION_NOT_FOUND' };
@@ -260,6 +280,7 @@ function setCohost(hostId, eventId, invitationId, on = true, { via = 'app' } = {
   const u = g.phone && db.getUserByPhone(g.phone);
   if (u) require('./ripples/notice').inApp(u.id, eventId, on ? `${first(db.getUser(hostId)?.name)} made you a co-host of ${g.title} — you can change the plan for everyone now.`
     : `You're a guest on ${g.title} now — your changes go to the host as suggestions.`);
+  if (on && u) inferInterested(eventId, u.id, `you're a co-host`);
   return { ok: true, name: g.name, cohost: !!on };
 }
 const first = (s) => String(s || '').trim().split(/\s+/)[0] || 'Someone';
@@ -521,4 +542,4 @@ function history(eventId, limit = 50) {
   return db._raw().prepare('SELECT * FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT ?').all(eventId, limit);
 }
 
-module.exports = { autoCohost, setCohost, create, update, invite, merge, revert, undoLast, recentChanges, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };
+module.exports = { inferInterested, autoCohost, setCohost, create, update, invite, merge, revert, undoLast, recentChanges, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };

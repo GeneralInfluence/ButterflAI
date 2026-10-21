@@ -167,7 +167,7 @@ function applyOne(userId, a, { contextDay }) {
     if (['idea', 'options', 'chosen', 'booked'].includes(a.status)) changes.status = a.status;
     if (!Object.keys(changes).length && !a.taking_on) return { error: 'NOTHING' };
     const before = db._raw().prepare('SELECT when_text, place, notes, status FROM event_todos WHERE id = ?').get(a.item_id) || {};
-    const r = Object.keys(changes).length ? todos.update(userId, a.item_id, changes, { join: !!a.taking_on }) : todos.join(userId, a.item_id);
+    const r = Object.keys(changes).length ? todos.update(userId, a.item_id, changes, { join: true })   /* their own words about the item = taking action (🐛 #75) */ : todos.join(userId, a.item_id);
     if (r.error) return r;
     const item = db._raw().prepare('SELECT text FROM event_todos WHERE id = ?').get(a.item_id)?.text || 'item';
     if (r.suggested) return suggestedResult(r, item, a);

@@ -1016,6 +1016,18 @@ tapped ＋ and creates the plan at once (no routing guess, no long discussion); 
 the new plan's discussion when it appears (`/app/chat?new=<ts>`). Every app page's inline scripts are parsed by
 a test (a stray "});" once blanked the chat).
 
+## 24e. In on it means interested; asking is taking it on `[2026-10-21]`
+
+Sean: Allie (5 messages about Melanie's weekend, made co-host) "still says she hasn't responded … Either she needs to
+be prompted … or you need to infer it" (🐛 #73/#74). `planops.inferInterested`: someone invited who hasn't answered is
+put down as **interested** (not going) when made a co-host, on their **second** message in the plan's discussion (a
+first "sounds fun" still gets "going or just interested?"), or when they add to / take on a Creating item; told once
+in the app ("I've put you down as interested … since …; not going? tell me"); never over a no or an avoid-list ask.
+The host's agent gets a system line only — no "accepted" notice (`via: 'inferred'`, host-notice).
+🐛 #75: asking your ButterflAI to change a Creating item IS taking action on it (owner's rule) — you join it and it
+changes, instead of a suggestion waiting on the item's lead (agent manage_todos from the user's own turn, understand's
+update_item). Retros: plans people are in on → interested; such pending suggestions applied. Test: `in-on-it.test.js`.
+
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 
 Owner: "I want to be told when the grants or any other types of connections expire so that way

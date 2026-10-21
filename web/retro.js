@@ -778,6 +778,36 @@ const TASKS = [
       return `set aside ${n}`;
     },
   },
+  {
+    id: '2026-10-21-in-on-it-means-interested',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'propose',
+    about: 'Sean: Allie talks about Melanie\'s weekend and is its co-host, yet "still says she hasn\'t responded". This user\'s plans they\'re plainly in on — a co-host, or talking in its discussion — while still not answered: put down as interested and told once (they can change it).',
+    run(user) {
+      const planops = require('./planops');
+      let n = 0;
+      for (const r of db._raw().prepare(`SELECT ei.event_id, ei.role FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id JOIN social_events se ON se.id = ei.event_id
+        WHERE c.phone = ? AND ei.status = 'invited' AND COALESCE(se.status, 'open') != 'cancelled'`).all(user.phone || '')) {
+        const talked = db._raw().prepare("SELECT 1 FROM conversation_history WHERE user_id = ? AND event_id = ? AND role = 'user'").get(user.id, r.event_id);
+        if (r.role === 'cohost' || talked) { if (planops.inferInterested(r.event_id, user.id, r.role === 'cohost' ? 'you’re a co-host' : 'you’ve been talking about it with me')) n++; }
+      }
+      return `interested in ${n}`;
+    },
+  },
+  {
+    id: '2026-10-21-own-item-changes-apply',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: '🐛 #75: changes this user asked their ButterflAI to make to a Creating item (sent as suggestions to the item\'s team) are applied — asking is taking it on — and they join the item.',
+    run(user) {
+      let n = 0;
+      for (const sg of db._raw().prepare("SELECT * FROM plan_suggestions WHERE from_user_id = ? AND status = 'pending' AND todo_id IS NOT NULL").all(user.id)) {
+        const r = require('./todos').update(user.id, sg.todo_id, JSON.parse(sg.changes_json), { join: true });
+        if (r && !r.error) { db._raw().prepare("UPDATE plan_suggestions SET status = 'withdrawn', decided_at = strftime('%s','now') WHERE id = ?").run(sg.id); n++; }
+      }
+      return `applied ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

@@ -125,6 +125,7 @@ const canRemove = (userId, t) => t.suggested || onTeam(userId, t.id) || require(
 function join(userId, todoId) {
   const t = own(userId, todoId);
   if (!t) return { error: 'NOT_FOUND' };
+  try { require('./planops').inferInterested(t.event_id, userId, 'you took on part of it'); } catch (_) {}
   const me = members(t.event_id).find((m) => m.phone === db.getUser(userId)?.phone);
   if (!me) return { error: 'NOT_IN_PLAN' };
   if (!t.assignee_phone) db._raw().prepare('UPDATE event_todos SET assignee_phone = ?, assignee_name = ?, suggested = 0 WHERE id = ?').run(me.phone, me.name, t.id);
@@ -147,6 +148,7 @@ function leave(userId, todoId) {
 
 function add(userId, eventId, { text, assignee, suggested = false, day = null, when_text, place, notes }) {
   if (!topics.canSee(userId, eventId)) return { error: 'NOT_IN_PLAN' };
+  if (!suggested) { try { require('./planops').inferInterested(eventId, userId, 'you added to what we’re making happen'); } catch (_) {} }
   const t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT);
   if (!t) return { error: 'EMPTY' };
   const dup = repeats(eventId, t);

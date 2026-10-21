@@ -1542,10 +1542,14 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         const changes = {};
         for (const k of ['when_text', 'place', 'status', 'notes', 'text']) if (toolInput[k] !== undefined) changes[k] = toolInput[k];
         if (toolInput.day !== undefined) changes.day = todoDay(toolInput.day);
-        return todos.update(userId, todo_id, changes, { join: toolInput.join === true });
+        // Asking your ButterflAI to change an item IS taking action on it — you join it and it changes (🐛 #75: Sean's
+        // "massages … booked" became a suggestion waiting on Melanie that he couldn't act on). Only another agent's
+        // question doesn't take it on.
+        const taking = USER_CHANNELS.includes(currentTurn?.channel) ? toolInput.join !== false : toolInput.join === true;
+        return todos.update(userId, todo_id, changes, { join: taking });
       }
       const change = { keep: { keep: true }, done: { done: true }, undo: { done: false }, assign: { assignee } }[action];
-      if (change) return todos.update(userId, todo_id, change);
+      if (change) return todos.update(userId, todo_id, change, { join: USER_CHANNELS.includes(currentTurn?.channel) && action !== 'keep' });
       if (action === 'remove') return todos.remove(userId, todo_id);
       return { error: 'UNKNOWN_ACTION' };
     }
@@ -3001,6 +3005,12 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   const turnStart = Math.floor(Date.now() / 1000);   // chat rows from here on belong to this turn (topics.js)
   currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id, eventId: msg.event_id || null,
     contextDay: msg.context_day || null, spellId: msg.spell_id || null };
+  // Talking in a plan's discussion while still not answered → interested (Allie, 2026-10-21).
+  // (From the second message on — a first "sounds fun" gets the going-or-interested question instead.)
+  if (USER_CHANNELS.includes(msg.channel) && msg.event_id && msg.event_id !== topics.GENERAL
+    && db._raw().prepare("SELECT 1 FROM conversation_history WHERE user_id = ? AND event_id = ? AND role = 'user'").get(userId, msg.event_id)) {
+    try { planops.inferInterested(msg.event_id, userId, 'you’re talking about it with me'); } catch (_) {}
+  }
   if (msg.channel === 'agent_query') {
     // Who's asking (for tell_my_user's avoid-list check), from the queued "thread=<id>".
     const thread = /\bthread=([\w-]+)/.exec(msg.text || '')?.[1];
