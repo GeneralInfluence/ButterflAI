@@ -61,9 +61,9 @@ function dueUsers() {
 }
 
 function gather(user, since) {
-  const convo = db._raw().prepare(`SELECT role, kind, text, created_at FROM conversation_history
+  const convo = db._raw().prepare(`SELECT role, kind, text, created_at, event_id FROM conversation_history
     WHERE user_id = ? AND created_at > ? AND private_ct IS NULL ORDER BY created_at, rowid LIMIT 60`).all(user.id, since - 2 * 3600);
-  const sent = db._raw().prepare(`SELECT am.kind, am.body, am.created_at, u.name AS to_name FROM agent_messages am JOIN users u ON u.id = am.to_user
+  const sent = db._raw().prepare(`SELECT am.kind, am.body, am.created_at, am.thread_id, u.name AS to_name FROM agent_messages am JOIN users u ON u.id = am.to_user
     WHERE am.from_user = ? AND am.created_at > ? ORDER BY am.created_at`).all(user.id, since);
   const heard = db._raw().prepare(`SELECT am.kind, am.body, am.created_at, u.name AS from_name FROM agent_messages am JOIN users u ON u.id = am.from_user
     WHERE am.to_user = ? AND am.created_at > ? ORDER BY am.created_at`).all(user.id, since - 2 * 3600);
@@ -98,6 +98,20 @@ function parse(text) {
   } catch (_) { return null; }
 }
 
+/**
+ * The plan a stretch was about, when there's exactly one (🐛 #64 — "Quick check: I told Allie's assistant you're free
+ * Wednesday…" landed in General, not in Settlement Agreement Review): the plan its agent messages were on (every agent
+ * question is about a plan, §20), else the plan its chat was filed under.
+ */
+function planOf(userId, { sent, convo }) {
+  const real = (id) => id && db._raw().prepare("SELECT 1 FROM social_events WHERE id = ? AND COALESCE(status, 'open') != 'cancelled'").get(id) && require('./topics').canSee(userId, id);
+  const threads = [...new Set(sent.map((m) => m.thread_id).filter(real))];
+  if (threads.length === 1) return threads[0];
+  if (threads.length > 1) return null;
+  const filed = [...new Set(convo.map((m) => m.event_id).filter((id) => id && id !== require('./topics').GENERAL).filter(real))];
+  return filed.length === 1 ? filed[0] : null;
+}
+
 /** Review one user's quiet stretch. Returns the outcome. Never throws. */
 async function reflectOn(user) {
   const t = now();
@@ -123,9 +137,11 @@ async function reflectOn(user) {
     const asked = db._raw().prepare(`SELECT 1 FROM reflections WHERE user_id = ? AND outcome = 'asked' AND created_at > ?`).get(user.id, t - 86400);
     if (asked) return record('held_daily_limit', { confidence: j.confidence, details });
     const text = String(j.followup).trim().slice(0, 600);
-    db.appendConversation(user.id, 'assistant', text);
-    sse.push(user.id, { role: 'assistant', text, ts: t });
-    try { await push.notifyUser(db, user.id, { title: 'ButterflAI', body: text, url: '/app/chat' }); } catch (_) {}
+    const eventId = planOf(user.id, material);
+    const hid = db.appendConversation(user.id, 'assistant', text);
+    if (eventId && hid) db._raw().prepare('UPDATE conversation_history SET event_id = ? WHERE id = ?').run(eventId, hid);
+    sse.push(user.id, { role: 'assistant', text, ts: t, ...(eventId ? { event_id: eventId } : {}) });
+    try { await push.notifyUser(db, user.id, { title: 'ButterflAI', body: text, url: eventId ? `/app/chat?event=${encodeURIComponent(eventId)}` : '/app/chat' }); } catch (_) {}
     return record('asked', { confidence: j.confidence, followup: text, details });
   } catch (err) {
     console.error(`[reflect] user=${user.id} failed:`, err.message);
@@ -147,4 +163,4 @@ async function tick() {
   return n;
 }
 
-module.exports = { tick, reflectOn, dueUsers, _setClient, QUIET_MINS, MIN_CONFIDENCE };
+module.exports = { tick, reflectOn, dueUsers, planOf, gather, _setClient, QUIET_MINS, MIN_CONFIDENCE };

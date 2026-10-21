@@ -83,6 +83,21 @@ describe('reflecting on quiet conversations', () => {
     assert.match(o.details, /cabin question was dropped/, 'kept for a test user');
   });
 
+  // 🐛 #64 (Sean, 2026-10-21): "Why isn't this updating the settlement review event? Specifically why is it in the general
+  // tab?" — the check-in about Settlement Agreement Review ("I told Allie's assistant you're free Wednesday at 2:30pm")
+  // had no plan, so it sat in General.
+  test('🐛 #64: a check-in about one plan is filed under that plan', async () => {
+    const sean = mkUser('Sean R64'); const allie = mkUser('Allie R64');
+    const e = (await require('../../planops').create(sean.id, { title: 'Settlement Agreement Review', scheduled_at: new Date(Date.now() + 86400e3).toISOString() })).eventId;
+    say(sean, 'user', 'works for me', 80);
+    db._raw().prepare(`INSERT INTO agent_messages (id, from_user, to_user, thread_id, kind, topic, body, created_at) VALUES (?, ?, ?, ?, 'reply', 'coordination', ?, ?)`)
+      .run(uuidv4(), sean.id, allie.id, e, "Sean's free both slots — 2:30pm Wednesday?", ago(80));
+    model({ concern: true, confidence: 0.9, what_happened: 'x', followup: "Quick check: I told Allie's assistant you're free Wednesday at 2:30pm — right?" });
+    await reflect.tick();
+    const row = db._raw().prepare("SELECT event_id FROM conversation_history WHERE user_id = ? AND text LIKE 'Quick check:%'").get(sean.id);
+    assert.equal(row.event_id, e);
+  });
+
   test('reviewed once: nothing new → not reviewed again', async () => {
     model(CONCERN);
     await reflect.tick();

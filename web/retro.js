@@ -741,6 +741,25 @@ const TASKS = [
       return 'offered';
     },
   },
+  {
+    id: '2026-10-21-file-checkins-under-plans',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: '🐛 #64: look-back check-ins ("Quick check: I told Allie\'s assistant…") had no plan, so they sat in General. This user\'s check-ins from the last 2 weeks are filed under the plan they were about, when that\'s clear.',
+    run(user) {
+      const reflect = require('./reflect');
+      let n = 0;
+      for (const r of db._raw().prepare("SELECT window_start, window_end, followup FROM reflections WHERE user_id = ? AND outcome = 'asked' AND created_at > ?").all(user.id, Math.floor(Date.now() / 1000) - 14 * 86400)) {
+        const row = db._raw().prepare('SELECT id FROM conversation_history WHERE user_id = ? AND role = \'assistant\' AND text = ? AND event_id IS NULL').get(user.id, r.followup);
+        if (!row) continue;
+        const material = reflect.gather(user, r.window_start);
+        material.sent = material.sent.filter((m) => m.created_at <= r.window_end);
+        const e = reflect.planOf(user.id, material);
+        if (e) { db._raw().prepare('UPDATE conversation_history SET event_id = ? WHERE id = ?').run(e, row.id); n++; }
+      }
+      return `filed ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

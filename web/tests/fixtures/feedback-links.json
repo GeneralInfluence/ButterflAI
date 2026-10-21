@@ -195,5 +195,9 @@
   "65": {
     "note_starts": "The agents are supposed to be able to speak to each other anonymously",
     "test": "tests/integration/no-anonymous.test.js › Allie's rumor reaches Sean as \"Someone close to you says…\" — no name anywhere he can see — and Sean can answer it"
+  },
+  "64": {
+    "note_starts": "Why isn't this updating the settlement review event",
+    "test": "tests/integration/reflect.test.js › 🐛 #64: a check-in about one plan is filed under that plan"
   }
 }

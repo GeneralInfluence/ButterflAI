@@ -705,6 +705,8 @@ got something wrong, ask: "I said this — maybe you meant that?"
   A correction is fixed with the other side (prompt: REFLECTION FOLLOW-UPS).
 - `reflections` table (migration 042): outcome for everyone; what it noticed only for
   opted-in test users → `/admin/feedback` → Reflections tab.
+- A check-in about one plan is filed under that plan (🐛 #64 — it sat in General): the plan its agent messages
+  were on, else the plan the chat was filed under, when exactly one (`reflect.planOf`). Retro files earlier ones.
 
 ## 14. One plan object: read in plan.js, change in planops.js `[LOCKED 2026-10-12]`
 
