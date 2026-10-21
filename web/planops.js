@@ -514,6 +514,20 @@ const VIA_WORDS = { agent: 'ButterflAI', app: 'You', undo: 'Undo', retro: 'Butte
  * sees under the plan and can undo (2026-10-13: "how do we ensure this going forward without
  * me having to use my admin ability?").
  */
+/**
+ * One change, as the person tapping its notification should see it (Sean, 2026-10-21: "when I saw that Melanie had
+ * changed something and I clicked on the thing, it went to details, but I couldn't figure out what it was exactly that
+ * had changed"): every field changed in that same moment by that same person — before and after.
+ */
+function whatChanged(eventId, changeId) {
+  const c = db._raw().prepare('SELECT * FROM plan_changes WHERE id = ? AND event_id = ?').get(changeId, eventId);
+  if (!c) return null;
+  const rows = db._raw().prepare('SELECT field, old_value, new_value FROM plan_changes WHERE event_id = ? AND created_at = ? AND COALESCE(actor_id, \'\') = COALESCE(?, \'\') AND via = ? ORDER BY id')
+    .all(eventId, c.created_at, c.actor_id, c.via).filter((r) => FIELD_WORDS[r.field]);
+  return { at: c.created_at, actor_id: c.actor_id, via: c.via,
+    fields: rows.map((r) => ({ field: r.field, what: FIELD_WORDS[r.field], before: r.old_value, after: r.new_value })) };
+}
+
 function recentChanges(eventId, limit = 5) {
   const rows = db._raw().prepare(`SELECT created_at, via, actor_id, field, new_value FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT 60`).all(eventId)
     .filter((r) => FIELD_WORDS[r.field]);
@@ -542,4 +556,4 @@ function history(eventId, limit = 50) {
   return db._raw().prepare('SELECT * FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT ?').all(eventId, limit);
 }
 
-module.exports = { inferInterested, autoCohost, setCohost, create, update, invite, merge, revert, undoLast, recentChanges, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };
+module.exports = { whatChanged, inferInterested, autoCohost, setCohost, create, update, invite, merge, revert, undoLast, recentChanges, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };

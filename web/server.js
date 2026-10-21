@@ -2510,6 +2510,13 @@ app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => 
 
 // The host's own controls (2026-10-13: "how do we ensure this going forward without me
 // having to use my admin ability?"): recent changes, and undo the last one.
+// One change, before and after — opened from its notification (2026-10-21). Anyone in the plan.
+app.get('/api/events/:id/changed/:changeId', webAuth.requireAuth, (req, res) => {
+  if (!topics.canSee(req.user.id, String(req.params.id))) return res.status(403).json({ error: 'Not your event' });
+  const c = planops.whatChanged(String(req.params.id), Number(req.params.changeId));
+  if (!c) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ ...c, who: c.actor_id === req.user.id ? 'You' : c.actor_id ? require('./people').nameFor(req.user.id, c.actor_id, { first: true }) : 'ButterflAI' });
+});
 app.get('/api/events/:id/changes', webAuth.requireAuth, (req, res) => {
   const e = multiparty.getEvent(req.params.id);
   if (!e || !plan.canEdit(e.id, req.user.id)) return res.status(403).json({ error: 'Not your event' });

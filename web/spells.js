@@ -52,9 +52,9 @@ function contextFor(user) {
   const t = now();
   const plans = db._raw().prepare(`SELECT se.id, se.title, se.scheduled_at, se.date_tbd, se.venue_name FROM social_events se
     LEFT JOIN event_invitations ei ON ei.event_id = se.id LEFT JOIN contacts c ON c.id = ei.contact_id
-    WHERE COALESCE(se.status, 'open') != 'cancelled' AND (se.host_user_id = ? OR (c.phone = ? AND ei.status = 'accepted'))
+    WHERE COALESCE(se.status, 'open') != 'cancelled' AND (se.host_user_id = ? OR (c.phone = ? AND ei.status IN ('accepted', 'invited')))
     AND se.created_at > ? GROUP BY se.id ORDER BY se.created_at DESC LIMIT 15`).all(user.id, user.phone || '', t - 90 * 86400);
-  for (const p of plans) { try { p.when = require('./plan').planFor(p.id, user.id)?.dates?.label || null; } catch (_) { p.when = null; } }
+  for (const p of plans) { try { const pl = require('./plan').planFor(p.id, user.id); p.when = pl?.dates?.label || null; p.day = (pl?.days || [])[0] || null; } catch (_) { p.when = null; } }
   // Friends from their own plans, with when they last had one together — never avoided people.
   const avoid = require('./avoid');
   let avoided = [];
@@ -112,6 +112,7 @@ ${c.focus ? `They just asked Explore for: "${c.focus}". If that's a search, imag
 - "reconnect": doing something with a friend they haven't seen in a while (only friends listed above) — or making one of the things they're making happen into time together: figuring it out over a drink, a coffee or a quick call with the people on it ("Plan the massages over a drink with Melanie?").
 - "new": something that widens their circle — a class, a group, a meetup, a new scene.
 - "wish": a way one of their wishes could happen (or, with no wishes, something they'd likely love from what they said).
+Their plans' days and places are exactly as listed — never say a plan is on another day or at a place that isn't listed (a plan with no place listed has no known place: don't give it one).
 Ideas they've already answered are listed above — never suggest them again or anything like them; build on them instead.
 Bring NEW options: different places and kinds of things than those already suggested — at most one idea per venue, and two ideas are never the same event.
 Every idea is something fun to do — never an errand, a chore or a reminder ("Confirm Zack's name with Liam" is not an idea).
@@ -191,7 +192,11 @@ async function generate(user, { force = false, more = false, focus = null, askId
     const c = link ? checked.get(link) : null;
     if (c && !c.ok) link = null;
     if (PUBLIC_KINDS.includes(s.kind) && !link) continue;   // nothing to find out more from — not suggested
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(s.date || '')) && !Number.isNaN(Date.parse(s.date)) ? s.date : null;
+    let date = /^\d{4}-\d{2}-\d{2}$/.test(String(s.date || '')) && !Number.isNaN(Date.parse(s.date)) ? s.date : null;
+    // About one of their plans ("pre-Rocky Horror drink")? Then it's that plan's day (🐛 #77 — said Thursday; it's Friday the 30th).
+    const mentions = (p) => { const pw = words(p.title), iw = words(`${s.title} ${s.why || ''}`); let k = 0; for (const w of pw) if (iw.has(w)) k++; return pw.size && k >= Math.min(2, pw.size); };
+    const about = ctx.plans.find((p) => p.day && mentions(p));
+    if (about && /\b(pre|before|after|post)\b/i.test(`${s.title} ${s.why || ''}`)) date = about.day;
     if (date && date < today) continue;   // already over
     if (date) { s.title = fixWeekdays(s.title, date); s.why = fixWeekdays(s.why, date); if (s.public_title) s.public_title = fixWeekdays(s.public_title, date); }
     const place = clean(s.place, 80) || null;

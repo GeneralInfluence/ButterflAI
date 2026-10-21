@@ -1027,6 +1027,13 @@ The host's agent gets a system line only — no "accepted" notice (`via: 'inferr
 🐛 #75: asking your ButterflAI to change a Creating item IS taking action on it (owner's rule) — you join it and it
 changes, instead of a suggestion waiting on the item's lead (agent manage_todos from the user's own turn, understand's
 update_item). Retros: plans people are in on → interested; such pending suggestions applied. Test: `in-on-it.test.js`.
+**Same day:** the switcher's first tab is **🤖 ButterflAI**, not "💬 Chat" — you're talking to your AI, not chatting with
+people (🐛 #76). A change notification ("Melanie changed the notes…") opens the plan with **✨ What changed** — who, before
+→ after, every field from that moment — once (`planops.whatChanged`, `GET /api/events/:id/changed/:changeId`, `?changed=`;
+remembered per device, removed from the address). Ideas see plans you're invited to as well, are told a plan's day and
+place are exactly as listed (never invented — no place listed means none), and an idea that's before/after one of your
+plans gets that plan's day and weekday in code (🐛 #77: "Pre-Rocky Horror drink at Cargo Thursday" — it's Friday the 30th,
+no place set).
 
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 

@@ -231,4 +231,21 @@ describe('🐛 #36: ButterflAI imagines ideas for you', () => {
     assert.ok(spells.alike(spells.words('New Constellations at Cargo Thursday'), spells.words('New Constellations at Cargo Thursday Night')));
     assert.ok(!spells.alike(spells.words('Jazz at Shea’s'), spells.words('Pottery at The Wedge')));
   });
+
+  // 🐛 #77 (Allie, 2026-10-21): "Rocky horror isn't until the 30, also it isn't at cargo concert hall." — the idea
+  // "Pre-Rocky Horror drink at Cargo Thursday?" invented the plan's day and place.
+  test('🐛 #77: an idea about one of your plans has that plan\'s day; plans\' days and places are never invented', async () => {
+    const allie = mkUser('Allie RH'); const sean = mkUser('Sean RH');
+    const rh = (await planops.create(sean.id, { title: 'Rocky Horror Picture Show', when: 'October 30', contact_ids: [knows(sean, allie)] })).eventId;
+    planops.respond(db._raw().prepare('SELECT id FROM event_invitations WHERE event_id = ?').get(rh).id, 'accepted', { by: 'guest', phone: allie.phone });
+    const day = require('../../plan').planFor(rh, allie.id).days[0];
+    const seen = model([{ kind: 'nearby', title: 'Pre-Rocky Horror drink Thursday?', why: 'Warm up before the show Thursday', date: '2026-10-22' }]);
+    await spells.generate(allie, { force: true });
+    assert.match(seen[0].messages[0].content, /never say a plan is on another day or at a place that isn't listed/);
+    assert.match(seen[0].messages[0].content, /Rocky Horror Picture Show \(/);
+    const idea = spells.forUser(allie.id).find((x) => /Rocky/.test(x.title));
+    assert.equal(idea.date, day, 'the plan\'s day');
+    const wd = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(`${day}T12:00:00Z`).getUTCDay()];
+    assert.match(idea.title, new RegExp(wd), 'and its weekday');
+  });
 });

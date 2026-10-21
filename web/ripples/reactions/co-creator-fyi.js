@@ -36,8 +36,13 @@ module.exports = {
       const w = WHAT[c.type];
       if (w && !byActor.get(k).what.includes(w)) byActor.get(k).what.push(w);
     }
-    for (const { e, who, what } of byActor.values()) {
-      if (what.length) told += inApp(e.host_user_id, e.id, `${who} ${what.join(' and ')} on ${e.title}. You can see or undo it under Recent changes.`) ? 1 : 0;
+    for (const [k, { e, who, what }] of byActor.entries()) {
+      if (!what.length) continue;
+      // The notification opens the plan with this change shown — before and after — once (2026-10-21).
+      const actor = k.split(':')[1];
+      const last = db._raw().prepare('SELECT max(id) id FROM plan_changes WHERE event_id = ? AND actor_id = ?').get(e.id, actor)?.id;
+      const url = last ? `/app/events?event=${encodeURIComponent(e.id)}&changed=${last}` : null;
+      told += inApp(e.host_user_id, e.id, `${who} ${what.join(' and ')} on ${e.title}. Tap to see what changed, or undo it under Recent changes.`, { url }) ? 1 : 0;
     }
     return told;
   },

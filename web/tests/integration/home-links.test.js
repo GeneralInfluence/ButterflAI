@@ -112,7 +112,8 @@ describe('the same top on Chat, Creating and Events (owner, 2026-10-20)', () => 
   });
   test('the switcher always stays on the same plan; on All it\'s Chat · Creating · Calendar', () => {
     assert.ok(nav.includes("const href = (page, eventId, day) => BASE[page] + (real(eventId) ? '?event='"));
-    assert.ok(nav.includes("tab('chat', '💬 Chat') + tab('creating', '✨ Creating'"));
+    // "🤖 ButterflAI", not "Chat" (🐛 #76 — Sean: "it's really each person talking to their butterfly").
+    assert.ok(nav.includes("tab('chat', '🤖 ButterflAI') + tab('creating', '✨ Creating'"));
   });
   test('the switcher looks different from the plan pills (segmented control vs round chips)', () => {
     const css = fs.readFileSync(pth.join(__dirname, '../../public/plan-nav.css'), 'utf8');

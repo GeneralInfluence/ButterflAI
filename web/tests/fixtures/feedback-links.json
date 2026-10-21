@@ -239,5 +239,13 @@
   "75": {
     "note_starts": "I'm confused by this. It says massages at Renaissance hotel booked",
     "test": "tests/integration/in-on-it.test.js › 🐛 #75: asking your ButterflAI to change an item is taking it on — it changes, no suggestion left waiting"
+  },
+  "76": {
+    "note_starts": "I realize that instead of chat, it's really each person talking to their butterfly",
+    "test": "tests/integration/home-links.test.js › the switcher always stays on the same plan; on All it's Chat · Creating · Calendar"
+  },
+  "77": {
+    "note_starts": "Rocky horror isn't until the 30",
+    "test": "tests/integration/spells.test.js › 🐛 #77: an idea about one of your plans has that plan's day; plans' days and places are never invented"
   }
 }
