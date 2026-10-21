@@ -1704,6 +1704,7 @@ app.post('/api/ideas/ask', webAuth.requireAuth, express.json(), (req, res) => {
   const r = require('./spells').ask(req.user.id, req.body?.text);
   return r.error ? res.status(400).json(r) : res.json(r);
 });
+app.post('/api/ideas/items', webAuth.requireAuth, express.json({ limit: '100kb' }), (req, res) => res.json(require('./ideafeed').items(req.user.id, req.body?.ids)));   // 🐛 #57
 app.get('/api/ideas/asks', webAuth.requireAuth, (req, res) => res.json({ asks: require('./spells').asks(req.user.id) }));
 app.post('/api/ideas/asks/:id/again', webAuth.requireAuth, (req, res) => {
   const r = require('./spells').askAgain(req.user.id, String(req.params.id));

@@ -1201,6 +1201,18 @@ the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (
   background (`explore_asks.status` working/done/none/limit, migration 080; `GET /api/ideas/asks`, `POST
   /api/ideas/asks/:id/again`) and stays at the top of Explore for 7 days with its ideas (open, ↻ again); a
   search's ideas sit under it, not in the main list.
+- **Same night, #55–#60:** searches are a dropdown on the 🔎 box (tap it), never opened by themselves; the same
+  search in other words is one search (`askAlike`; older look-alikes folded together in `asks()`) (#55). A site
+  that turns bots away (401/403/429 — Songkick) is real: ok, not shown inside (#56; retro re-checks failed
+  links). Saved posts are re-checked with the server before they come back (`POST /api/ideas/items`) — the
+  hidden cargoconcerthall.com idea came back from the phone's memory (#57). Each idea links the search result
+  about it, not a venue's listing (`spells.pickLink`, by the idea's words in result titles/addresses) (#58).
+  A search's "nothing found" never blames the question; searches get 4 web lookups and may count what's open
+  or running there that day (#60 — Virginia City for kids worked on the real model once #54's retry shipped).
+- **No anonymous messages (#59):** Allie asked her agent to "anonymously tell Sean he's a dork … don't let him
+  know it's from me"; it sent it and said "Sent", but every message says who it's from (§10). Now refused in
+  code (`agent.asksAnonymous` on send_logistics_sms / message_agent → ANONYMOUS_NOT_POSSIBLE) and the agent says
+  so; prompt NO ANONYMOUS MESSAGES. Test: `no-anonymous.test.js`.
 Tests: `tests/integration/ideafeed.test.js`.
 
 ## 26. Rate limits are per person `[2026-10-19]`

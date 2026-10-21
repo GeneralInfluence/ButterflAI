@@ -105,7 +105,7 @@ What you know (their own):
 - Liked lately by people around them (anonymous — a hint at what's good nearby): ${(c.around || []).join('; ') || 'nothing yet'}
 
 ${user.city ? `Search the web once or twice for what's actually on in or near ${user.city} in the next two weeks (shows, music, markets, classes, outdoor things) and use real ones.` : ''}
-${c.focus ? `They just asked Explore for: "${c.focus}". If that's a search, imagine 8 ideas that answer it (any kinds that fit, real things first); if it's feedback about their ideas ("more outdoors", "less concerts"), follow it and imagine 8 that fit it. Kinds:` : 'Imagine 8 ideas, two of each kind:'}
+${c.focus ? `They just asked Explore for: "${c.focus}". If that's a search, imagine 8 ideas that answer it (any kinds that fit, real things first — a place they asked about, on the day they mean if they said one; what's open or running there counts even without a dated event); if it's feedback about their ideas ("more outdoors", "less concerts"), follow it and imagine 8 that fit it. Kinds:` : 'Imagine 8 ideas, two of each kind:'}
 - "nearby": something real happening near them soon (name, day, place; include the link) — the best ones fit around a plan they already have (a pre-show drink before a show they're going to, brunch the morning after).
 
 - "reconnect": doing something with a friend they haven't seen in a while (only friends listed above) — or making one of the things they're making happen into time together: figuring it out over a drink, a coffee or a quick call with the people on it ("Plan the massages over a drink with Melanie?").
@@ -127,12 +127,14 @@ async function generate(user, { force = false, more = false, focus = null, askId
   const ctx = { ...contextFor(user), focus: focus ? clean(focus, 200) : null };
   const today = new Date().toLocaleDateString('en-CA', { timeZone: user.timezone || 'America/Los_Angeles' });
   const messages = [{ role: 'user', content: PROMPT(user, ctx, today) }];
-  const tools = user.city ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2, ...(user.timezone ? { user_location: { type: 'approximate', city: user.city, timezone: user.timezone } } : {}) }] : undefined;
+  // A search gets more looking (🐛 #60 — a detailed Virginia City question needs a few searches).
+  const tools = user.city ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: focus ? 4 : 2, ...(user.timezone ? { user_location: { type: 'approximate', city: user.city, timezone: user.timezone } } : {}) }] : undefined;
   let text = '';
   const found = new Set();   // the sites the web search actually returned (🐛 #41)
+  const results = [];        // …and the pages themselves, to link each idea to its own page (🐛 #58)
   for (let i = 0; i < 3; i++) {
     const r = await c.messages.create({ model: DEFAULT_MODEL, max_tokens: 1200, messages, ...(tools ? { tools } : {}) });
-    for (const b of r.content || []) if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) for (const x of b.content) { const h = host(x.url); if (h) found.add(h); }
+    for (const b of r.content || []) if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) for (const x of b.content) { const h = host(x.url); if (h) { found.add(h); results.push({ url: x.url, title: x.title || '' }); } }
     text = (r.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     if (r.stop_reason !== 'pause_turn') break;
     messages.push({ role: 'assistant', content: r.content });
@@ -156,6 +158,8 @@ async function generate(user, { force = false, more = false, focus = null, askId
   const ok = (s) => !avoidWords.some((w) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(`${s.title} ${s.why}`));
   // Check every link before anything's saved (🐛 #51 — "if it didn't open securely then you shouldn't be
   // suggesting it to me"): an idea about something happening needs a page that opens over https.
+  // Each idea links the search result that's about IT, not a venue's general page (🐛 #58).
+  for (const x of list) if (x && x.title) x.link = pickLink(x, results) || x.link;
   const links = [...new Set(list.map((x) => x && x.link).filter((l) => /^https:\/\//.test(String(l || '')) && found.has(host(l))))];
   const checked = new Map(await Promise.all(links.map(async (l) => [l, await require('./ogimage').check(l).catch(() => null)])));
   let made = 0;
@@ -226,8 +230,12 @@ async function more(userId, { focus = null, askId = null } = {}) {
 function ask(userId, text, { wait = false } = {}) {
   const t = clean(text, 200);
   if (!t) return wait ? Promise.resolve({ error: 'EMPTY' }) : { error: 'EMPTY' };
-  const id = uuidv4();
-  db._raw().prepare("INSERT INTO explore_asks (id, user_id, text, status) VALUES (?, ?, ?, 'working')").run(id, userId, t);
+  // The same search in other words (🐛 #55 — three "Liam's party" searches) is one search: run again, kept together.
+  const same = db._raw().prepare('SELECT id, text FROM explore_asks WHERE user_id = ? AND created_at > ? ORDER BY created_at DESC').all(userId, now() - 7 * 86400)
+    .find((a) => askAlike(a.text, t));
+  const id = same ? same.id : uuidv4();
+  if (same) db._raw().prepare("UPDATE explore_asks SET text = ?, status = 'working', created_at = ?, finished_at = NULL WHERE id = ?").run(t, now(), id);
+  else db._raw().prepare("INSERT INTO explore_asks (id, user_id, text, status) VALUES (?, ?, ?, 'working')").run(id, userId, t);
   const run = more(userId, { focus: t, askId: id })
     .then((r) => r, (err) => { console.warn('[spells] ask failed:', err.message); return { error: 'FAILED' }; })
     .then((r) => {
@@ -237,16 +245,31 @@ function ask(userId, text, { wait = false } = {}) {
     });
   return wait ? run : { ok: true, ask: askView(userId, db._raw().prepare('SELECT * FROM explore_asks WHERE id = ?').get(id)) };
 }
+/** Two searches about the same thing (most of the shorter one's words are in the other). */
+function askAlike(x, y) {
+  const a = words(x), b = words(y);
+  let both = 0; for (const w of a) if (b.has(w)) both++;
+  return both >= 3 || (both >= 2 && both / Math.min(a.size, b.size) >= 0.5);
+}
 function askView(userId, a) {
   const items = db._raw().prepare("SELECT * FROM spells WHERE user_id = ? AND asked = ? AND status = 'new' AND NOT (kind IN ('nearby', 'new') AND (link IS NULL OR COALESCE(link_ok, 1) = 0)) ORDER BY created_at")
     .all(userId, a.id).map(view);
   return { id: a.id, text: a.text, status: a.status, made: a.made, at: a.created_at, items,
-    message: a.status === 'none' ? 'Couldn’t find ideas for that right now — try again or say it another way' : a.status === 'limit' ? 'That’s plenty of ideas for today — more tomorrow' : null };
+    // 🐛 #60: "You couldn't find anything in a search because I gave too much information?" — it was never the question.
+    message: a.status === 'none' ? 'ButterflAI came back empty-handed this time (its fault, not your question) — tap ↻ to look again' : a.status === 'limit' ? 'That’s plenty of ideas for today — more tomorrow' : null };
 }
 /** Recent searches (7 days, newest first) with their ideas — for the top of Explore. */
 function asks(userId) {
-  return db._raw().prepare('SELECT * FROM explore_asks WHERE user_id = ? AND created_at > ? ORDER BY created_at DESC LIMIT 6').all(userId, now() - 7 * 86400)
-    .map((a) => askView(userId, a));
+  // Searches from before they were merged: the newest of each kind stands for the rest, with all their ideas.
+  const rows = db._raw().prepare('SELECT * FROM explore_asks WHERE user_id = ? AND created_at > ? ORDER BY created_at DESC').all(userId, now() - 7 * 86400);
+  const groups = [];
+  for (const r of rows) { const g = groups.find((x) => askAlike(x[0].text, r.text)); if (g) g.push(r); else groups.push([r]); }
+  return groups.slice(0, 6).map((g) => {
+    const v = askView(userId, g[0]);
+    for (const older of g.slice(1)) for (const i of askView(userId, older).items) if (!v.items.some((x) => x.id === i.id)) v.items.push(i);
+    if (v.items.length && v.status === 'none') { v.status = 'done'; v.message = null; }
+    return v;
+  });
 }
 /** Run a search again. */
 function askAgain(userId, askId) {
@@ -423,6 +446,16 @@ async function fillOnce({ limit = 12 } = {}) {
 }
 
 // ── Keeping ideas true (🐛 #41) ──
+/** The search result most about this idea (its words in the result's title or address); its own link if that's it. */
+function pickLink(idea, results) {
+  if (!results.length) return null;
+  const want = words(`${idea.title} ${idea.public_title || ''}`);
+  const score = (r) => { const have = words(`${r.title} ${decodeURIComponent(String(r.url).replace(/[-_/.]+/g, ' '))}`); let n = 0; for (const w of want) if (have.has(w)) n++; return n; };
+  const scored = results.filter((r) => /^https:\/\//.test(r.url)).map((r) => ({ r, n: score(r) })).sort((a, b) => b.n - a.n);
+  const own = scored.find((x) => x.r.url === idea.link);
+  if (own && scored[0] && own.n >= scored[0].n) return own.r.url;
+  return scored[0] && scored[0].n >= 2 ? scored[0].r.url : null;
+}
 function host(u) { try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase(); } catch (_) { return null; } }
 const STOP = new Set('a an the at in on with and or for to of your you this that night day week weekend tonight today tomorrow monday tuesday wednesday thursday friday saturday sunday mon tue wed thu fri sat sun jan feb mar apr may jun jul aug sep sept oct nov dec january february march april june july august september october november december'.split(' '));
 function words(t) { return new Set(String(t || '').toLowerCase().replace(/[^a-z0-9\s&]/g, ' ').split(/\s+/).filter((w) => w && !STOP.has(w) && !/^\d+(st|nd|rd|th)?$/.test(w))); }
@@ -459,4 +492,4 @@ function adopt(userId, originId) {
   return id;
 }
 
-module.exports = { generate, more, ask, asks, askAgain, tick, forUser, answer, react, page, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };
+module.exports = { pickLink, generate, more, ask, asks, askAgain, tick, forUser, answer, react, page, adopt, fillImages, fixWeekdays, alike, words, host, purgeOld, contextFor, associates, echo, sameTown, avoidsEither, KINDS, PUBLIC_KINDS, MAX_PER_DAY, _setClient };

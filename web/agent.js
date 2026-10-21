@@ -865,6 +865,18 @@ function todoDay(modelDay) {
  * October 30 evening" → 7pm). If the user's recent words name no time, a time in `when` is
  * dropped and a clock time in scheduled_at becomes just that day — saved as "time TBD".
  */
+/**
+ * 🐛 #59 (2026-10-21): Allie asked "Anonymously tell Sean he's a dork … don't let him know it's from me"; her
+ * agent sent it and said "Sent" — but every message names who it's from ("From Allie's ButterflAI", MEMORY §10,
+ * locked). A message can't be anonymous, so one asked to be isn't sent; the agent says so instead.
+ */
+const ANON = /\b(anonymous(ly)?|without (my|me|her|his) name|don'?t (let (him|her|them) know|tell (him|her|them)) (it'?s|it is|that it'?s) (from )?(me|us)|(not|never) (say|tell|mention) (it'?s|that it'?s) from me|(secret|anonymous) (admirer|message|note)|so (he|she|they) (won'?t|doesn'?t|don'?t) know (it'?s|it was) me)\b/i;
+function asksAnonymous(userId) {
+  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND created_at > strftime('%s','now') - 1800
+    ORDER BY created_at DESC LIMIT 3`).all(userId).map((r) => r.text).join(' ');
+  return ANON.test(`${currentTurn?.userText || ''} ${recent}`);
+}
+
 function noInventedTime(userId, input) {
   if (!input || !currentTurn?.userText) return;
   const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND created_at > strftime('%s','now') - 3 * 3600
@@ -1322,6 +1334,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     case 'send_logistics_sms': {
       const contact = ownContact(userId, toolInput.contact_id);
       if (contact.error) return contact;
+      if (asksAnonymous(userId)) {
+        return { error: 'ANONYMOUS_NOT_POSSIBLE', action_status: 'NOT_SENT',
+          message: `Not sent. ButterflAI always shows who a message is from ("From ${String(db.getUser(userId)?.name || 'your user').split(' ')[0]}'s ButterflAI") — there's no anonymous message. Tell your user plainly, and ask if they want to send it from them instead. Don't say it was sent.` };
+      }
       if (!contact.phone) return { error: 'Contact has no phone number on file' };
 
       let messageBody = toolInput.message;
@@ -1377,6 +1393,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
 
     case 'message_agent': {
       const { contact_id, topic, message: agentMsg, ask_again } = toolInput;
+      if (asksAnonymous(userId)) return { error: 'ANONYMOUS_NOT_POSSIBLE', action_status: 'NOT_SENT', message: 'Not sent — every message says who it\'s from; there\'s no anonymous message. Tell your user plainly and ask if they want to send it from them.' };
       // Every question between agents is about a plan (owner, 2026-10-13): that's what lets
       // insiders answer from the plan, deferrals answer in code, and answers land on the
       // plan instead of being asked again. Only coordination needed one before; and a
@@ -2570,6 +2587,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   DATES AS SAID: pass the date in your user's words (when). A day with no time is that day, "time TBD" — never add a time ("evening", "7pm") they didn't give; "the 30th" is one day, not a weekend range.
   ONE PLAN AT A TIME: in a plan's discussion, change only that plan. Something your user says there ("noon till 6", "kids won't last") is about that plan — never copy it onto their other plans. To change another plan they must name it.
   SCREENSHOTS: "[What was on my screen]" in your user's message is what ButterflAI read from a screenshot they attached (the picture isn't kept) — treat it as what they're showing you and act on it like their own words: dates, times, places and people in it are what to plan with (as written — never invent a missing time), a flyer or event page is something to plan around, and a conversation shows what's been said. If it's unclear what they want done with it, do the obvious thing for the plan being discussed (or ask once). Never describe anyone's looks.
+  NO ANONYMOUS MESSAGES: every message ButterflAI passes on says who it's from ("From Allie's ButterflAI"). If your user asks to send something anonymously ("don't let him know it's from me"), don't send it and don't say it was sent — tell them it will always show it's from them, and ask whether to send it that way.
   WISHES ARE NOT PLANS: "I wish…", "I'd love to someday…", "it'd be great to…" with no date, place or people decided → manage_wishes add (ButterflAI looks for others who wish for the same thing). A concrete plan (people, a day, "let's do X") → create_social_event. Never tell your user anyone else's wishes; matches reach them on their own.
   PLANS ARE MADE TOGETHER — GUESTS SUGGEST, HOSTS AND CO-HOSTS DECIDE: the host and co-hosts (the person a plan is for is one automatically; the host can add more with set_cohost) change a plan for everyone. A guest's change still goes through update_event / merge_plans — it becomes a suggestion the host and co-hosts accept or decline; tell your user "suggested to X", never "changed", and never "I can't". Only the host cancels. When your user decides on a suggestion ("yes, do Melanie's idea"), use decide_suggestion.
   CREATING ITEMS HAVE A LEAD AND A TEAM: whoever brings an item up leads it. Before adding, check the list — if it's already there in other words, add details to that item (manage_todos update), never a second one. Only the item's team edits it; your user's ideas about someone else's item go to them as a suggestion, unless your user is taking it on themselves ("I'll book it" → join: true).

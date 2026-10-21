@@ -70,6 +70,12 @@
     .ask input { flex: 1; min-width: 0; height: 40px; border: 1.5px solid #e5e5e5; border-radius: 999px; padding: 0 14px; font: inherit; font-size: 16px; background: #fff; }
     .ask input:focus { outline: none; border-color: #6c47ff; }
     .ask button { flex: none; border: none; background: #6c47ff; color: #fff; border-radius: 999px; padding: 0 16px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+    /* Your searches: a dropdown when you tap the box (🐛 #55), not a list that's always there */
+    #ask-drop { position: absolute; left: 16px; right: 16px; top: calc(100% - 2px); background: #fff; border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.15); overflow: hidden; z-index: 20; }
+    #ask-drop button { display: flex; width: 100%; align-items: center; gap: 8px; border: none; background: none; text-align: left; font: inherit; font-size: 15px; padding: 12px 14px; border-top: 1px solid #f2f2f7; cursor: pointer; color: #1c1c1e; }
+    #ask-drop button:first-child { border-top: none; }
+    #ask-drop .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #ask-drop .n { flex: none; font-size: 13px; color: #8e8e93; }
     .asked-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin: 0 2px 10px; }
     .asked-head button { margin-left: auto; background: none; border: none; color: #8e8e93; font-size: 16px; cursor: pointer; }
     .comment { display: none; gap: 6px; padding: 4px 12px 12px; }
@@ -108,7 +114,8 @@
 <div id="map-wrap" hidden><div id="map"></div><div class="legend">When<div class="bar"></div><div class="ends"><span>Today</span><span>2+ weeks</span></div><div style="margin-top:4px;color:#8e8e93">● grey: no date</div></div></div>
 <main id="list-view">
   <!-- 🔎 Search for something, or steer what you see (🐛 #50) -->
-  <form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas"><button type="submit">Go</button></form>
+  <form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas" autocomplete="off" onfocus="showDrop(true)" onblur="setTimeout(() => showDrop(false), 200)"><button type="submit">Go</button>
+    <div id="ask-drop" hidden></div></form>
   <div id="asked"></div>
   <div id="my-plans"></div>
   <div class="stories" id="stories" hidden></div>
@@ -242,16 +249,19 @@
     try { sessionStorage.setItem('bfly-explore', JSON.stringify({ at: Date.now(), seen, myPlans, rendered: rendered.filter((i) => document.querySelector(`.post[data-id="${CSS.escape(i.id)}"]`)), stories, finished, y: scrollY,
       anchor: top ? { id: top.dataset.id, top: top.getBoundingClientRect().top } : null })); } catch (_) {}
   }
-  function restore() {
+  // Only posts the server still shows come back (🐛 #57 — a hidden idea came back from the phone's memory).
+  async function restore() {
     let s = null;
     try { s = JSON.parse(sessionStorage.getItem('bfly-explore') || localStorage.getItem('bfly-explore') || 'null'); } catch (_) {}
     if (!s || Date.now() - s.at > 30 * 60 * 1000 || !(s.rendered || []).length) return false;
+    const d = await fetch('/api/ideas/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: s.rendered.map((i) => i.id) }) }).then((r) => r.json()).catch(() => null);
+    if (!d || !(d.items || []).length) return false;
     restoring = true;
     seen = s.seen || []; finished = !!s.finished;
     for (const i of s.stories || []) addStory(i);
     for (const p of s.myPlans || []) myPlans.push(p);
     renderMyPlans();
-    for (const i of s.rendered) { rendered.push(i); feedEl.insertAdjacentHTML('beforeend', cardHtml(i)); }
+    for (const i of d.items) { rendered.push(i); feedEl.insertAdjacentHTML('beforeend', cardHtml(i)); }
     // Back to that post (again as the Out and about panel and stories finish loading above it), unless you've scrolled.
     let moved = false;
     const mark = () => { moved = true; };
@@ -280,34 +290,37 @@
   // ── 🔎 Ask Explore (🐛 #50): a search, or steering ("more outdoors") that sticks. 🐛 #54: runs in the
   // background and is kept — your recent searches stay here with their ideas; open one, or run it again. ──
   let asksList = [], askOpen = null, askPoll = null;
-  function askHtml(a) {
-    const open = askOpen === a.id;
-    const state = a.status === 'working' ? 'looking…' : a.items.length ? `${a.items.length} idea${a.items.length === 1 ? '' : 's'}` : (a.message || 'nothing yet');
-    return `<div class="asked-head" style="cursor:pointer" onclick="toggleAsk('${esc(a.id)}')">🔎 ${esc(a.text.length > 60 ? a.text.slice(0, 57) + '…' : a.text)}
-        <span class="sub" style="margin:0;font-weight:400">· ${esc(state)}</span>
-        <button aria-label="Run it again" title="Run it again" onclick="event.stopPropagation(); askAgain('${esc(a.id)}')">↻</button>
-        <button aria-label="${open ? 'Close' : 'Open'}" onclick="event.stopPropagation(); toggleAsk('${esc(a.id)}')">${open ? '▴' : '▾'}</button></div>`
-      + (open ? (a.status === 'working' ? '<div class="sub" style="margin:0 2px 14px">✨ ButterflAI is looking — this takes a few seconds; you can keep scrolling or leave and come back.</div>'
-        : a.items.map((i) => cardHtml({ type: 'idea', ...i })).join('') + (a.message && !a.items.length ? `<div class="sub" style="margin:0 2px 14px">${esc(a.message)}</div>` : '')) : '');
-  }
+  const askState = (a) => (a.status === 'working' ? 'looking…' : a.items.length ? `${a.items.length} idea${a.items.length === 1 ? '' : 's'}` : (a.message ? 'nothing found' : 'nothing yet'));
+  // The search you opened (from the box or the dropdown): its ideas here, ✕ to close it.
   function renderAsks() {
     for (const a of asksList) for (const i of a.items) if (!rendered.some((r) => r.id === i.id)) rendered.push(i);
-    document.getElementById('asked').innerHTML = asksList.map(askHtml).join('');
+    const a = asksList.find((x) => x.id === askOpen);
+    document.getElementById('asked').innerHTML = !a ? '' : `<div class="asked-head">🔎 ${esc(a.text.length > 70 ? a.text.slice(0, 67) + '…' : a.text)}
+        <span class="sub" style="margin:0;font-weight:400">· ${esc(askState(a))}</span>
+        <button aria-label="Run it again" title="Run it again" onclick="askAgain('${esc(a.id)}')">↻</button>
+        <button aria-label="Close" onclick="askOpen = null; renderAsks()">✕</button></div>`
+      + (a.status === 'working' ? '<div class="sub" style="margin:0 2px 14px">✨ ButterflAI is looking — this takes a few seconds; you can keep scrolling or leave and come back.</div>'
+        : a.items.map((i) => cardHtml({ type: 'idea', ...i })).join('') + (a.message && !a.items.length ? `<div class="sub" style="margin:0 2px 14px">${esc(a.message)}</div>` : ''));
+    renderDrop();
   }
-  function toggleAsk(id) { askOpen = askOpen === id ? null : id; renderAsks(); }
+  // Your recent searches, merged when they're about the same thing (🐛 #55) — shown when you tap the box.
+  function renderDrop() {
+    document.getElementById('ask-drop').innerHTML = asksList.map((a) => `<button type="button" onmousedown="event.preventDefault()" onclick="openAsk('${esc(a.id)}')"><span>🔎</span><span class="t">${esc(a.text)}</span><span class="n">${esc(askState(a))}</span></button>`).join('');
+  }
+  function showDrop(on) { const d = document.getElementById('ask-drop'); d.hidden = !on || !asksList.length; }
+  function openAsk(id) { askOpen = id; renderAsks(); showDrop(false); document.getElementById('ask-text').blur(); scrollTo({ top: 0, behavior: 'smooth' }); }
   async function loadAsks() {
     const d = await fetch('/api/ideas/asks').then((r) => r.json()).catch(() => null);
     if (!d) return;
     asksList = d.asks || [];
     if (askOpen && !asksList.some((a) => a.id === askOpen)) askOpen = null;
-    if (!askOpen && asksList[0] && Date.now() / 1000 - asksList[0].at < 2 * 3600) askOpen = asksList[0].id;   // your latest search, open
     renderAsks();
     clearTimeout(askPoll);
     if (asksList.some((a) => a.status === 'working')) askPoll = setTimeout(loadAsks, 3000);
   }
   async function askExplore() {
     const el = document.getElementById('ask-text'); const text = el.value.trim(); if (!text) return;
-    el.value = ''; el.blur();
+    el.value = ''; el.blur(); showDrop(false);
     scrollTo({ top: 0, behavior: 'smooth' });   // the answer shows at the top — asked from anywhere down the feed
     const r = await fetch('/api/ideas/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }).then((x) => x.json()).catch(() => ({}));
     if (r.ask) { askOpen = r.ask.id; asksList = [r.ask, ...asksList.filter((a) => a.id !== r.ask.id)]; renderAsks(); }
@@ -315,7 +328,7 @@
   }
   async function askAgain(id) {
     const r = await fetch('/api/ideas/asks/' + encodeURIComponent(id) + '/again', { method: 'POST' }).then((x) => x.json()).catch(() => ({}));
-    if (r.ask) { askOpen = r.ask.id; asksList = [r.ask, ...asksList]; renderAsks(); }
+    if (r.ask) { askOpen = r.ask.id; asksList = [r.ask, ...asksList.filter((a) => a.id !== r.ask.id)]; renderAsks(); }
     setTimeout(loadAsks, 3000);
   }
   loadAsks();
@@ -401,7 +414,7 @@
       .map(({ p }) => ({ id: p.dataset.id, title: (rendered.find((x) => x.id === p.dataset.id) || {}).title }));
     return { screen: 'explore', looking_at: onScreen[0] || null, on_screen: onScreen, shown: seen.slice(0, 60) };
   };
-  if (!restore()) loadMore();
+  restore().then((ok) => { if (!ok) loadMore(); });
 </script>
 <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
 <script src="/update-check.js"></script>

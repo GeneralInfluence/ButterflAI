@@ -287,7 +287,8 @@ describe('✨ Feed', () => {
   // 🐛 #49: "I need to give feedback about specific suggestions … make sure that you know the difference".
   test('🐛 #48 / #49: Explore keeps your place, each post takes a comment, a 🐛 report knows the post you were looking at', () => {
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
-    assert.ok(html.includes('if (!restore()) loadMore();') && html.includes("sessionStorage.setItem('bfly-explore'") && !html.includes('10 * 60 * 1000'));
+    // Since 🐛 #57 the restore asks the server which saved posts are still shown (async).
+    assert.ok(html.includes('restore().then((ok) => { if (!ok) loadMore(); });') && html.includes("sessionStorage.setItem('bfly-explore'") && !html.includes('10 * 60 * 1000'));
     assert.ok(html.includes('What do you think of this one?') && html.includes('function commentOn'));
     assert.ok(html.includes('looking_at: onScreen[0]'));
   });
@@ -400,6 +401,7 @@ describe('✨ Feed', () => {
     assert.equal(a.status, 'done');
     assert.deepEqual(a.items.map((i) => i.title), ['Chollar Mine tour for the kids', 'Wild west show before the party'], 'asked again for the ideas, from what it found');
     assert.match(prompts[0][0].content, /Liam's Birthday Party \([^)]*Virginia City\)/, 'the plan with its day and place');
+    assert.match(prompts[0][0].content, /what's open or running there counts even without a dated event/, '🐛 #60');
     assert.match(prompts[1].at(-1).content, /Now reply with the JSON only/);
     // Kept: it's still there later, its ideas aren't mixed into the main feed, and it can run again.
     assert.ok(!ideafeed.page(me.id).items.some((i) => i.title === 'Chollar Mine tour for the kids'), 'under the search, not twice');
@@ -409,13 +411,59 @@ describe('✨ Feed', () => {
     assert.equal(again.body.ask.text, a.text);
     for (let k = 0; k < 50; k++) { await new Promise((x) => setTimeout(x, 20)); if ((await request.get('/api/ideas/asks').set('Cookie', c)).body.asks.every((x) => x.status !== 'working')) break; }
     const all = (await request.get('/api/ideas/asks').set('Cookie', c)).body.asks;
-    assert.equal(all.length, 2);
+    assert.equal(all.length, 1, 'running it again is the same search (since 🐛 #55 the same search is one entry)');
     // Nothing found at all → said, not silent.
     spells._setClient({ messages: { create: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Sorry, nothing.' }] }) } });
     const none = await spells.ask(me.id, 'underwater opera', { wait: true });
     assert.equal(none.status, 'none');
-    assert.match(none.message, /Couldn’t find ideas for that right now/);
+    // 🐛 #60 (Sean: "You couldn't find anything in a search because I gave too much information?") — never the question's fault.
+    assert.match(none.message, /its fault, not your question/);
+    assert.ok(!/say it another way/.test(none.message));
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
     assert.ok(html.includes('function askAgain') && html.includes('you can keep scrolling or leave and come back'));
+  });
+
+  // 🐛 #55 (Sean, 2026-10-21): "The searches should be part of a drop-down. When I click in the search area, it
+  // shouldn't just be there right away … you show a bunch of things that are really really similar and they should
+  // be consolidated into one general search".
+  test('🐛 #55: the same search in other words is one search, and your searches are a dropdown on the box', async () => {
+    const me = mkUser('Sean S55');
+    spells._setClient({ messages: { create: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"spells":[{"kind":"reconnect","title":"Wild west show with the kids","why":"x"}]}' }] }) } });
+    const a = await spells.ask(me.id, "For Liam's birthday party on Sunday, anything going on there that's good for kids", { wait: true });
+    const b = await spells.ask(me.id, "So are there any events in Virginia City around the time of Liam's birthday party? mine tours, wild west shows", { wait: true });
+    assert.equal(a.id, b.id, 'one search');
+    await spells.ask(me.id, 'live jazz this week', { wait: true });
+    assert.deepEqual(spells.asks(me.id).map((x) => x.text), ['live jazz this week', "So are there any events in Virginia City around the time of Liam's birthday party? mine tours, wild west shows"]);
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
+    assert.ok(html.includes('id="ask-drop" hidden') && html.includes('onfocus="showDrop(true)"') && html.includes('function openAsk'));
+    assert.ok(!html.includes('askOpen = asksList[0].id'), 'not opened by itself');
+  });
+  // 🐛 #56: "Songkick is a legitimate sight. I wanted to click on it". 🐛 #58: "I want the more link to go specifically
+  // to whatever it is that you're recommending … it goes to something general".
+  test('🐛 #56 / #58: a site that turns away bots is still real, each idea links the search result about it', async () => {
+    const og = require('../../ogimage');
+    og._setLookup(async () => [{ address: '93.184.216.34' }]);
+    og._setFetch(async () => ({ status: 403, ok: false, headers: new Map([['content-type', 'text/html']]), text: async () => '' }));
+    const r = await og.check('https://www.songkick.com/metro-areas/13455-us-reno');
+    assert.equal(r.ok, true); assert.equal(r.frameable, false);
+    og._setFetch(null);
+    const results = [
+      { url: 'https://www.cargoreno.com/upcoming-events', title: 'Upcoming Events | Cargo Concert Hall' },
+      { url: 'https://www.cargoreno.com/events/free-throw-microwave-2026-10-24', title: 'Free Throw & Microwave — Cargo Concert Hall' },
+      { url: 'https://www.songkick.com/concerts/12345-new-constellations-at-cargo', title: 'New Constellations at Cargo, Reno' },
+    ];
+    assert.equal(spells.pickLink({ title: 'Free Throw & Microwave at Cargo Friday', link: 'https://www.cargoreno.com/upcoming-events' }, results), 'https://www.cargoreno.com/events/free-throw-microwave-2026-10-24', 'the event, not the listing');
+    assert.equal(spells.pickLink({ title: 'New Constellations at Cargo Thursday', link: 'https://www.songkick.com/metro-areas/13455-us-reno' }, results), 'https://www.songkick.com/concerts/12345-new-constellations-at-cargo');
+    assert.equal(spells.pickLink({ title: 'Pottery night', link: 'https://x.test' }, results), null, 'nothing about it: no pick');
+  });
+  // 🐛 #57: "You've already recognized … that cargo concert Hall is not a legitimate URL. Why is it still there?" — the
+  // page brought back posts it had saved without asking whether they're still shown.
+  test('🐛 #57: saved posts come back only if they\'re still shown', async () => {
+    const me = mkUser('Sean S57');
+    const ok = idea(me, { title: 'Still good' }); const bad = idea(me, { title: 'Cargo concert hall dot com' });
+    db._raw().prepare('UPDATE spells SET link_ok = 0 WHERE id = ?').run(bad);
+    const c = await cookieFor(me);
+    const r = await request.post('/api/ideas/items').set('Cookie', c).send({ ids: [bad, ok] });
+    assert.deepEqual(r.body.items.map((i) => i.id), [ok]);
   });
 });

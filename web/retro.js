@@ -717,6 +717,16 @@ const TASKS = [
       return `requeued ${r.changes}`;
     },
   },
+  {
+    id: '2026-10-21-recheck-blocked-links',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: '🐛 #56: sites that turn away automated visitors (Songkick) were counted as broken and their ideas hidden. This user\'s ideas whose links failed are checked again — real sites come back, broken ones stay hidden.',
+    run(user) {
+      const r = db._raw().prepare('UPDATE spells SET image_checked = 0, link_ok = NULL WHERE user_id = ? AND link_ok = 0').run(user.id);
+      return `requeued ${r.changes}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

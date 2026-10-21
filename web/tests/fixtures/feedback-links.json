@@ -155,5 +155,29 @@
   "54": {
     "note_starts": "I did a search about Liam's party but they never updated",
     "test": "tests/integration/ideafeed.test.js › 🐛 #54: a search that gets prose is asked again for ideas, ideas know your plans' days and places, searches are kept and can run again"
+  },
+  "55": {
+    "note_starts": "The searches should be part of a drop-down",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #55: the same search in other words is one search, and your searches are a dropdown on the box"
+  },
+  "56": {
+    "note_starts": "Songkick is a legitimate sight",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #56 / #58: a site that turns away bots is still real, each idea links the search result about it"
+  },
+  "58": {
+    "note_starts": "I want the more link to go specifically",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #56 / #58: a site that turns away bots is still real, each idea links the search result about it"
+  },
+  "57": {
+    "note_starts": "You've already recognized in previous tests that cargo concert Hall",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #57: saved posts come back only if they're still shown"
+  },
+  "59": {
+    "note_starts": "So it says to me from Allie's butterfly that there's a rumor",
+    "test": "tests/integration/no-anonymous.test.js › Allie's exact words: not sent, the agent is told why, Sean gets nothing"
+  },
+  "60": {
+    "note_starts": "What do you mean? You couldn't find anything in a search",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #54: a search that gets prose is asked again for ideas, ideas know your plans' days and places, searches are kept and can run again"
   }
 }

@@ -106,4 +106,16 @@ function map(userId) {
   return { pins, me, unplaced: all.length - pins.length, today: new Date().toLocaleDateString('en-CA', { timeZone: user.timezone || 'America/Los_Angeles' }) };
 }
 
-module.exports = { page, pool, rightNow, map, PAGE };
+/** The posts the page saved (🐛 #57): only those still shown — an idea since hidden (a link that didn't open,
+ *  answered, expired) isn't brought back from the phone's memory. */
+function items(userId, ids) {
+  const user = db.getUser(userId);
+  if (!user || !Array.isArray(ids)) return { items: [] };
+  const want = new Set(ids.slice(0, 400).map(String));
+  const have = new Set();
+  const all = [...spells.forUser(userId).map((s) => ({ type: 'idea', ...s })), ...pool(user, have)];
+  const byId = new Map(all.map((i) => [i.id, i]));
+  return { items: ids.map(String).filter((id) => want.has(id) && byId.has(id)).map((id) => byId.get(id)) };
+}
+
+module.exports = { page, pool, rightNow, map, items, PAGE };

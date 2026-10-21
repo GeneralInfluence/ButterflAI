@@ -93,6 +93,9 @@ async function check(link) {
         if (url && url.protocol !== 'https:') return { ok: false, image: null };   // sent to an insecure page
         continue;
       }
+      // A site that turns away automated visitors (401/403/429 — Songkick, 🐛 #56) is real and opened securely;
+      // we just can't read it. People can open it. Not shown inside ButterflAI (we can't tell if it allows that).
+      if ([401, 403, 429].includes(r.status)) return { ok: true, image: null, frameable: false, desc: null, blocked: true };
       if (!r.ok) return { ok: false, image: null };
       // Can it be shown inside ButterflAI? Not if the site forbids being framed.
       const xfo = String(r.headers.get('x-frame-options') || '').toLowerCase();
