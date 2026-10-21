@@ -1189,7 +1189,8 @@ the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (
 - **Map (#46 — empty; "a simple map … roads and neighborhoods"):** Photon instead of Nominatim (Nominatim
   found nothing for "Bartley Ranch Regional Park"), by `address` first, a name only if its distinctive
   words match (`geocode.sameName` — Photon offered "Silver Creek Condominiums" for "Silver Apothecary Co."),
-  within 80 km of the person; ideas must name a real venue; CARTO Voyager tiles; "N ideas without a place
+  within 80 km of the person; ideas must name a real venue; ~~CARTO Voyager tiles~~ (🐛 #68: CARTO answered "API KEY
+  REQUIRED" on butterflai.social — passed only on localhost) → OpenFreeMap "liberty" via MapLibre GL (cdnjs), no key; "N ideas without a place
   aren't shown". Retro re-looks-up places that failed. Older ideas have no place — they age out daily.
 - **Explore keeps your place (#48):** what was shown + the post at the top, restored for 30 min
   (sessionStorage, re-anchored as the panel above loads); no more starting over.
@@ -1231,7 +1232,8 @@ the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (
   search; a search's pill turns Explore into that search's ideas (the feed, stories and panels step aside —
   `main.searching`); ↻ runs it again, ✕ removes it (`DELETE /api/ideas/asks/:id`, its ideas stay). Searches have
   short names (`explore_asks.label`, migration 081 — the model names them, else `spells.shortLabel`), used in the
-  pills and the dropdown.
+  pills and the dropdown. The open pill has no second header repeating it — "↻ Look again · ✕ Remove this search"
+  sit at the end of its ideas (🐛 #67).
 - **I'm in tonight (#62):** Out and about has "I'm in" → it stops asking until the night ends (`staying_in`,
   `outnow.stayIn`/`notIn`, `POST/DELETE /api/out/in`); one quiet line "You're in tonight · I'm out after all";
   going out clears it.

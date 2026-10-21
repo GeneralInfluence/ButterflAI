@@ -184,7 +184,8 @@ describe('✨ Feed', () => {
     const c = await cookieFor(me);
     assert.equal((await request.get('/api/ideas/map').set('Cookie', c)).body.pins.length, 2);
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
-    assert.ok(html.includes("showView('map')") && html.includes('leaflet') && html.includes('[0x34, 0xc7, 0x59], b = [0x6c, 0x47, 0xff]'), 'green → purple, never red');
+    // The map library is MapLibre with OpenFreeMap since 🐛 #68 (CARTO's tiles wanted an API key).
+    assert.ok(html.includes("showView('map')") && html.includes('maplibre-gl') && html.includes('[0x34, 0xc7, 0x59], b = [0x6c, 0x47, 0xff]'), 'green → purple, never red');
     assert.equal(m.unplaced, 1, 'how many ideas aren\'t on the map');
     assert.ok(html.includes('Found in a web search'), '🐛 #41: each post says where it came from');
   });
@@ -279,8 +280,12 @@ describe('✨ Feed', () => {
     assert.ok(urls.every((u) => u.startsWith('https://photon.komoot.io/api/')));
     geo._setFetch(null);
     const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../public/app/explore.html'), 'utf8');
-    assert.ok(html.includes('basemaps.cartocdn.com/rastertiles/voyager') && !html.includes('tile.openstreetmap.org'), 'roads and neighborhoods, not terrain');
+    // 🐛 #68 (Sean: "What API key do I need? … there's no map here") — CARTO's tiles said "API KEY REQUIRED" on butterflai.social.
+    // OpenFreeMap needs no key; its "liberty" style is a plain street map.
+    assert.ok(html.includes("const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'") && !html.includes('cartocdn') && !html.includes('tile.openstreetmap.org'), 'roads and neighborhoods, no key');
     assert.ok(html.includes('without a place aren’t shown'));
+    // 🐛 #67: "I have the pill there then. I don't need to also have the five ideas thing below it."
+    assert.ok(!html.includes("· ${esc(askState(a))}</span>") && html.includes('↻ Look again') && html.includes('✕ Remove this search'));
     assert.match(spells.contextFor ? require('node:fs').readFileSync(require('node:path').join(__dirname, '../../spells.js'), 'utf8') : '', /never "a cozy spot"/);
   });
   // 🐛 #48: "Every time I come back to explore it goes back to the beginning".

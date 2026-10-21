@@ -203,5 +203,13 @@
   "66": {
     "note_starts": "Update the camera image on the chat pill",
     "test": "tests/integration/quick-note.test.js › chat page has the camera button and sends the image"
+  },
+  "67": {
+    "note_starts": "I have the pill there then",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #46: places found by address or by name — only near your town and only a name that matches, a plain street map"
+  },
+  "68": {
+    "note_starts": "What API key do I need",
+    "test": "tests/integration/ideafeed.test.js › 🐛 #46: places found by address or by name — only near your town and only a name that matches, a plain street map"
   }
 }

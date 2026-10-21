@@ -12,7 +12,6 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <meta name="theme-color" content="#6c47ff">
   <title>ButterflAI — Explore</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <!-- 🧭 Explore (owner, 2026-10-20: "these suggestions should become a feed, a social feed … their own
        tab along the bottom … never-ending … constantly being populated with stuff that Butterfly has
        found in their area or other people are up to"; named Explore; 🐛 #39: "an image there sort of
@@ -118,7 +117,7 @@
   <div class="view-switch" role="tablist"><button id="v-list" class="on" onclick="showView('list')">List</button><button id="v-map" onclick="showView('map')">Map</button></div>
   <nav style="margin-left:16px"><a href="/app/dashboard">Home</a><a href="/app/chat">Plans</a><a href="/app/settings">Settings</a></nav>
 </header>
-<div id="map-wrap" hidden><div id="map"></div><div class="legend">When<div class="bar"></div><div class="ends"><span>Today</span><span>2+ weeks</span></div><div style="margin-top:4px;color:#8e8e93">● grey: no date</div></div></div>
+<div id="map-wrap" hidden style="position:relative"><div id="map"></div><div class="legend" id="map-note" hidden style="top:12px;right:12px;left:auto;bottom:auto"></div><div class="legend">When<div class="bar"></div><div class="ends"><span>Today</span><span>2+ weeks</span></div><div style="margin-top:4px;color:#8e8e93">● grey: no date</div></div></div>
 <main id="list-view">
   <!-- 🔎 Search for something, or steer what you see (🐛 #50) -->
   <div class="ask-bar"><form class="ask" id="ask" onsubmit="event.preventDefault(); askExplore();"><input id="ask-text" maxlength="200" placeholder="🔎 Search or steer your ideas" aria-label="Look for something or steer your ideas" autocomplete="off" onfocus="showDrop(true)" onblur="setTimeout(() => showDrop(false), 200)"><button type="submit">Go</button>
@@ -308,12 +307,10 @@
       + asksList.map((a) => `<button class="${askOpen === a.id ? 'on' : ''}" onclick="openAsk('${esc(a.id)}')">🔎 ${esc(a.label)}${a.status === 'working' ? ' …' : ''}</button>`).join('');
     const a = asksList.find((x) => x.id === askOpen);
     document.getElementById('list-view').classList.toggle('searching', !!a);
-    document.getElementById('asked').innerHTML = !a ? '' : `<div class="asked-head">🔎 ${esc(a.text.length > 90 ? a.text.slice(0, 87) + '…' : a.text)}
-        <span class="sub" style="margin:0;font-weight:400">· ${esc(askState(a))}</span>
-        <button aria-label="Run it again" title="Run it again" onclick="askAgain('${esc(a.id)}')">↻</button>
-        <button aria-label="Remove this search" title="Remove this search" onclick="dropAsk('${esc(a.id)}')">✕</button></div>`
-      + (a.status === 'working' ? '<div class="sub" style="margin:0 2px 14px">✨ ButterflAI is looking — this can take a minute; you can switch to ✨ For you or leave and come back.</div>'
-        : a.items.map((i) => cardHtml({ type: 'idea', ...i })).join('') + (a.message && !a.items.length ? `<div class="sub" style="margin:0 2px 14px">${esc(a.message)}</div>` : ''));
+    // The pill says which search this is — no second header repeating it (🐛 #67); look again / remove at the end.
+    document.getElementById('asked').innerHTML = !a ? '' : (a.status === 'working' ? '<div class="sub" style="margin:0 2px 14px">✨ ButterflAI is looking — this can take a minute; you can switch to ✨ For you or leave and come back.</div>'
+        : a.items.map((i) => cardHtml({ type: 'idea', ...i })).join('') + (a.message && !a.items.length ? `<div class="sub" style="margin:0 2px 14px">${esc(a.message)}</div>` : '')
+          + `<div class="sub" style="margin:4px 2px 18px;display:flex;gap:18px"><a href="#" style="color:#6c47ff;text-decoration:none" onclick="event.preventDefault(); askAgain('${esc(a.id)}')">↻ Look again</a><a href="#" style="color:#8e8e93;text-decoration:none" onclick="event.preventDefault(); dropAsk('${esc(a.id)}')">✕ Remove this search</a></div>`);
     renderDrop();
   }
   async function dropAsk(id) {
@@ -379,8 +376,18 @@
     const a = [0x34, 0xc7, 0x59], b = [0x6c, 0x47, 0xff];
     return '#' + a.map((x, k) => Math.round(x + (b[k] - x) * t).toString(16).padStart(2, '0')).join('');
   }
-  function loadLeaflet() {
-    return window.L ? Promise.resolve() : new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+  // OpenFreeMap (free, no key, OpenStreetMap data) drawn by MapLibre — 🐛 #68: CARTO's tiles came back "API KEY
+  // REQUIRED" for butterflai.social. "Liberty" is a plain street map: roads and neighborhoods (🐛 #46), not terrain.
+  const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+  function loadMapLib() {
+    if (window.maplibregl) return Promise.resolve();
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css'; document.head.appendChild(css);
+    return new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+  }
+  function dot(color, size) {
+    const el = document.createElement('div');
+    el.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35);cursor:pointer`;
+    return el;
   }
   async function showView(v) {
     document.getElementById('v-list').classList.toggle('on', v === 'list');
@@ -389,34 +396,29 @@
     document.getElementById('map-wrap').hidden = v !== 'map';
     try { localStorage.setItem('bfly-explore-view', v); } catch (_) {}
     if (v !== 'map') return;
-    try { await loadLeaflet(); } catch (_) { document.getElementById('map').innerHTML = '<div class="status">The map couldn’t load.</div>'; return; }
+    try { await loadMapLib(); } catch (_) { document.getElementById('map').innerHTML = '<div class="status">The map couldn’t load.</div>'; return; }
     if (!mapObj) {
-      mapObj = L.map('map', { zoomControl: false }).setView([39.5, -119.8], 11);
-      // A plain street map — roads and neighborhoods, like the classic Google view (🐛 #46), not terrain.
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd', attribution: '© OpenStreetMap © CARTO' }).addTo(mapObj);
+      mapObj = new maplibregl.Map({ container: 'map', style: MAP_STYLE, center: [-119.8, 39.5], zoom: 10, attributionControl: { compact: true } });
     }
-    setTimeout(() => mapObj.invalidateSize(), 50);
+    setTimeout(() => mapObj.resize(), 50);
     if (mapLoaded) return;
     mapLoaded = true;
     const d = await fetch('/api/ideas/map').then((r) => r.json()).catch(() => ({ pins: [] }));
-    const pts = [];
+    const bounds = new maplibregl.LngLatBounds();
     for (const p of d.pins || []) {
-      const c = colorFor(p.date, d.today);
       const when = p.date ? new Date(p.date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : 'No date';
-      L.circleMarker([p.lat, p.lng], { radius: 10, color: '#fff', weight: 2, fillColor: c, fillOpacity: 1 }).addTo(mapObj)
-        .bindPopup(`<b>${esc(p.title)}</b><br>${esc(when)}${p.place ? ' · ' + esc(p.place) : ''}${p.link ? `<br><a href="/app/view?id=${encodeURIComponent(p.id)}">More ›</a>` : ''}`);
-      pts.push([p.lat, p.lng]);
+      new maplibregl.Marker({ element: dot(colorFor(p.date, d.today), 20) }).setLngLat([p.lng, p.lat])
+        .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML(`<b>${esc(p.title)}</b><br>${esc(when)}${p.place ? ' · ' + esc(p.place) : ''}${p.link ? `<br><a href="/app/view?id=${encodeURIComponent(p.id)}">More ›</a>` : ''}`))
+        .addTo(mapObj);
+      bounds.extend([p.lng, p.lat]);
     }
-    if (d.me) { L.circleMarker([d.me.lat, d.me.lng], { radius: 6, color: '#fff', weight: 2, fillColor: '#1c1c1e', fillOpacity: 1 }).addTo(mapObj).bindPopup('You'); pts.push([d.me.lat, d.me.lng]); }
-    if (pts.length) mapObj.fitBounds(pts, { padding: [40, 40], maxZoom: 14 });
+    if (d.me) { new maplibregl.Marker({ element: dot('#1c1c1e', 12) }).setLngLat([d.me.lng, d.me.lat]).setPopup(new maplibregl.Popup({ offset: 8 }).setText('You')).addTo(mapObj); bounds.extend([d.me.lng, d.me.lat]); }
+    if (!bounds.isEmpty()) mapObj.fitBounds(bounds, { padding: 50, maxZoom: 14, duration: 0 });
     // How many ideas aren't on the map (no place found yet) — so an empty map isn't a mystery (🐛 #46).
+    const note = document.getElementById('map-note');
     const off = d.unplaced || 0;
-    if (off) {
-      const note = L.control({ position: 'topright' });
-      note.onAdd = () => { const el = L.DomUtil.create('div', 'legend'); el.style.position = 'static'; el.textContent = `${off} idea${off === 1 ? '' : 's'} without a place aren’t shown`; return el; };
-      note.addTo(mapObj);
-    }
-    if (!(d.pins || []).length) L.popup().setLatLng(mapObj.getCenter()).setContent('Nothing on the map yet — ideas at a real place show up here.').openOn(mapObj);
+    note.hidden = !off && (d.pins || []).length > 0;
+    note.textContent = !(d.pins || []).length ? 'Nothing on the map yet — ideas at a real place show up here.' : `${off} idea${off === 1 ? '' : 's'} without a place aren’t shown`;
   }
   try { if (localStorage.getItem('bfly-explore-view') === 'map') showView('map'); } catch (_) {}
 
