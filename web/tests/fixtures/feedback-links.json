@@ -199,5 +199,9 @@
   "64": {
     "note_starts": "Why isn't this updating the settlement review event",
     "test": "tests/integration/reflect.test.js › 🐛 #64: a check-in about one plan is filed under that plan"
+  },
+  "66": {
+    "note_starts": "Update the camera image on the chat pill",
+    "test": "tests/integration/quick-note.test.js › chat page has the camera button and sends the image"
   }
 }

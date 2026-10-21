@@ -286,6 +286,9 @@
 
     #mic-btn { display: none; } /* shown only when SpeechRecognition is available */
     #mic-btn svg { width: 15px; height: 15px; fill: #555; transition: fill .2s; }
+    /* An outlined camera, like the one in Amazon's search bar (🐛 #66) — not the 📷 emoji */
+    #shot-btn { color: #555; display: inline-flex; align-items: center; justify-content: center; }
+    #shot-btn svg { width: 19px; height: 19px; }
     #mic-btn.listening {
       background: #ff3b30; border-color: #ff3b30; color: #fff;
       animation: mic-pulse 1.2s ease-in-out infinite;
@@ -364,7 +367,7 @@
           <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-1.5 16.93A7.001 7.001 0 0 1 5 11H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2a7 7 0 0 1-5.5 6.93z"/></svg>
           <span id="mic-label">Voice</span>
         </button>
-        <button id="shot-btn" class="pill" type="button" onclick="document.getElementById('shot-file').click()" title="Add a screenshot" aria-label="Add a screenshot">📷</button>
+        <button id="shot-btn" class="pill" type="button" onclick="document.getElementById('shot-file').click()" title="Add a screenshot" aria-label="Add a screenshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h1.8l1.4-2h6.6l1.4 2h1.8A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><circle cx="12" cy="12.8" r="3.6"/></svg></button>
         <input id="shot-file" type="file" accept="image/*" hidden>
         <button id="private-btn" class="pill" type="button" onclick="toggleSensitiveMode()" title="Private mode — store what you say as sensitive/encrypted" aria-label="Private mode" aria-pressed="false">🔒 <span id="private-label">Private</span></button>
         <button id="send-btn" type="button" onclick="send()" disabled aria-label="Send">

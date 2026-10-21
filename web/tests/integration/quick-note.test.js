@@ -133,9 +133,11 @@ describe('✍️ Quick note: someone you met on Tinder', () => {
     assert.match(p, /never invent a missing time/);
     assert.match(p, /Never describe anyone's looks/);
   });
-  test('chat page has the 📷 button and sends the image', () => {
+  test('chat page has the camera button and sends the image', () => {
     const html = fs.readFileSync(path.join(__dirname, '../../public/app/chat.html'), 'utf8');
     assert.match(html, /id="shot-btn"/);
+    // 🐛 #66 (Sean: "I would like the camera image to be like the one in the Amazon search bar"): an outlined camera, not the emoji.
+    assert.ok(/id="shot-btn"[^>]*><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"/.test(html) && !html.includes('aria-label="Add a screenshot">📷</button>'));
     assert.match(html, /\.\.\.\(image \? \{ image \} : \{\}\)/);
   });
   test('empty is refused; signed out is refused', async () => {
