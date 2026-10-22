@@ -97,6 +97,11 @@ describe('🐛 #83: a screenshot of things to do goes to Explore, not plans', ()
     await turn(sean, 'put dragon lights on explore', [[['add_to_explore', { text: 'Dragon Lights Reno', instead_of_plan_ids: [p.eventId] }]]]);
     assert.deepEqual(openPlans(sean), ['Dragon Lights']);
   });
+  test('a screenshot\'s search is named by what\'s in it, not "From Screenshot They Shared"', () => {
+    const { shortLabel } = require('../../spells');
+    assert.equal(shortLabel('From a screenshot they shared: Sierra Nevada Ballet: Dracula; 38 Special Concert'), 'Sierra Nevada Ballet Dracula');
+    assert.equal(shortLabel('From a screenshot they shared: - App: Instagram - Where: Reno, Nevada - Plans: Reno Events, November: - Nov 1 – Dracula'), 'Reno Events Dracula');
+  });
   test('the rules are in the prompt', () => {
     const p = agent.buildSystemPrompt({ id: 'x', name: 'Sean', phone: '+1' }, '');
     assert.match(p, /SCREENSHOTS OF THINGS TO DO GO TO EXPLORE/);

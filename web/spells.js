@@ -268,6 +268,11 @@ function saveLabel(askId, label) {
 }
 /** A short name for a search when the model didn't give one: its first few telling words. */
 function shortLabel(text) {
+  // A screenshot's search is named by what's in it, not "From Screenshot They Shared" (Sean, 2026-10-21).
+  text = String(text || '').replace(/^.*?From a screenshot they shared:\s*/i, '');
+  // What screenread found ("- App: Instagram - Where: Reno - Plans: …"): name it by the plans, else by what's left.
+  const parts = text.split(/\s+-\s+|^-\s*/).filter(Boolean);
+  if (parts.length > 1) text = parts.filter((p) => !/^(App|Where|Into|Who|Person|Talked about):/i.test(p)).join(' ').replace(/^Plans:\s*/i, '');
   const w = [...words(text)].slice(0, 4);
   return w.length ? w.map((x) => x[0].toUpperCase() + x.slice(1)).join(' ') : clean(text, 30);
 }
