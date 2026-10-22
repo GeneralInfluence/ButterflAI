@@ -35,6 +35,27 @@ function answer(confirmationId, userId, attended) {
   return { ok: true, attended: value };
 }
 
+/**
+ * "We moved it" (🐛 #88 — Sean: "I need to be able to give feedback that it got changed to another day because we ended
+ * up not doing it yesterday"). Not a yes or a no: the plan's date changes — `when` in their words ("thursday 6pm"),
+ * or none = date TBD — through planops (a guest's change becomes a suggestion to the host / co-hosts), and the
+ * check-in is cleared so it's asked again after the new date.
+ */
+function moved(confirmationId, userId, when) {
+  const row = db._raw().prepare('SELECT * FROM attendance_confirmations WHERE id = ?').get(confirmationId);
+  if (!row || row.user_id !== userId) return { error: 'NOT_FOUND' };
+  const w = String(when || '').trim().slice(0, 80);
+  if (w) {   // read the day first — a guest's change goes to the host as a suggestion, so it must make sense
+    const dt = require('./datetime'); const tz = db.getUser(userId)?.timezone || 'America/Los_Angeles';
+    if (!dt.resolveRange(w, tz) && !dt.resolveEventDateTime(w, tz) && !dt.resolveDateOnly(w, tz)) return { error: 'BAD_DATE', message: `Couldn’t read a day from “${w}” — try “Thursday 6pm” or “Oct 29”.` };
+  }
+  const r = require('./planops').update(userId, row.event_id, w ? { when: w } : { date_tbd: true }, { via: 'app' });
+  if (r.error) return r;
+  db._raw().prepare('DELETE FROM attendance_confirmations WHERE id = ?').run(confirmationId);
+  const p = require('./plan').planFor(row.event_id, userId);
+  return { ok: true, suggested: !!r.suggested, to: r.to, dates: p?.dates?.label || null };
+}
+
 // They made it: every cadence they have with someone who was in the plan is fulfilled.
 function sawPeople(eventId, userId) {
   const e = db._raw().prepare('SELECT host_user_id, scheduled_at FROM social_events WHERE id = ?').get(eventId);
@@ -48,4 +69,4 @@ function sawPeople(eventId, userId) {
       WHERE r.user_id = ? AND c.phone IN (${phones.map(() => '?').join(',')}))`).run(e.scheduled_at, userId, ...phones).changes;
 }
 
-module.exports = { openFor, answer, sawPeople };
+module.exports = { openFor, answer, moved, sawPeople };

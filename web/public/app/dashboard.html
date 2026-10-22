@@ -251,6 +251,7 @@
       <div class="card-title">Did you make it to ${esc(i.title)}?</div><div class="card-sub">${when(i.at)}</div>
       <div class="share-row" style="margin:8px 0 0"><button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', true)">Yes</button>
       <button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', false)">No</button>
+      <button class="chip-btn" onclick="movedCheckin(this, '${esc(i.confirmation_id)}')">📅 We moved it</button>
       <button class="chip-btn" onclick="answerCheckin('${esc(i.confirmation_id)}', null)">Skip</button></div></div></div>`;
     // A question opens the chat with the question pinned on top (🐛 #26).
     const chatLink = (i) => (i.event_id ? `/app/chat?event=${esc(i.event_id)}&ask=${esc(i.question_id)}` : `/app/chat?ask=${esc(i.question_id)}`);
@@ -282,6 +283,21 @@
   async function answerCheckin(id, attended) {
     await fetch('/api/attendance/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attended }) }).catch(() => {});
     loadFeed();
+  }
+  // "We moved it" (🐛 #88): when is it now? — changes the plan's date (or suggests it to the host); asked again after.
+  function movedCheckin(btn, id) {
+    const row = btn.closest('.share-row');
+    row.innerHTML = `<input class="moved-when" placeholder="When is it now? e.g. Thursday 6pm" maxlength="80" style="flex:1;min-width:160px;height:36px;border:1.5px solid #e5e5e5;border-radius:999px;padding:0 12px;font:inherit;font-size:15px">
+      <button class="chip-btn" type="button">Save</button><button class="chip-btn" type="button">Not sure yet</button><div class="moved-msg" style="width:100%;font-size:13px;color:#8e8e93"></div>`;
+    const [save, unsure] = row.querySelectorAll('button');
+    const go = async (when) => {
+      const r = await fetch('/api/attendance/' + encodeURIComponent(id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ moved: true, when }) }).then((x) => x.json()).catch(() => ({}));
+      if (r.ok) { row.querySelector('.moved-msg').textContent = r.suggested ? `Sent to ${(r.to || []).join(' & ') || 'the host'} to decide.` : `Moved — ${r.dates || 'date TBD'}.`; setTimeout(loadFeed, 1500); }
+      else row.querySelector('.moved-msg').textContent = r.message || 'Couldn’t read that — try "Thursday 6pm".';
+    };
+    save.onclick = () => go(row.querySelector('.moved-when').value.trim());
+    unsure.onclick = () => go('');
+    row.querySelector('.moved-when').focus();
   }
   async function joinTodo(id) {
     await fetch('/api/todos/' + encodeURIComponent(id) + '/join', { method: 'POST' }).catch(() => {});

@@ -129,3 +129,45 @@ describe('answering', () => {
     assert.deepEqual(res.body.upcoming.map((p) => p.id), [id]);
   });
 });
+
+// 🐛 #88 (Sean, 2026-10-22): "I need to be able to give feedback that it got changed to another day because we ended up
+// not doing it yesterday" — the check-in only offered Yes / No / Skip for Settlement Agreement Review.
+describe('🐛 #88: "We moved it"', () => {
+  const plan = require('../../plan');
+  const ask = (eventId, user) => { const id = uuidv4(); db._raw().prepare("INSERT INTO attendance_confirmations (id, event_id, user_id, asked_at) VALUES (?, ?, ?, strftime('%s','now'))").run(id, eventId, user.id); return id; };
+  test('the host moves it to Thursday 6pm: the plan\'s date changes, nothing is recorded as attended, it\'s asked again after', async () => {
+    const sean = mkUser('Sean Moved'); const allie = mkUser('Allie Moved');
+    const id = pastPlan(sean, [allie], 20, { title: 'Settlement Agreement Review' });
+    const cid = ask(id, sean);
+    const c = await cookieFor(sean);
+    const r = await request.post(`/api/attendance/${cid}`).set('Cookie', c).send({ moved: true, when: 'thursday 6pm' });
+    assert.equal(r.status, 200); assert.equal(r.body.ok, true); assert.match(r.body.dates, /Thu/);
+    const p = plan.planFor(id, sean.id);
+    assert.notEqual(p.stage, 'past', 'upcoming again');
+    assert.equal(db._raw().prepare('SELECT count(*) n FROM attendance_confirmations WHERE event_id = ?').get(id).n, 0, 'no answer kept; asked again after the new date');
+    assert.equal(db._raw().prepare("SELECT count(*) n FROM lift_observations WHERE event_id = ?").get(id).n, 0, 'no lift measured');
+  });
+  test('"Not sure yet": back to date TBD', async () => {
+    const sean = mkUser('Sean Unsure'); const allie = mkUser('Allie Unsure');
+    const id = pastPlan(sean, [allie], 20, { title: 'Coffee Unsure' });
+    const r = await request.post(`/api/attendance/${ask(id, sean)}`).set('Cookie', await cookieFor(sean)).send({ moved: true });
+    assert.equal(r.body.dates, 'Date TBD');
+    assert.equal(plan.planFor(id, sean.id).stage, 'idea');
+  });
+  test('a guest\'s "we moved it" is a suggestion to the host; an unreadable date is said so', async () => {
+    const sean = mkUser('Sean Host88'); const allie = mkUser('Allie Guest88');
+    const id = pastPlan(sean, [allie], 20, { title: 'Lunch 88' });
+    const c = await cookieFor(allie);
+    const bad = await request.post(`/api/attendance/${ask(id, allie)}`).set('Cookie', c).send({ moved: true, when: 'whenever' });
+    const cid = db._raw().prepare('SELECT id FROM attendance_confirmations WHERE event_id = ? AND user_id = ?').get(id, allie.id).id;
+    const r = await request.post(`/api/attendance/${cid}`).set('Cookie', c).send({ moved: true, when: 'friday noon' });
+    assert.equal(r.body.suggested, true);
+    assert.equal(plan.planFor(id, sean.id).stage, 'past', 'the host decides');
+    assert.equal(bad.status, 400); assert.match(bad.body.message, /Couldn’t read a day from “whenever”/);
+  });
+  test('Home\'s card offers it', () => {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '../../public/app/dashboard.html'), 'utf8');
+    assert.match(html, /movedCheckin\(this, '\$\{esc\(i\.confirmation_id\)\}'\)">📅 We moved it/);
+    assert.match(html, /body: JSON\.stringify\(\{ moved: true, when \}\)/);
+  });
+});

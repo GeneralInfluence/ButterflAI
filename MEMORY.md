@@ -787,6 +787,10 @@ Event-map contradiction #2: the "Did you make it?" check-in, lift and FLAI read 
   records it, measures lift, and a Yes resets your cadences with the people who were there
   ("it's been a while" nudges count the plan).
 - `lift.js` measures plans; a plan's cadence is found through the people in it (`cadenceFor`).
+- **📅 We moved it (🐛 #88, 2026-10-22 — "we ended up not doing it yesterday"):** the check-in's fourth answer. "When is
+  it now?" (their words) or "Not sure yet" (date TBD, `planops.update { date_tbd: true }`) changes the plan through planops —
+  a guest's becomes a suggestion to the host / co-hosts; an unreadable day is said so. Nothing is recorded as attended, and
+  the check-in is cleared so it's asked again after the new date (`attendance.moved`, `POST /api/attendance/:id {moved}`).
 - `/api/dashboard/upcoming` reads plans. The `activities` helpers in db.js remain only for the
   retained Telegram bot.
 

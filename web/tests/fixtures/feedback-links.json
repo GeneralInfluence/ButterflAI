@@ -287,5 +287,9 @@
   "87": {
     "note_starts": "I don't think we can have private information in the app right now",
     "test": "tests/integration/private-paused.test.js › a turn: \"my STI results came back negative, remember that\" — nothing kept, the agent is told to say why"
+  },
+  "88": {
+    "note_starts": "I need to be able to give feedback that it got changed to another day",
+    "test": "tests/integration/attendance.test.js › the host moves it to Thursday 6pm: the plan's date changes, nothing is recorded as attended, it's asked again after"
   }
 }

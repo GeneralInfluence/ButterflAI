@@ -168,6 +168,8 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
     if (p && changes.tentative === undefined) u.tentative = 1;
     if (p && u.scheduled_at === undefined && (e.date_tbd || e.flexible_time)) Object.assign(u, { date_tbd: 1, flexible_time: 0 });
   }
+  // Back to "date TBD" — it was put off with no new day yet (🐛 #88: "we ended up not doing it yesterday").
+  if (changes.date_tbd === true && when === undefined) Object.assign(u, { date_tbd: 1, proposed_dates: null, tentative: 1, time_tbd: 0 });
   if (changes.tentative !== undefined) u.tentative = changes.tentative ? 1 : 0;
   // Locking in needs one set of dates: a date, or exactly one proposed range (🐛 #23).
   if (u.tentative === 0 && e.tentative) {

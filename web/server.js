@@ -1239,8 +1239,10 @@ app.get('/api/dashboard/upcoming', webAuth.requireAuth, (req, res) => {
 // Home "Did you make it?" (2026-10-13): answer a check-in in the app.
 app.post('/api/attendance/:id', webAuth.requireAuth, express.json(), (req, res) => {
   const a = req.body?.attended;
-  const r = attendance.answer(req.params.id, req.user.id, a === true ? true : a === false ? false : null);
-  if (r.error) return res.status(404).json(r);
+  // { moved: true, when? } — it happened on another day instead (🐛 #88).
+  const r = req.body?.moved ? attendance.moved(req.params.id, req.user.id, req.body.when)
+    : attendance.answer(req.params.id, req.user.id, a === true ? true : a === false ? false : null);
+  if (r.error) return res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r);
   // Answered in the app → a pending text-reply prompt for check-ins would only confuse.
   if (!attendance.openFor(req.user.id).length) db._raw().prepare("DELETE FROM pending_actions WHERE user_id = ? AND action_type = 'attendance_confirm'").run(req.user.id);
   res.json(r);
