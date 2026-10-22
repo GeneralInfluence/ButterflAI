@@ -84,7 +84,8 @@ describe('planops.update', () => {
   test('choosing a date clears the proposed options (no stale span on the calendar)', async () => {
     const sean = mkUser('Sean Pick');
     const r = await planops.create(sean.id, { title: 'Pick a date', proposed_dates: [{ from: isoDaysAhead(10), to: isoDaysAhead(11) }] });
-    const at = new Date(Date.now() + 12 * 86400000).toISOString();
+    // Midday, so a 2-hour plan can't run past midnight and cover two days (it failed when run in the evening).
+    const at = `${isoDaysAhead(12)}T17:00:00Z`;
     // Dropping a multi-day range for one date is explicit since 🐛 #25 (proposed_dates: []).
     const u = planops.update(sean.id, r.eventId, { scheduled_at: at, proposed_dates: [] });
     assert.equal(u.ok, true);
