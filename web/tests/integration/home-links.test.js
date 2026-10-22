@@ -115,7 +115,7 @@ describe('the same top on Chat, Creating and Events (owner, 2026-10-20)', () => 
     // "🤖 ButterflAI", not "Chat" (🐛 #76 — Sean: "it's really each person talking to their butterfly").
     // Its icon is a cyborg butterfly (owner's pick, 2026-10-21), not 🤖.
     // Since 2026-10-21 it's the one current butterfly every page uses (tools/butterfly-icons.js), not a separate icon.
-    assert.ok(nav.includes(`tab('chat', '<img class="ai-ico" src="/icons/butterfly-128.png" alt="" width="20" height="20"> ButterflAI') + tab('creating', '✨ Creating'`));
+    assert.ok(nav.includes(`tab('chat', '<img class="ai-ico" src="/icons/butterfly-128.png" alt="" width="20" height="20"> myButterflAI') + tab('creating', '✨ Creating'`));   // named myButterflAI (🐛 #86)
     assert.ok(require('node:fs').statSync(require('node:path').join(__dirname, '../../public/icons/butterfly-128.png')).size > 1000);
   });
   test('the switcher looks different from the plan pills (segmented control vs round chips)', () => {
