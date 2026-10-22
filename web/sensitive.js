@@ -140,7 +140,15 @@ function getDb() {
  * Store sensitive data for a user. Encrypts and writes to user_private_data.
  * Also writes an access audit log entry.
  */
+// ── Paused (🐛 #87, owner 2026-10-22: "I just don't believe I can promise the information won't leak somehow") ──
+// Until a security review, ButterflAI takes no sensitive information: nothing new is stored here, private mode
+// can't be turned on, and the agent says so plainly. The code stays for after the review. PRIVATE_INFO=on turns it
+// back on (the tests of the kept code set it). Avoid lists (avoid.js) are not paused — they keep people apart.
+function paused() { return process.env.PRIVATE_INFO !== 'on'; }
+const PAUSED_MESSAGE = 'Nothing was saved: ButterflAI isn\'t keeping sensitive information (health, sexual, money, legal, mental health, private relationship things) for now — it can\'t promise yet that it stays secure. Tell your user that plainly, in a sentence: "I can\'t promise that stays secure yet, so I don\'t keep things like that."';
+
 function storePrivateData(userId, dataKey, plaintext, category = 'OTHER') {
+  if (paused()) return { stored: false, error: 'PRIVATE_INFO_PAUSED', message: PAUSED_MESSAGE };
   const db = getDb();
   const raw = db._raw();
   const { encrypted_v, iv, auth_tag } = encrypt(String(plaintext));
@@ -374,6 +382,7 @@ function getAccessLog(userId, limit = 20) {
 // Survives server restarts. Stored as `sensitive_mode INTEGER` in user_preferences.
 
 function setSensitiveMode(userId, on) {
+  if (on && paused()) return false;
   try {
     const db = getDb();
     const raw = db._raw();
@@ -387,6 +396,7 @@ function setSensitiveMode(userId, on) {
 }
 
 function isSensitiveMode(userId) {
+  if (paused()) return false;
   try {
     const db = getDb();
     const row = db._raw().prepare('SELECT sensitive_mode FROM user_preferences WHERE user_id = ?').get(userId);
@@ -418,6 +428,7 @@ function scrubForAgentMessage(obj) {
 }
 
 module.exports = {
+  paused, PAUSED_MESSAGE,
   classifyText,
   storePrivateData,
   readPrivateData,

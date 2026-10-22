@@ -19,6 +19,7 @@
  *  - GET /api/chat/sensitive-mode returns the persisted state
  */
 'use strict';
+process.env.PRIVATE_INFO = 'on';   // tests the private-information code kept for after the security review (paused in the app, 🐛 #87)
 
 process.env.DB_PATH    = ':memory:';
 process.env.NODE_ENV   = 'test';

@@ -1654,6 +1654,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'store_private_data': {
+      if (sensitive.paused()) return { error: 'PRIVATE_INFO_PAUSED', message: sensitive.PAUSED_MESSAGE };
       const { data_key, value, category } = toolInput;
       // Validate the key shape: it becomes a label in confirmation SMSes, so no injection
       // characters and a bounded length. Dotted lowercase segments, e.g. "health.sti_status".
@@ -1677,6 +1678,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       // BEFORE committing the health note — no partial commit.
       const allValues = Object.values(input).filter(v => typeof v === 'string').join(' ');
       const check = sensitive.classifyText(allValues);
+      if (check.sensitive && sensitive.paused()) return { error: 'PRIVATE_INFO_PAUSED', message: sensitive.PAUSED_MESSAGE, detected_category: check.category };
       if (check.sensitive) {
         return {
           error: 'SENSITIVE_DATA_DETECTED',
@@ -1688,7 +1690,10 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       // Apply the health action: a non-empty value stores (encrypted); an explicit empty /
       // whitespace value CLEARS it, so "delete my health note" actually deletes.
       let healthAction = null;
-      if (hasHealthField) {
+      if (hasHealthField && healthValue && sensitive.paused()) {
+        if (!Object.keys(input).length) return { error: 'PRIVATE_INFO_PAUSED', message: sensitive.PAUSED_MESSAGE };
+        healthAction = 'health_safety_notes NOT saved (private information is paused)';
+      } else if (hasHealthField) {
         if (healthValue) {
           sensitive.storePrivateData(userId, sensitive.HEALTH_NOTES_KEY, healthValue, 'HEALTH');
           healthAction = 'health_safety_notes (encrypted)';
@@ -2576,7 +2581,7 @@ function buildPrefsSection(prefs, { coordinationOnly = false } = {}) {
  */
 function buildSystemPrompt(user, stateSnapshot = '', { sensitiveMode = false } = {}) {
   return `You are ButterflAI, a personal social agent for ${user.name}.
-${sensitiveMode ? '\n🔒 PRIVATE MODE IS ON: The user has activated private mode. EVERYTHING they say this session must be stored via store_private_data, not update_preferences. Treat all content as sensitive regardless of what it sounds like.\n' : ''}
+${sensitive.paused() ? `\nPRIVATE INFORMATION IS PAUSED (this overrides every rule below about store_private_data, private mode and sharing private information): ButterflAI isn't keeping sensitive information right now — health, sexual health, money troubles, legal or mental-health matters, private relationship things — because it can't promise yet that it stays secure. Don't save it anywhere (not in preferences, notes, plans or messages). If your user shares something like that, say plainly: "I can't promise that stays secure yet, so I don't keep things like that." Avoid lists still work.\n` : ''}${sensitiveMode ? '\n🔒 PRIVATE MODE IS ON: The user has activated private mode. EVERYTHING they say this session must be stored via store_private_data, not update_preferences. Treat all content as sensitive regardless of what it sounds like.\n' : ''}
 Your job: help them stay meaningfully connected with people they care about.
 You handle the logistics of friendship (scheduling, coordination, reminders) so they can focus on the emotional parts.
 
@@ -2955,10 +2960,13 @@ function unverifiedSentClaim(replyText, { anySendSucceeded, failedSends, sendAtt
 // tokens only, and only URLs already in the conversation or search results.
 // NOT offered when answering another agent (agent_query) — no fetching links that
 // someone else put in front of this user's agent.
+// Private information is paused (🐛 #87): these tools aren't offered (and storePrivateData refuses anyway).
+const PAUSED_TOOLS = ['store_private_data', 'get_private_preferences', 'request_private_sharing', 'revoke_private_sharing'];
 function toolsFor(msg, user) {
-  if (msg.channel === 'agent_query') return [...TOOL_DEFINITIONS, TELL_MY_USER_TOOL];
+  const defs = sensitive.paused() ? TOOL_DEFINITIONS.filter((t) => !PAUSED_TOOLS.includes(t.name)) : TOOL_DEFINITIONS;
+  if (msg.channel === 'agent_query') return [...defs, TELL_MY_USER_TOOL];
   return [
-    ...TOOL_DEFINITIONS,
+    ...defs,
     { type: 'web_search_20250305', name: 'web_search', max_uses: 5,
       ...(user?.timezone ? { user_location: { type: 'approximate', timezone: user.timezone } } : {}) },
     { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 5, max_content_tokens: 8000 },

@@ -2183,6 +2183,7 @@ app.post('/api/push/test', webAuth.requireAuth, async (req, res) => {
 app.post('/api/chat/sensitive-mode', webAuth.requireAuth, express.json(), (req, res) => {
   const { on } = req.body;
   if (typeof on !== 'boolean') return res.status(400).json({ error: 'on must be boolean' });
+  if (on && sensitive.paused()) return res.status(409).json({ error: 'PAUSED', message: 'Private mode is paused for now — ButterflAI can’t promise yet that sensitive things stay secure, so it doesn’t keep them.' });   // 🐛 #87
   sensitive.setSensitiveMode(req.user.id, on);
   res.json({ ok: true, sensitive_mode: on });
 });
@@ -2213,7 +2214,7 @@ app.delete('/api/plans/:id', webAuth.requireAuth, (req, res) => {
 
 // GET /api/chat/sensitive-mode — the persisted state, so the chat page shows the truth on load
 app.get('/api/chat/sensitive-mode', webAuth.requireAuth, (req, res) => {
-  res.json({ sensitive_mode: sensitive.isSensitiveMode(req.user.id) });
+  res.json({ sensitive_mode: sensitive.isSensitiveMode(req.user.id), paused: sensitive.paused() });
 });
 
 // ── Avoid list + agent activity (owner-only; PRIVACY.md "act on it, never say it") ──

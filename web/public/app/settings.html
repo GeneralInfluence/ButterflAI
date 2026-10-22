@@ -297,6 +297,7 @@
       <div id="prefs-list"><div style="color:#aaa;font-size:14px">Loading…</div></div>
 
       <!-- Health & safety — separate with explicit consent toggle -->
+      <div id="health-block">
       <hr style="border:none;border-top:1px solid #f2f2f7;margin:16px 0">
       <div style="margin-bottom:8px">
         <strong style="font-size:14px">🔒 Health & safety notes</strong>
@@ -305,11 +306,12 @@
       <div id="health-notes-display" style="font-size:14px;color:#555;min-height:20px;margin-bottom:8px">—</div>
       <button onclick="clearField('health_safety_notes')" id="clear-health-btn" style="display:none;padding:6px 12px;border-radius:8px;background:#fff0f0;color:#ef4444;border:none;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">Clear health notes</button>
       <p style="font-size:12px;color:#aaa;margin-top:6px;line-height:1.4">Sharing is now per-person — choose exactly who can see each private item under <strong>Private info sharing</strong> below.</p>
+      </div>
     </div>
   </section>
 
   <!-- Private info sharing — per-contact (per-edge) consent -->
-  <section>
+  <section id="sharing-section">
     <h2>🔗 Private info sharing</h2>
     <p style="font-size:13px;color:#888;margin:-4px 0 12px;line-height:1.5">You control who can see each private item, one person at a time. Your agent can never share these without your explicit yes.</p>
     <div id="sharing-list"><div style="color:#aaa;font-size:14px">Loading…</div></div>
@@ -568,7 +570,14 @@
 
   async function loadPrivateMode() {
     try {
-      privateModeOn = !!(await fetch('/api/chat/sensitive-mode').then(r => r.json())).sensitive_mode;
+      const d = await fetch('/api/chat/sensitive-mode').then(r => r.json());
+      // Paused (🐛 #87, owner 2026-10-22): say so honestly; no health notes, sharing or private mode to manage.
+      if (d.paused) {
+        document.querySelector('#private-mode .card').innerHTML = '<p style="font-size:14px;color:#555;line-height:1.5">ButterflAI isn’t keeping sensitive information right now — health, sexual health, money, legal or mental-health matters, private relationship things. We can’t promise yet that it stays secure, so until a security review we don’t keep it, and your agent will tell you so if you share something like that. Your <strong>Avoid list</strong> still works.</p>';
+        for (const id of ['health-block', 'sharing-section']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+        return;
+      }
+      privateModeOn = !!d.sensitive_mode;
       renderPrivateMode();
     } catch (_) {
       document.getElementById('private-mode-status').textContent = 'Could not load';

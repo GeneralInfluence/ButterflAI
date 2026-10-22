@@ -10,6 +10,7 @@
  *  - admin routes: flags carry the trace before them; /api/admin/trace is admin-only
  */
 'use strict';
+process.env.PRIVATE_INFO = 'on';   // tests the private-information code kept for after the security review (paused in the app, 🐛 #87)
 
 process.env.DB_PATH    = ':memory:';
 process.env.NODE_ENV   = 'test';

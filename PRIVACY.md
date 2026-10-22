@@ -22,6 +22,20 @@ General preferences (food, activities, schedule, vibe, budget range) are NOT sen
 
 ---
 
+## ⏸ Private information is paused `[LOCKED 2026-10-22 — owner]`
+
+Owner (🐛 #87): "I don't think we can have private information in the app right now … I just don't believe I can promise
+the information won't leak somehow." So, until a security review: **ButterflAI takes no sensitive information** —
+`sensitive.storePrivateData` refuses, the agent isn't offered store_private_data / get_private_preferences /
+request_private_sharing / revoke_private_sharing, `update_preferences` refuses sensitive text and health notes, private
+mode can't be turned on (`/api/chat/sensitive-mode` 409; the 🔒 Private button and Settings' health/sharing sections are
+hidden), and the agent tells the person plainly: "I can't promise that stays secure yet, so I don't keep things like
+that." It is stored nowhere — not in preferences, notes, plans or messages. The owner's own private notes and
+private-mode messages were deleted at his request. **Avoid lists are not paused** — they keep people apart and are never
+shared. The code below stays for after the review (`PRIVATE_INFO=on` turns it back on; its tests run that way).
+Invariants 1, 2, 6 and 7 still describe that code; while paused, the stronger rule holds: sensitive data isn't kept at all.
+Test: `tests/integration/private-paused.test.js`.
+
 ## Invariant 1 — Sensitive data is stored separately and encrypted
 
 **What:** Sensitive data NEVER goes into `user_preferences` (plaintext).

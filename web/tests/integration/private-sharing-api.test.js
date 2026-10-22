@@ -1,4 +1,5 @@
 'use strict';
+process.env.PRIVATE_INFO = 'on';   // tests the private-information code kept for after the security review (paused in the app, 🐛 #87)
 /**
  * private-sharing-api.test.js — the per-contact sharing management API (code-gated by auth).
  * A grant/revoke through these endpoints is a direct, authenticated user action — no LLM.

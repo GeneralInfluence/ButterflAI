@@ -407,7 +407,11 @@
     // The mode is stored on the server and survives reloads; show the real state on open.
     fetch('/api/chat/sensitive-mode')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d && d.sensitive_mode !== sensitiveMode) applySensitiveUI(d.sensitive_mode); })
+      .then(d => {
+        // Paused (🐛 #87): no 🔒 Private button while ButterflAI can't promise sensitive things stay secure.
+        if (d && d.paused) { const b = document.getElementById('private-btn'); if (b) b.hidden = true; }
+        if (d && d.sensitive_mode !== sensitiveMode) applySensitiveUI(d.sensitive_mode);
+      })
       .catch(() => {});
 
     function applySensitiveUI(on) {

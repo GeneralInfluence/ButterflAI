@@ -1,4 +1,5 @@
 'use strict';
+process.env.PRIVATE_INFO = 'on';   // tests the private-information code kept for after the security review (paused in the app, 🐛 #87)
 /**
  * privacy.test.js — Behavioral privacy invariant tests (unit layer)
  *

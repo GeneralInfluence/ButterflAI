@@ -1087,6 +1087,14 @@ anyone named in a plan whose name/notes say surprise / secret / mystery / anonym
 (`planops.surpriseFor`; the result says `kept_out_surprise` and points to send_whisper for giving it anonymously); prompt
 SURPRISES. Retro took Sean off Allie's plan (quietly). Test: `surprise.test.js`.
 
+## 24j. Private information is paused `[LOCKED 2026-10-22]`
+
+🐛 #87 (owner: "I just don't believe I can promise the information won't leak somehow") — paused until a security review,
+not removed: no sensitive information is stored (`sensitive.paused()`, `PRIVATE_INFO=on` to resume), private mode can't
+be turned on, the private-data tools aren't offered, and the agent says "I can't promise that stays secure yet, so I don't
+keep things like that." Avoid lists keep working. Only the owner had private data (1 health note, 2 private-mode
+messages) — deleted at his request (retro). Details: PRIVACY.md "Private information is paused".
+
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 
 Owner: "I want to be told when the grants or any other types of connections expire so that way
