@@ -106,3 +106,22 @@ describe('retro tasks', () => {
     assert.ok(agent);
   });
 });
+
+// 🐛 #87 (owner, 2026-10-22): "Delete them" — his own private notes and private-mode messages; nobody else's.
+const { describe: d87, test: t87 } = require('node:test');
+d87('retro: the owner\'s private data, deleted on request', () => {
+  t87('only the owner\'s rows go', async () => {
+    const db = require('../../db');
+    const { v4 } = require('uuid');
+    const mk = (name, phone) => { db._raw().prepare("INSERT INTO users (id, name, phone, onboarding_state, created_at) VALUES (?, ?, ?, 'complete', 1700000000)").run(v4(), name, phone); return db.getUserByPhone(phone); };
+    const sean = mk('Sean P', '+16099233179'); const other = mk('Other P', '+12025559876');
+    for (const u of [sean, other]) {
+      db._raw().prepare("INSERT INTO user_private_data (id, user_id, category, data_key, encrypted_v, iv, auth_tag) VALUES (?, ?, 'HEALTH', 'health.safety_notes', 'x', 'y', 'z')").run(v4(), u.id);
+      db._raw().prepare("INSERT INTO conversation_history (id, user_id, role, text, private_ct, private_iv, private_tag) VALUES (?, ?, 'user', '[private]', 'a', 'b', 'c')").run(v4(), u.id);
+    }
+    const task = require('../../retro').TASKS.find((x) => x.id === '2026-10-22-delete-seans-private-data');
+    require('node:assert/strict').equal(await task.run(sean), 'deleted 1 notes, 1 private messages');
+    require('node:assert/strict').equal(await task.run(other), 'not the owner');
+    require('node:assert/strict').equal(db._raw().prepare('SELECT count(*) n FROM user_private_data WHERE user_id = ?').get(other.id).n, 1);
+  });
+});

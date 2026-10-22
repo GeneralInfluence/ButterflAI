@@ -927,6 +927,18 @@ const TASKS = [
       return `removed ${n}`;
     },
   },
+  {
+    id: '2026-10-22-delete-seans-private-data',
+    added: Date.UTC(2026, 9, 22) / 1000,
+    kind: 'internal',
+    about: '🐛 #87: Sean asked for his own private data to be deleted (owner, 2026-10-22: "Delete them") — his private notes and his private-mode chat messages, hard-deleted. Only the owner\'s account; nobody else\'s.',
+    run(user) {
+      if (user.phone !== '+16099233179') return 'not the owner';
+      const a = db._raw().prepare('DELETE FROM user_private_data WHERE user_id = ?').run(user.id).changes;
+      const b = db._raw().prepare('DELETE FROM conversation_history WHERE user_id = ? AND private_ct IS NOT NULL').run(user.id).changes;
+      return `deleted ${a} notes, ${b} private messages`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */
