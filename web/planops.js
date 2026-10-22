@@ -216,10 +216,38 @@ function changesFor(eventId, actorId, via, fields, before, after) {
 }
 
 /** Invite people (the host's contacts). quiet: no per-invite notification (caller sends one). */
+/**
+ * Surprises (🐛 #86 — Allie: "Send Sean a mystery playlist for the Rocky Horror drive"; her agent made a plan, invited
+ * Sean, and when he asked what it was his ButterflAI read him the notes: "Anonymous gift for Sean … He shouldn't know
+ * it's from Allie"). The person a surprise is for is never invited to it: a plan whose name or notes say it's a
+ * surprise / secret / mystery / anonymous / "shouldn't know" and name them. Returns the contacts kept out.
+ */
+const SURPRISE = /\b(surprises?|secret(ly)?|myster(y|ious)|anonymous(ly)?|shouldn'?t know|should not know|don'?t tell|do not tell|without (him|her|them) knowing|not let (him|her|them) know|behind (his|her|their) back)\b/i;
+function surpriseFor(eventId, contactIds) {
+  const e = db._raw().prepare('SELECT title, notes FROM social_events WHERE id = ?').get(eventId);
+  const text = `${e?.title || ''} ${e?.notes || ''}`;
+  if (!SURPRISE.test(text)) return [];
+  const out = [];
+  for (const id of contactIds) {
+    const c = db.getContact(id);
+    const names = [c?.nickname, c?.name].filter(Boolean).map((n) => String(n).trim().split(/\s+/)[0]).filter((n) => n.length >= 2);
+    if (names.some((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text))) out.push({ id, name: c.nickname || c.name });
+  }
+  return out;
+}
+
 async function invite(actorId, eventId, contactIds, { via = 'agent', quiet = false } = {}) {
   const e = db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(eventId);
   if (!e) return { error: 'EVENT_NOT_FOUND', sent: 0, skipped: contactIds.length };
   if (e.host_user_id !== actorId) return { error: 'NOT_HOST', sent: 0, skipped: contactIds.length };
+  const secret = surpriseFor(eventId, contactIds);
+  if (secret.length) {
+    const keep = new Set(secret.map((x) => x.id));
+    contactIds = contactIds.filter((id) => !keep.has(id));
+    const r = contactIds.length ? await invite(actorId, eventId, contactIds, { via, quiet }) : { sent: 0, skipped: 0 };
+    return { ...r, kept_out_surprise: secret.map((x) => x.name),
+      surprise_note: `Not invited — it's a surprise for them: ${secret.map((x) => x.name).join(', ')}. They can't see this plan. To give it to them without your name later, use send_whisper.` };
+  }
   const before = new Set(db._raw().prepare('SELECT id FROM event_invitations WHERE event_id = ?').all(eventId).map((x) => x.id));
   const r = await multiparty.inviteContacts(eventId, contactIds, { quiet });
   const added = guestRows(eventId).filter((g) => !before.has(g.invitation_id));
@@ -558,4 +586,4 @@ function history(eventId, limit = 50) {
   return db._raw().prepare('SELECT * FROM plan_changes WHERE event_id = ? ORDER BY id DESC LIMIT ?').all(eventId, limit);
 }
 
-module.exports = { whatChanged, inferInterested, autoCohost, setCohost, create, update, invite, merge, revert, undoLast, recentChanges, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };
+module.exports = { surpriseFor, whatChanged, inferInterested, autoCohost, setCohost, create, update, invite, merge, revert, undoLast, recentChanges, history, rollDateTbd, purgeCancelled, CANCELLED_KEEP_DAYS, respond, recordRsvp, publicRsvp, removeGuest, dismiss, askOwner, deferOn, MAX_TITLE };

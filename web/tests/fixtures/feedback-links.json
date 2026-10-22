@@ -279,5 +279,9 @@
   "85": {
     "note_starts": "Why do I still see all the events from that screenshot",
     "test": "tests/integration/screenshot-explore.test.js › Sean's day, replayed"
+  },
+  "86": {
+    "note_starts": "I'm thinking of changing the butterfly tab to MyflAI",
+    "test": "tests/integration/surprise.test.js › Allie's exact plan: Sean is kept out, can't see it, and her agent is told why"
   }
 }

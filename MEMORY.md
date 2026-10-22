@@ -1078,6 +1078,15 @@ the form open (`?out=1`), "You're out · N nearby ›", "You're in tonight"; a f
   ("❤️ Sean loved your yes for Rocky Horror Picture Show"); never to someone who avoids you (`reactions.js`,
   `POST /api/chat/messages/:id/react`). Retro marks the last 30 days' incoming messages. Test: `reactions.test.js`.
 
+## 24i. Surprises stay surprises `[2026-10-21]`
+
+🐛 #86 (a tab-name idea, but its screenshot showed the real problem): Allie: "Send Sean a mystery playlist for the Rocky
+Horror drive" → her agent made a plan, noted "Anonymous gift for Sean … He shouldn't know it's from Allie", and invited
+Sean; when he asked "Where did this come from?" his ButterflAI told him. Now `planops.invite` (every invite) keeps out
+anyone named in a plan whose name/notes say surprise / secret / mystery / anonymous / "shouldn't know"
+(`planops.surpriseFor`; the result says `kept_out_surprise` and points to send_whisper for giving it anonymously); prompt
+SURPRISES. Retro took Sean off Allie's plan (quietly). Test: `surprise.test.js`.
+
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 
 Owner: "I want to be told when the grants or any other types of connections expire so that way

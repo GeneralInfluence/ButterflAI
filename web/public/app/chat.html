@@ -501,7 +501,7 @@
     // (the server attaches the plan object) and the last messages on screen.
     window.bflyFeedbackState = () => ({
       screen: 'chat', pill: topicEvent || 'all', event_id: topicEvent && topicEvent !== 'general' ? topicEvent : null,
-      last_messages: [...document.querySelectorAll('#messages .msg')].slice(-10).map((m) => ({
+      last_messages: [...document.querySelectorAll('#messages .msg:not(.typing)')].slice(-10).map((m) => ({
         who: m.classList.contains('me') ? 'user' : 'assistant', text: (m.querySelector('.bubble')?.innerText || '').slice(0, 500) })),
     });
 

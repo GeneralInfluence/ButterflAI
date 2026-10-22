@@ -911,6 +911,22 @@ const TASKS = [
       return `marked ${n}`;
     },
   },
+  {
+    id: '2026-10-21-surprise-not-invited',
+    added: Date.UTC(2026, 9, 21) / 1000,
+    kind: 'internal',
+    about: '🐛 #86: someone invited to a plan that is a surprise / secret / anonymous gift for them (Allie\'s mystery playlist for Sean) is taken off it, quietly — it leaves their lists and calendar.',
+    run(user) {
+      const planops = require('./planops');
+      let n = 0;
+      for (const e of db._raw().prepare("SELECT id FROM social_events WHERE host_user_id = ? AND COALESCE(status, 'open') = 'open'").all(user.id)) {
+        const inv = db._raw().prepare('SELECT id, contact_id FROM event_invitations WHERE event_id = ?').all(e.id);
+        const secret = new Set(planops.surpriseFor(e.id, inv.map((i) => i.contact_id)).map((x) => x.id));
+        for (const i of inv) if (secret.has(i.contact_id) && !planops.removeGuest(user.id, e.id, i.id, { via: 'retro' }).error) n++;
+      }
+      return `removed ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */
