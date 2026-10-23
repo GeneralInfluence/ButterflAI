@@ -1110,6 +1110,30 @@ scheduled_at moves to today (`agent.noInventedDay`), an item's day is today and 
 date) are left alone. Prompt NO INVENTED DAYS. Retro moved such items to the day they were said. Test:
 `no-invented-day.test.js`.
 
+## 24l. ＋ makes the plan; plans inside plans `[LOCKED 2026-10-23]`
+
+Owner, after Melanie and Allie's Friday lunch ("they had trouble using the + button … had to tell their butterflai to let
+me know … creating an event sometimes within another event … needs to be a lot smoother"). What happened: Melanie's ＋
+went to her agent, told "if it's clearly the same as one of their open plans, use that one instead", so it became items
+on the weekend; "make this a separate event" couldn't include Allie (not Melanie's contact — asked for her number five
+times); Sean got only "Melanie changed the details"; agents asked each other follow-ups and Sean's said "Sean's in" for him.
+The plan, in four pieces — 1 and 2 built:
+1. **＋ makes the plan in code** (`newplan.js`): a short read gives name, the day/time only as said (a day she didn't say
+   is dropped; a time alone is today's), and the plan it's part of (the one being looked at, or one the words are plainly
+   about); `planops.create`; ＋ never folds into an existing plan. The words then go to the agent in the new plan's
+   discussion (`intent new_plan_made`) to fill in — `create_social_event` is refused that turn (PLAN_ALREADY_MADE).
+2. **Plans inside plans** (`social_events.parent_id`, migration 084): owner's choice — **a part has everyone in the bigger
+   plan**, invited without anyone needing the others' numbers (`people.contactFor` makes a hidden contact: not in People,
+   number never shown to the agent, and **not "close"** — whispers, wishes, out-and-about, shares and passing ideas on
+   ignore hidden contacts; saving the person makes it real). People added to / removed from the bigger plan follow into its
+   parts (ripple reaction `parts`). The agent's `create_social_event` in a plan's discussion is part of it (`part_of`,
+   "none" to opt out). `lookup_contact` finds plan-mates by name (no number). Details shows "Part of …" and "Parts of it".
+3. *(next)* **Assignments go to the person:** "Sean takes the boys at 5" reaches Sean as I'm on it / Can't / Suggest a
+   change — owner's choice: **only the person can accept**; agents never accept for them or report "confirmed".
+4. *(next)* **"Who knows"** under each recent change: per person, seen / on it.
+No retro: parts are new, and linking existing plans as parts would invite people (Melanie asked to keep Practical Magic
+to Sean and her). Tests: `plan-parts.test.js`, `new-plan.test.js`.
+
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 
 Owner: "I want to be told when the grants or any other types of connections expire so that way

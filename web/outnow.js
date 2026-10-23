@@ -139,7 +139,7 @@ function mine(userId) {
 }
 
 function savedEach(a, b) {
-  const has = (o, u) => !!(u?.phone && db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(o.id, u.phone));
+  const has = (o, u) => !!(u?.phone && db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND phone = ? AND COALESCE(hidden, 0) = 0').get(o.id, u.phone));
   return has(a, b) && has(b, a);
 }
 function avoided(a, b) {

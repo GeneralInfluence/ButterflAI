@@ -782,7 +782,8 @@
     el.innerHTML = (summaryId && changeCard ? changeCard : '') + `<div class="ps-head"><div class="ps-title">${escHtml(p.title)}</div>
         <span class="cal-chip stage-${p.stage}" style="width:auto;font-size:11px;line-height:20px;padding:0 8px;flex-shrink:0">${STAGE_LABEL[p.stage] || p.stage}</span>
         <button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>
-      <div class="ps-rows">${rows}</div>${ideas}${asked}${people}${said}${notes}${creating}
+      ${p.part_of ? `<div style="font-size:13px;color:#8e8e93;margin:-4px 0 8px">Part of <a href="#" onclick="openSummary('${escHtml(p.part_of.id)}');return false" style="color:#6c47ff">${escHtml(p.part_of.title)}</a></div>` : ''}
+      <div class="ps-rows">${rows}</div>${(p.parts || []).length ? `<div class="ps-label">Parts of it</div><div class="ps-rows">${p.parts.map((x) => `<a href="#" onclick="openSummary('${escHtml(x.id)}');return false" style="display:block;color:#6c47ff;padding:2px 0">${escHtml(x.title)} ›</a>`).join('')}</div>` : ''}${ideas}${asked}${people}${said}${notes}${creating}
       ${p.next ? `<div class="ps-next">👉 ${escHtml(p.next)}</div>` : ''}
       ${p.can_edit ? hostControls(p) : ''}
       <div class="ps-actions">${answer}<a class="${answer ? 'ps-secondary' : 'ps-primary'}" href="/app/chat?event=${encodeURIComponent(p.id)}${summaryDay && (p.days || []).includes(summaryDay) ? '&day=' + summaryDay : ''}">💬 Discussion${summaryDay && (p.days || []).includes(summaryDay) ? ` · ${new Date(summaryDay + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short' })}` : ''}</a></div>`;

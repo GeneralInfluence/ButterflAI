@@ -186,7 +186,8 @@ module.exports = {
   },
 
   getContactsByUser(userId) {
-    return db.prepare('SELECT * FROM contacts WHERE invited_by_user_id = ? ORDER BY name').all(userId);
+    // Not the hidden ones made only to invite someone from a shared plan (migration 084).
+    return db.prepare('SELECT * FROM contacts WHERE invited_by_user_id = ? AND COALESCE(hidden, 0) = 0 ORDER BY name').all(userId);
   },
 
   /**
@@ -211,8 +212,8 @@ module.exports = {
       ).get(invited_by_user_id, normalizedPhone);
       if (existing) {
         db.prepare(`
-          UPDATE contacts SET name = ?, updated_at = strftime('%s','now') WHERE id = ?
-        `).run(name, existing.id);
+          UPDATE contacts SET name = ?, hidden = 0, updated_at = strftime('%s','now') WHERE id = ?
+        `).run(name, existing.id);   // saving someone makes a plan-mate contact a real one
         return existing.id;
       }
     }
@@ -481,7 +482,7 @@ module.exports = {
       text,
       event_id || null,
       context_day && /^\d{4}-\d{2}-\d{2}$/.test(context_day) ? context_day : null,
-      ['new_plan', 'capture'].includes(intent) ? intent : null,
+      ['new_plan', 'new_plan_made', 'capture'].includes(intent) ? intent : null,
       spell_id || null,
       about_user_id || null,
       about_what ? String(about_what).slice(0, 200) : null,

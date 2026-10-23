@@ -49,7 +49,7 @@ function usersFor(contacts) {
 /** Does `ownerId` have `viewer` (a user) in their own contacts? */
 function ownerKnows(ownerId, viewer) {
   if (!viewer?.phone) return false;
-  return !!db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(ownerId, viewer.phone);
+  return !!db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND phone = ? AND COALESCE(hidden, 0) = 0').get(ownerId, viewer.phone);
 }
 
 function avoids(userId, other) {
@@ -158,7 +158,7 @@ function plansVisibleTo(viewer) {
     SELECT DISTINCT p.*, u.name AS owner_name, u.nickname AS owner_nickname
     FROM shared_plans p
     JOIN users u ON u.id = p.user_id
-    JOIN contacts c ON c.invited_by_user_id = p.user_id AND c.phone = ?
+    JOIN contacts c ON c.invited_by_user_id = p.user_id AND c.phone = ? AND COALESCE(c.hidden, 0) = 0
     WHERE p.expires_at > ? AND p.user_id != ?
     ORDER BY p.created_at DESC`).all(viewer.phone, now(), viewer.id)
     .filter((p) => canSee(viewer, p));

@@ -65,7 +65,7 @@ const view = (w) => ({ id: w.id, text: w.text, open_to_new: !!w.open_to_new, sta
 
 // ── Who may be matched with whom ─────────────────────────────────────────────
 function hasSaved(ownerId, other) {
-  return !!(other?.phone && db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(ownerId, other.phone));
+  return !!(other?.phone && db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND phone = ? AND COALESCE(hidden, 0) = 0').get(ownerId, other.phone));
 }
 /** Close = you have each other saved. */
 function close(a, b) { return hasSaved(a.id, b) && hasSaved(b.id, a); }

@@ -321,7 +321,7 @@ function associates(userId) {
   if (!me?.phone) return [];
   const ids = new Set();
   for (const r of db._raw().prepare(`SELECT u.id FROM contacts c JOIN users u ON u.phone = c.phone
-    WHERE c.invited_by_user_id = ? AND EXISTS (SELECT 1 FROM contacts b WHERE b.invited_by_user_id = u.id AND b.phone = ?)`).all(userId, me.phone)) ids.add(r.id);
+    WHERE c.invited_by_user_id = ? AND COALESCE(c.hidden, 0) = 0 AND EXISTS (SELECT 1 FROM contacts b WHERE b.invited_by_user_id = u.id AND b.phone = ? AND COALESCE(b.hidden, 0) = 0)`).all(userId, me.phone)) ids.add(r.id);
   const since = now() - 180 * 86400;
   const myPlans = db._raw().prepare(`SELECT se.id FROM social_events se LEFT JOIN event_invitations ei ON ei.event_id = se.id LEFT JOIN contacts c ON c.id = ei.contact_id
     WHERE se.created_at > ? AND (se.host_user_id = ? OR (c.phone = ? AND ei.status = 'accepted')) GROUP BY se.id`).all(since, userId, me.phone).map((r) => r.id);

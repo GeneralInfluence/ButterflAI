@@ -690,6 +690,7 @@ const TOOL_DEFINITIONS = [
         notes:         { type: 'string' },
         event_type:    { type: 'string', enum: ['private', 'public'], description: '"private" (default) = user is hosting their own event. "public" = ONLY use this if the user explicitly says to make it public or open to anyone beyond their contacts — e.g. "make this public", "share this openly", "anyone can join". Do NOT infer public just because the venue is a public place.' },
         contact_ids:   { type: 'array', items: { type: 'string' }, description: 'Contacts to invite (must be Tier 1+)' },
+        part_of:       { type: 'string', description: 'eventId of a bigger plan this is part of ("Friday evening" inside the birthday weekend) — everyone in that plan is in this one too. In a plan\'s discussion it defaults to that plan; pass "none" when it\'s unrelated.' },
       },
       required: ['title', 'activity_type'],
     },
@@ -1053,7 +1054,7 @@ function describeContact(c) {
   const onButterflai = !!(c.phone && db.getUserByPhone(c.phone));
   const optedOut = !!(c.phone && db.isOptedOut(c.phone));
   return {
-    id: c.id, name: c.name, nickname: c.nickname || undefined, phone: c.phone,
+    id: c.id, name: c.name, nickname: c.nickname || undefined, phone: c.hidden ? undefined : c.phone,   // a plan-mate's number stays theirs (2026-10-23)
     met_via: c.met_via || undefined, about: c.about || undefined,
     on_butterflai: onButterflai,
     how_to_reach: !c.phone
@@ -1352,6 +1353,21 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           const clear = a._fit.contextHits > 0 && a._fit.contextHits >= b._fit.contextHits + 1;
           if (!clear) ambiguous = contenders;
           scored = [...contenders, ...scored.filter((c) => !contenders.includes(c))];
+        }
+      }
+      // Someone they share a plan with but haven't saved (Melanie: "Allie is already tagged in the event Melanie's
+      // birthday weekend" — her agent asked for Allie's number five times, 2026-10-23). Found by name, invitable,
+      // their number never shown (people.contactFor makes a hidden contact).
+      if (!scored.length || scored[0]._score < 80) {
+        const people = require('./people');
+        const mates = people.planMates(userId).map((m) => ({ m, s: names.matchScore({ name: people.nameFor(userId, m.user.id), nickname: null, phone: null }, q) }))
+          .filter((x) => x.s >= 80).sort((a, b) => b.s - a.s);
+        if (mates.length) {
+          const found = mates.slice(0, 3).map(({ m, s: sc }) => {
+            const c = db.getContact(people.contactFor(userId, m.user));
+            return { ...c, _score: sc, _fit: { why: `in ${m.plan.title} with you (not saved in your contacts — their number stays private)` } };
+          });
+          scored = [...found, ...scored.filter((c) => !found.some((f) => f.id === c.id))];
         }
       }
       const strong = scored.length && scored[0]._score >= 80 && !ambiguous;
@@ -2061,12 +2077,17 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'create_social_event': {
+      if (currentTurn?.intent === 'new_plan_made' && currentTurn.userId === userId) return { error: 'PLAN_ALREADY_MADE', eventId: currentTurn.eventId, message: 'ButterflAI already made this plan from what they wrote (eventId above) — fill it in with update_event / manage_todos instead.' };
       // A screenshot of things to do is for Explore unless their own words ask for a plan (🐛 #83 — an Instagram
       // events list became 6 plans).
       if (shotNotAPlan(currentTurn)) return { error: 'FOR_EXPLORE', message: 'They shared a screenshot to find things, not to make plans. Use add_to_explore with what\'s in it (each thing with its date and place) — they make a plan from Explore. Make a plan only for one they ask to plan.' };
       // Every plan change goes through planops.js (one plan per name, dates, group, invites).
       noInventedDay(userId, toolInput);   // 🐛 #89
       noInventedTime(userId, toolInput);
+      // Made in a plan's discussion ("make this a separate event"): part of that plan, so everyone in it is in this
+      // one — Allie included, no number needed (2026-10-23).
+      if (toolInput.part_of === 'none') delete toolInput.part_of;
+      else if (!toolInput.part_of && currentTurn?.eventId && currentTurn.eventId !== topics.GENERAL && currentTurn.userId === userId && currentTurn.intent !== 'new_plan_made') toolInput.part_of = currentTurn.eventId;
       const made = await planops.create(userId, toolInput, { via: 'agent' });
       if (made.error) return made;
       const { eventId } = made;
@@ -2126,6 +2147,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         kept_out_surprise: inviteResult.kept_out_surprise, surprise_note: inviteResult.surprise_note,   // 🐛 #86
         tentative: !!eventData.tentative || undefined,
         group: made.group,
+        part_of: made.part_of ? db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(made.part_of)?.title : undefined,   // everyone in it was invited
         note: inviteResult.sent > 0
           ? `Invite(s) sent. Contacts can reply YES/NO and their response will be tracked automatically.`
           : `Event created but no invites sent (check contact_ids are valid and contacts aren't opted out).`,
@@ -3056,7 +3078,7 @@ const PLAN_WORDS = /\b(plans?|calendar|invite|book|tickets?|rsvp|we'?re going|i'
 function shotNotAPlan(turn) {
   const t = String(turn?.userText || '');
   const i = t.indexOf(SHOT_MARK);
-  if (i < 0 || turn?.intent === 'new_plan') return false;
+  if (i < 0 || ['new_plan', 'new_plan_made'].includes(turn?.intent)) return false;
   return !PLAN_WORDS.test(t.slice(0, i));
 }
 function addToExplore(userId, { text, instead_of_plan_ids: ids }) {
@@ -3207,6 +3229,12 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
     planRouted = true;
     const last = messages[messages.length - 1];
     messages[messages.length - 1] = { role: 'user', content: `${typeof last.content === 'string' ? last.content : msg.text}\n\n[ButterflAI — not from the user] Your user sent this as a Quick note, likely from inside another app (a dating app, Instagram…), about someone they're talking to; "[What was on my screen]" is what ButterflAI read from a screenshot they attached (the picture itself isn't kept). 1) Save that person with add_contact — name, met_via (the app or place), about (where they are, what they're into); no phone is fine (if one is already a contact with that name, it's the same person). 2) If it suggests something they'd enjoy together, add one wish with manage_wishes (e.g. "Paddleboarding at Kings Beach with Sarah"). Only create a plan if your user asked for one. 3) Reply in one or two lines: who you saved and the idea. Never message the person — you have no way to, and dating is the user's to do.` };
+  }
+  if (msg.intent === 'new_plan_made') {
+    planRouted = true;
+    const last = messages[messages.length - 1];
+    const made = require('./plan').planFor(msg.event_id, userId);
+    messages[messages.length - 1] = { role: 'user', content: `${typeof last.content === 'string' ? last.content : msg.text}\n\n[ButterflAI — not from the user] Your user tapped ＋ New plan and wrote the message above. ButterflAI already made the plan from it: "${made?.title}" (eventId="${msg.event_id}"; ${made?.dates?.label || 'date TBD'}${made?.part_of ? `; part of ${made.part_of.title} — everyone in that plan is already invited` : ''}). Don't create another plan. Now: invite anyone else they named (lookup_contact, then update_event invite_contact_ids), add what needs doing to its Creating list (manage_todos — short item names, assigned to who they said), and fix the name or date only from their words. Then reply in one or two lines: what's set and the one thing still open. Don't start a long discussion.${spellNote(msg.spell_id, userId)}` };
   }
   if (msg.intent === 'new_plan') {
     planRouted = true;   // it's a new plan by definition; no routing guess needed

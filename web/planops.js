@@ -67,6 +67,17 @@ async function create(hostId, input, { via = 'agent' } = {}) {
 
   // People: a named group invites its members; inviting a whole group makes it that group's plan.
   let contactIds = input.contact_ids || [];
+  // A part of a bigger plan ("Friday evening" inside the birthday weekend — owner, 2026-10-23): it has everyone in the
+  // bigger plan, invited without anyone needing the others' numbers (people.contactFor). Only someone in that plan.
+  let parentId = null;
+  if (input.part_of) {
+    const parent = db._raw().prepare("SELECT id, status FROM social_events WHERE id = ?").get(String(input.part_of));
+    if (!parent || parent.status === 'cancelled' || !require('./topics').canSee(hostId, parent.id)) return { error: 'PART_OF_NOT_FOUND', message: 'That isn\'t one of your plans.' };
+    parentId = parent.id;
+    const people = require('./people');
+    for (const u of people.inPlan(parent.id)) if (u.id !== hostId) { const cid = people.contactFor(hostId, u); if (cid) contactIds.push(cid); }
+    contactIds = [...new Set(contactIds)];
+  }
   if (input.group) {
     const { group: g, groups: all } = require('./feeling').findGroup(hostId, input.group);
     if (!g) return { error: 'GROUP_NOT_FOUND', message: `No group called "${input.group}". Groups: ${all.map((x) => x.name).join(', ') || 'none yet'}.` };
@@ -94,6 +105,7 @@ async function create(hostId, input, { via = 'agent' } = {}) {
     db._raw().transaction(() => {
       eventId = multiparty.createEvent(hostId, data);
       if (timeTbd) db._raw().prepare('UPDATE social_events SET time_tbd = 1 WHERE id = ?').run(eventId);
+      if (parentId) { db._raw().prepare('UPDATE social_events SET parent_id = ? WHERE id = ?').run(parentId, eventId); log(eventId, hostId, via, 'part_of', null, parentId); }
       log(eventId, hostId, via, 'created', null, title);
       ripples.ripple([{ type: 'created', event_id: eventId, actor_id: hostId, via, data: { title } }]);
     })();
@@ -101,7 +113,7 @@ async function create(hostId, input, { via = 'agent' } = {}) {
 
   const inv = contactIds.length ? await invite(hostId, eventId, contactIds, { via }) : { sent: 0, skipped: 0 };
   const g = data.group_id ? db.getContactGroups(hostId).find((x) => x.id === data.group_id) : null;
-  return { eventId, invites: inv, group: g?.name, scheduled_for: resolved?.label };
+  return { eventId, invites: inv, group: g?.name, scheduled_for: resolved?.label, part_of: parentId || undefined };
 }
 
 /**

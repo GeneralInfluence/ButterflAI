@@ -125,7 +125,11 @@ function planFor(eventId, viewerId) {
     host: { name: first(host?.name), is_you: isHost }, role: isHost ? 'host' : 'guest',
     invitation: mine ? { id: mine.id, status: mine.status, going: mine.status === 'accepted' && (!!mine.going || !e.tentative), must_ask: !!mine.needs_owner_decision && mine.status !== 'declined',
       deferred_to: parseJson(mine.defers_to, []) } : null,
-    tentative: !!e.tentative, stage, done: e.status === 'completed', dates, days: dates.days, at: dates.kind === 'set' ? dates.start : null,
+    tentative: !!e.tentative, stage, done: e.status === 'completed', dates,
+    // Plans inside plans (2026-10-23): the bigger plan this is part of, and its own parts (that this viewer can see).
+    part_of: e.parent_id ? (() => { const p = db._raw().prepare('SELECT id, title FROM social_events WHERE id = ?').get(e.parent_id); return p && require('./topics').canSee(viewerId, p.id) ? p : null; })() : null,
+    parts: db._raw().prepare("SELECT id, title FROM social_events WHERE parent_id = ? AND COALESCE(status, 'open') != 'cancelled' ORDER BY scheduled_at").all(e.id)
+      .filter((p) => require('./topics').canSee(viewerId, p.id)), days: dates.days, at: dates.kind === 'set' ? dates.start : null,
     group: e.group_id ? (db._raw().prepare('SELECT id, name FROM contact_groups WHERE id = ?').get(e.group_id) || null) : null,
     people, interested, going, waiting_on: waiting, out: plain.filter((p) => p.status === 'declined').map((p) => p.name),
     deferring: people.filter((p) => p.deferring_to.length).map((p) => ({ who: p.name, to: p.deferring_to })),

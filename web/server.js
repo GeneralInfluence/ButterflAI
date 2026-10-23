@@ -1690,7 +1690,7 @@ app.get('/api/butterflies', webAuth.requireAuth, (req, res) => {
 });
 app.get('/app/quick', webAuth.requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public/app/quick.html')));
 
-app.post('/api/plans/new', webAuth.requireAuth, express.json(), (req, res) => {
+app.post('/api/plans/new', webAuth.requireAuth, express.json(), async (req, res) => {
   const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
   if (!text) return res.status(400).json({ error: 'Say what the plan is' });
   // Made from one of ButterflAI's ideas (🐛 #45/#47): which one rides along; the idea counts as planned.
@@ -1701,9 +1701,15 @@ app.post('/api/plans/new', webAuth.requireAuth, express.json(), (req, res) => {
     if (id.startsWith('pool:')) id = spells.adopt(req.user.id, id.slice(5));
     if (id && db._raw().prepare('SELECT 1 FROM spells WHERE id = ? AND user_id = ?').get(id, req.user.id)) { spellId = id; spells.answer(req.user.id, id, 'plan'); }
   }
-  db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text, intent: 'new_plan', spell_id: spellId });
-  sse.push(req.user.id, { role: 'status', text: 'Making the plan…' });
-  res.json({ ok: true, ts: Math.floor(Date.now() / 1000) });
+  // The plan is made here, in code (newplan.js — 2026-10-23: Melanie's ＋ ended up as items on her weekend plan); their
+  // words then go to their ButterflAI in the new plan's discussion to fill in, never to make another.
+  const partOf = req.body?.part_of ? String(req.body.part_of) : null;
+  const made = await require('./newplan').make(req.user.id, text, { partOf });
+  if (made.error) return res.status(400).json(made);
+  db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text, intent: 'new_plan_made', spell_id: spellId, event_id: made.event_id });
+  if (spellId) db._raw().prepare('UPDATE spells SET event_id = ? WHERE id = ? AND event_id IS NULL').run(made.event_id, spellId);
+  sse.push(req.user.id, { role: 'status', text: `Made “${made.title}”…` });
+  res.json({ ok: true, ts: Math.floor(Date.now() / 1000), event_id: made.event_id, title: made.title, part_of: made.part_of });
 });
 
 // 🌴 I'm out — who's near you now and up for something (outnow.js, owner 2026-10-20).

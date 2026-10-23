@@ -68,7 +68,10 @@
     newSheet.querySelector('h3').textContent = spell ? 'Make it yours, then make it' : "What's the plan?";
     let hint = newSheet.querySelector('#bfly-new-from');
     if (!hint) { hint = document.createElement('div'); hint.id = 'bfly-new-from'; hint.style.cssText = 'font-size:13px;color:#8e8e93;margin:-4px 0 8px'; newSheet.querySelector('h3').after(hint); }
-    hint.textContent = about ? `From ButterflAI’s idea: ${about} — change anything before it’s made` : '';
+    // Tapped while looking at a plan: the new one will be part of it (2026-10-23).
+    const inPlan = !spell && new URLSearchParams(location.search).get('event');
+    const inPlanTitle = inPlan && inPlan !== 'general' ? (document.querySelector('.tpill.active')?.getAttribute('title') || '').trim() : '';
+    hint.textContent = about ? `From ButterflAI’s idea: ${about} — change anything before it’s made` : inPlan && inPlan !== 'general' ? `Part of ${inPlanTitle || 'this plan'} — everyone in it will be in this too` : '';
     newText().value = text || '';
     newSheet.hidden = false;
     setTimeout(() => { const t = newText(); t.focus(); t.setSelectionRange(t.value.length, t.value.length); }, 50);
@@ -87,10 +90,13 @@
     if (!text) { newText().focus(); return; }
     go.disabled = true; go.textContent = 'Making it…';
     try {
-      const r = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ...(fromSpell ? { spell_id: fromSpell } : {}) }) });
+      // Tapped from inside a plan: the new one is part of it (2026-10-23).
+      const partOf = new URLSearchParams(location.search).get('event');
+      const r = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ...(fromSpell ? { spell_id: fromSpell } : {}), ...(partOf && partOf !== 'general' ? { part_of: partOf } : {}) }) });
       if (!r.ok) throw new Error();
-      const { ts } = await r.json();
-      location.href = '/app/chat?new=' + encodeURIComponent(ts);   // the chat opens the new plan once it exists
+      const { ts, event_id: made } = await r.json();
+      // The plan exists now (made in code) — open its discussion; ButterflAI fills it in there.
+      location.href = made ? '/app/chat?event=' + encodeURIComponent(made) : '/app/chat?new=' + encodeURIComponent(ts);
     } catch (_) { go.disabled = false; go.textContent = 'Make it'; }
   });
   const sheet = document.createElement('div');

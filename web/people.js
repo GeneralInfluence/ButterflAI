@@ -51,4 +51,49 @@ function fillName(user) {
   return n;
 }
 
-module.exports = { nameFor, knownName, fillName, PLACEHOLDER };
+/**
+ * Everyone in a plan, as ButterflAI users (host + guests who haven't said no). For inviting the people of a bigger plan
+ * into a part of it, and for finding someone you share a plan with by name.
+ */
+function inPlan(eventId) {
+  const e = db._raw().prepare('SELECT host_user_id FROM social_events WHERE id = ?').get(eventId);
+  if (!e) return [];
+  const out = new Map();
+  const host = db.getUser(e.host_user_id); if (host) out.set(host.id, host);
+  for (const r of db._raw().prepare(`SELECT u.* FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id JOIN users u ON u.phone = c.phone
+    WHERE ei.event_id = ? AND ei.status != 'declined'`).all(eventId)) out.set(r.id, r);
+  return [...out.values()];
+}
+
+/**
+ * People you share an open plan with who aren't in your contacts (Melanie, 2026-10-23: "Allie is already tagged in the
+ * event Melanie's birthday weekend" — her agent asked for Allie's number five times). [{ user, plan }]
+ */
+function planMates(userId) {
+  const me = db.getUser(userId);
+  if (!me) return [];
+  const mine = require('./plan').plansFor(userId).map((p) => ({ id: p.id, title: p.title }));
+  const out = new Map();
+  for (const p of mine) for (const u of inPlan(p.id)) {
+    if (u.id === userId || out.has(u.id)) continue;
+    if (db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND phone = ? AND COALESCE(hidden, 0) = 0').get(userId, u.phone)) continue;
+    out.set(u.id, { user: u, plan: p });
+  }
+  return [...out.values()];
+}
+
+/**
+ * A contact of `ownerId` for another user, to invite them: theirs if saved, else a hidden one (migration 084) named as
+ * the owner would know them — not in People, number never shown, and not "close".
+ */
+function contactFor(ownerId, other) {
+  if (!other?.phone) return null;
+  const c = db._raw().prepare('SELECT id FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(ownerId, other.phone);
+  if (c) return c.id;
+  const id = require('uuid').v4();
+  db._raw().prepare("INSERT INTO contacts (id, invited_by_user_id, name, phone, tier, hidden) VALUES (?, ?, ?, ?, 1, 1)")
+    .run(id, ownerId, nameFor(ownerId, other.id), other.phone);
+  return id;
+}
+
+module.exports = { nameFor, knownName, fillName, inPlan, planMates, contactFor, PLACEHOLDER };

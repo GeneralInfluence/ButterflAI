@@ -34,25 +34,32 @@ async function login(name, phone) {
 }
 
 describe('🐛 #34: ＋ New plan', () => {
-  test('the agent is told the user tapped ＋ New plan, and creates it — no routing guess, no long discussion', async () => {
+  // Was: the agent was told to create it (expected intent 'new_plan'). Changed 2026-10-23 — Melanie's ＋ ended up as
+  // items on her weekend plan ("they had trouble using the + button"): ＋ makes the plan in code (newplan.js); the agent
+  // fills it in, in that plan's discussion, and can't make another.
+  test('＋ makes the plan right away; the agent fills it in and can\'t make another', async () => {
     const { cookie, user } = await login('Sean NP', '+12025330001');
     const r = await request.post('/api/plans/new').set('Cookie', cookie).send({ text: 'Dinner with Allie next Friday' });
     assert.equal(r.status, 200);
-    const row = db._raw().prepare("SELECT intent, channel FROM inbound_messages WHERE from_id = ? ORDER BY rowid DESC").get(user.id);
-    assert.deepEqual([row.intent, row.channel], ['new_plan', 'webchat']);
-    let seen = null;
+    assert.ok(db._raw().prepare('SELECT 1 FROM social_events WHERE id = ? AND host_user_id = ?').get(r.body.event_id, user.id), 'made before any model turn');
+    const row = db._raw().prepare("SELECT intent, channel, event_id FROM inbound_messages WHERE from_id = ? ORDER BY rowid DESC").get(user.id);
+    assert.deepEqual([row.intent, row.channel, row.event_id], ['new_plan_made', 'webchat', r.body.event_id]);
+    let seen = null; const results = [];
     agent._setAnthropic({ messages: { create: async (req) => {
+      const last = req.messages.at(-1);
+      if (Array.isArray(last.content)) for (const b of last.content) if (b.type === 'tool_result') results.push(String(b.content));
       if (!seen) {
-        seen = req.messages.at(-1).content;
+        seen = last.content;
         return { id: 'a', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'create_social_event', input: { title: 'Dinner with Allie', activity_type: 'dinner', tentative: true } }] };
       }
-      return { id: 'b', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Made "Dinner with Allie" — date TBD.' }] };
+      return { id: 'b', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Made it — date TBD.' }] };
     } } });
     await agent.tick();
-    assert.match(seen, /^Dinner with Allie next Friday\n\n\[ButterflAI — not from the user\] Your user tapped ＋ New plan/);
-    assert.ok(db._raw().prepare("SELECT 1 FROM social_events WHERE host_user_id = ? AND title = 'Dinner with Allie'").get(user.id));
-    const d = (await request.get('/api/chat/discussions').set('Cookie', cookie)).body.discussions.find((x) => x.title === 'Dinner with Allie');
-    assert.ok(d.mine && d.created_at > 0, 'the chat can find the plan it just made');
+    assert.match(seen, /^Dinner with Allie next Friday\n\n\[ButterflAI — not from the user\] Your user tapped ＋ New plan and wrote the message above\. ButterflAI already made the plan/);
+    assert.match(results.join(' '), /PLAN_ALREADY_MADE/);
+    assert.equal(db._raw().prepare('SELECT count(*) n FROM social_events WHERE host_user_id = ?').get(user.id).n, 1, 'just the one plan');
+    const d = (await request.get('/api/chat/discussions').set('Cookie', cookie)).body.discussions.find((x) => x.event_id === r.body.event_id);
+    assert.ok(d && d.mine, 'the chat has its discussion');
   });
   test('empty text is refused; signed-out is refused', async () => {
     const { cookie } = await login('Sean NP2', '+12025330002');
@@ -62,7 +69,7 @@ describe('🐛 #34: ＋ New plan', () => {
   test('＋ sits with 🐛 in one pill on every screen; the sheet has starters; the chat opens the new plan', () => {
     const js = fs.readFileSync(path.join(__dirname, '../../public/feedback.js'), 'utf8');
     assert.ok(js.includes("side.append(plus, tab);") && js.includes("plus.textContent = '＋'") && js.includes("<h3>What's the plan?</h3>"));
-    assert.ok(js.includes("fetch('/api/plans/new'") && js.includes("location.href = '/app/chat?new='"));
+    assert.ok(js.includes("fetch('/api/plans/new'") && js.includes("location.href = made ? '/app/chat?event=' + encodeURIComponent(made)"));
     const chat = fs.readFileSync(path.join(__dirname, '../../public/app/chat.html'), 'utf8');
     assert.ok(chat.includes("d.mine && d.created_at >= newPlanSince - 5") && chat.includes("location.replace('/app/chat?event=' + encodeURIComponent(fresh.event_id))"));
   });
