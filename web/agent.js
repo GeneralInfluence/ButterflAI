@@ -876,11 +876,50 @@ const recentLookups = new Map();   // userId → [{ query, ids, at }]
 // own words name a day — then the model's day stands (🐛 #15: the model put Melanie's Friday
 // massage on Saturday though she never said Saturday). Enforced in code.
 const NAMES_A_DAY = /\b(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?\b|\b(tonight|tomorrow|today)\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}\b|\b\d{1,2}(st|nd|rd|th)\b|\b\d{4}-\d{2}-\d{2}\b/i;
-function todoDay(modelDay) {
+function todoDay(modelDay, eventId = currentTurn?.eventId) {
   const ctx = currentTurn?.contextDay || null;
+  // No day in their words → the day they opened the plan from, else today if the plan covers today (🐛 #89).
+  if (currentTurn?.userId && !NAMES_A_DAY.test(theirWords(currentTurn.userId))) return todos.pickDay({ userId: currentTurn.userId, eventId, modelDay, said: '', contextDay: ctx });
   if (!modelDay) return ctx;
   if (ctx && modelDay !== ctx && !NAMES_A_DAY.test(currentTurn?.userText || '')) return ctx;
   return modelDay;
+}
+
+/** The user's own words lately: this message and their last few (not other agents' replies or system lines). */
+function theirWords(userId) {
+  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND created_at > strftime('%s','now') - 3 * 3600
+    ORDER BY created_at DESC LIMIT 6`).all(userId).map((r) => r.text).filter((t) => !/^\s*\[/.test(t));
+  return `${currentTurn?.userText || ''} ${recent.join(' ')}`;
+}
+
+/**
+ * No invented day (🐛 #89 — Melanie, in her Fri–Sat birthday weekend's discussion on the Friday: "Sean to take boys to
+ * press start at 5pm … Allie and Mel will be watching practical magic … make this a separate event" — her ButterflAI
+ * put it all on Saturday, 7pm; "not saturday tonight"). While the plan being discussed is happening today and her
+ * recent words name no day, another of that plan's days is the model's guess: a plan's `when` / scheduled_at moves to
+ * today (same time), and the day is dropped from an item's when_text. Days that come from anything else (an earlier
+ * conversation, the plan's own date) are left alone.
+ */
+function noInventedDay(userId, input, keys = ['when']) {
+  if (!input || !currentTurn?.userText || currentTurn.userId !== userId || NAMES_A_DAY.test(theirWords(userId))) return;
+  const here = currentTurn.eventId && currentTurn.eventId !== topics.GENERAL ? require('./plan').planFor(currentTurn.eventId, userId) : null;
+  const tz = db.getUser(userId)?.timezone || 'America/Los_Angeles';
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+  if (!here?.days?.includes(today)) return;
+  const guessed = (day) => day && day !== today && here.days.includes(day);
+  for (const k of keys) {
+    if (typeof input[k] !== 'string' || !datetime.saysDay(input[k])) continue;
+    if (!guessed(datetime.resolveDateOnly(input[k], tz)?.date)) continue;
+    const rest = datetime.withoutDay(input[k]);
+    input[k] = k === 'when' ? `today${rest ? ' ' + rest : ''}` : rest;
+  }
+  if (keys.includes('when') && input.scheduled_at && !input.when) {
+    const d = new Date(input.scheduled_at);
+    if (!Number.isNaN(d.getTime()) && guessed(d.toLocaleDateString('en-CA', { timeZone: tz }))) {
+      input.when = `today ${d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' })}`;
+      delete input.scheduled_at;
+    }
+  }
 }
 
 /**
@@ -1556,6 +1595,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     }
 
     case 'manage_todos': {
+      noInventedDay(userId, toolInput, ['when_text']);   // "Saturday 5pm" she never said → "5pm" (🐛 #89)
       const { event_id, action, items = [], todo_id, assignee } = toolInput;
       if (action === 'list') return todos.list(userId, event_id);
       if (action === 'suggest' || action === 'add') {
@@ -1567,11 +1607,11 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           if (action === 'add' && done.some((d) => [...words(text)].some((w) => words(d.label.split(' → ')[0]).has(w) || words(d.label.split(' → ')[0]).has(w.replace(/s$/, ''))))) { already.push(text); continue; }
           // The day: the one the model named, else the calendar day the user was looking at
           // (🐛 #15 — Melanie's Friday massage was recorded as Saturday). Enforced here.
-          const r = todos.add(userId, event_id, { text, assignee, suggested: action === 'suggest', day: todoDay(toolInput.day),
+          const r = todos.add(userId, event_id, { text, assignee, suggested: action === 'suggest', day: todoDay(toolInput.day, event_id),
             ...(items.length === 1 ? { when_text: toolInput.when_text, place: toolInput.place, notes: toolInput.notes } : {}) });
           if (r.error) problems.push(`${text}: ${r.message || r.error}`); else added.push(r.todo.text);
         }
-        const dayUsed = todoDay(toolInput.day);
+        const dayUsed = todoDay(toolInput.day, event_id);
         return { [action === 'suggest' ? 'suggested' : 'added']: added, problems: problems.length ? problems : undefined,
           already_added: already.length ? `${already.join(', ')} — already on Creating (added for this message); don't add again` : undefined,
           day: dayUsed && added.length ? `${dayUsed} — recorded for that day${dayUsed === currentTurn?.contextDay ? ' (the day your user opened the plan from); don\'t ask which day' : ''}` : undefined,
@@ -1582,7 +1622,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       if (action === 'update') {
         const changes = {};
         for (const k of ['when_text', 'place', 'status', 'notes', 'text']) if (toolInput[k] !== undefined) changes[k] = toolInput[k];
-        if (toolInput.day !== undefined) changes.day = todoDay(toolInput.day);
+        if (toolInput.day !== undefined) changes.day = todoDay(toolInput.day, event_id);
         // Asking your ButterflAI to change an item IS taking action on it — you join it and it changes (🐛 #75: Sean's
         // "massages … booked" became a suggestion waiting on Melanie that he couldn't act on). Only another agent's
         // question doesn't take it on.
@@ -2025,6 +2065,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       // events list became 6 plans).
       if (shotNotAPlan(currentTurn)) return { error: 'FOR_EXPLORE', message: 'They shared a screenshot to find things, not to make plans. Use add_to_explore with what\'s in it (each thing with its date and place) — they make a plan from Explore. Make a plan only for one they ask to plan.' };
       // Every plan change goes through planops.js (one plan per name, dates, group, invites).
+      noInventedDay(userId, toolInput);   // 🐛 #89
       noInventedTime(userId, toolInput);
       const made = await planops.create(userId, toolInput, { via: 'agent' });
       if (made.error) return made;
@@ -2094,6 +2135,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
     case 'update_event': {
       // Every plan change goes through planops.js (validation, FYIs, change log).
       const { event_id, invite_contact_ids, ...changes } = toolInput;
+      noInventedDay(userId, changes);   // 🐛 #89
       noInventedTime(userId, changes);
       // Adding people to an existing plan (2026-10-19: there was no way, so the agent texted
       // Allie, Alexandria and Melanie instead and the plan had no guests).
@@ -2665,6 +2707,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   SCREENSHOTS: "[What was on my screen]" in your user's message is what ButterflAI read from a screenshot they attached (the picture isn't kept) — treat it as what they're showing you and act on it like their own words: dates, times, places and people in it are what to plan with (as written — never invent a missing time), a flyer or event page is something to plan around, and a conversation shows what's been said. If it's unclear what they want done with it, do the obvious thing for the plan being discussed (or ask once). Never describe anyone's looks.
   WHISPERS (anonymous messages): every message ButterflAI passes on says who it's from ("From Allie's ButterflAI") — except a 💌 whisper. When your user wants a friend to get something without their name ("anonymously tell Sean…", "start a rumor", "don't let her know it's from me"), use send_whisper (never send_logistics_sms or message_agent): write it short, kind or playful, with no hint of who sent it. It only reaches friends on ButterflAI who have each other saved; tell your user exactly what happened (sent / not sent and why). When your user got a whisper ("💌 Someone close to you says…") and tells you what to say back, use reply_whisper; if they don't want more from that person, mute_whisper. Never guess or hint who sent a whisper.
   NUMBERS ARE THEIRS: never add how many people ("for 4", "party of 6") that your user didn't say — not to another agent, not in a plan's notes, not on Creating. If it matters, ask. "Booked a massage" is one massage, for them.
+  NO INVENTED DAYS: a day your user didn't say is not yours to pick. "Sean takes the boys at 5pm" with no day, on a weekend plan that started today, is TODAY — never "Saturday". If you truly can't tell, ask once; don't guess (code drops a day they didn't say).
   SURPRISES: a surprise, secret or anonymous gift for someone ("send Sean a mystery playlist", "a surprise party for Mel") — never invite that person or message them about it (code keeps them out); make the plan with the others in on it, or none. Write who it's for in the notes. To give it to them without your user's name, use send_whisper when it's ready. And if your user is asked about or shown a plan that's a surprise for THEM, say only that a friend has something planned — never who, never the notes.
   SCREENSHOTS OF THINGS TO DO GO TO EXPLORE: a screenshot (or list) of events, shows or places they want found, "looked into" or saved for later ("exploration opportunities", "suggest these later") → add_to_explore — never a plan for each one. A plan only for something they say they're going to or want to plan. If you already made plans for them by mistake, pass those ids to add_to_explore (instead_of_plan_ids) and say they're gone — "none of them should stay" means cancel every one.
   DONE IS DONE: when your user says a plan or errand is done ("dropped it off at the front desk, it's completed", "that's handled") → update_event done: true for the plan (or manage_todos done for an item) — it leaves everyone's lists. Don't just note it.
@@ -3094,7 +3137,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   // the message is scrubbed, so no plain-text copy is left at rest.
   const isPrivate = USER_CHANNELS.includes(msg.channel) && sensitive.isSensitiveMode(userId);
   const turnStart = Math.floor(Date.now() / 1000);   // chat rows from here on belong to this turn (topics.js)
-  currentTurn = { userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id, eventId: msg.event_id || null,
+  currentTurn = { userId, userText: USER_CHANNELS.includes(msg.channel) ? msg.text : '', channel: msg.channel || 'sms', msgId: msg.id, eventId: msg.event_id || null,
     contextDay: msg.context_day || null, spellId: msg.spell_id || null, intent: msg.intent || null };
   // Talking in a plan's discussion while still not answered → interested (Allie, 2026-10-21).
   // (From the second message on — a first "sounds fun" gets the going-or-interested question instead.)

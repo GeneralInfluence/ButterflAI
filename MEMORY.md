@@ -1099,6 +1099,17 @@ be turned on, the private-data tools aren't offered, and the agent says "I can't
 keep things like that." Avoid lists keep working. Only the owner had private data (1 health note, 2 private-mode
 messages) — deleted at his request (retro). Details: PRIVACY.md "Private information is paused".
 
+## 24k. No invented days `[2026-10-23]`
+
+🐛 #89 (Melanie, Friday Oct 23, in her Fri–Sat birthday weekend's discussion: "Sean to take boys to press start at 5pm …
+Allie and Mel will be watching practical magic" → filed as Saturday; then a separate Practical Magic plan on Saturday 7pm;
+👎 "not saturday tonight"). She named no day. Now, while the plan being discussed is happening today and the person's
+recent words (not other agents' replies) name no day, another of that plan's days is a guess: a plan's `when` /
+scheduled_at moves to today (`agent.noInventedDay`), an item's day is today and the day leaves its when_text
+(`todos.pickDay`, used by the agent and understand.js). Days from anywhere else (earlier conversation, the plan's own
+date) are left alone. Prompt NO INVENTED DAYS. Retro moved such items to the day they were said. Test:
+`no-invented-day.test.js`.
+
 ## 25. Connections that stop working are reported `[LOCKED 2026-10-19]`
 
 Owner: "I want to be told when the grants or any other types of connections expire so that way

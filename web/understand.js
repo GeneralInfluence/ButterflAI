@@ -152,13 +152,14 @@ function record(userId, msg, a, fields) {
 }
 
 /** Apply one action through the one door for it. Returns { ok, label, ref, toolLog } or { error }. */
-function applyOne(userId, a, { contextDay }) {
+function applyOne(userId, a, { contextDay, userText = '' }) {
   const planops = require('./planops');
   const todos = require('./todos');
   const title = db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(a.event_id)?.title || 'the plan';
   if (a.kind === 'add_todo') {
     const named = a.day && /^\d{4}-\d{2}-\d{2}$/.test(a.day) ? a.day : null;
-    const r = todos.add(userId, a.event_id, { text: a.text, day: named || contextDay || null });
+    // The model's day only if their words name one (🐛 #89 — "watch practical magic" on the Friday became Saturday).
+    const r = todos.add(userId, a.event_id, { text: a.text, day: todos.pickDay({ userId, eventId: a.event_id, modelDay: named, said: userText, contextDay }) });
     if (r.error === 'ALREADY_ON_LIST') return { error: r.error };
     if (r.error) return r;
     return { ok: true, ref: r.todo.id, label: `${r.todo.text}${r.todo.day ? ' · ' + fmtDay(r.todo.day) : ''} → Creating`,
@@ -248,7 +249,7 @@ async function run({ userId, msg, isNamed }) {
   const out = { ...empty };
   for (const a of decided) {
     if (a.decision === 'apply') {
-      const r = applyOne(userId, a, { contextDay: msg.context_day || null });
+      const r = applyOne(userId, a, { contextDay: msg.context_day || null, userText: msg.text });
       if (r.ok) {
         const id = record(userId, msg, a, { status: 'applied', ref: r.ref, label: r.label });
         out.applied.push({ id, kind: a.kind, label: r.label, event_id: a.event_id });

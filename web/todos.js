@@ -88,6 +88,24 @@ function view(t, viewerId = null) {
 }
 
 // A day the plan covers, or null (to-dos can't be for a day outside the plan).
+/**
+ * Which day an item is for (🐛 #89 — Melanie, in her Fri–Sat weekend's discussion on the Friday: "Sean to take boys to
+ * press start at 5pm … Allie and Mel will be watching practical magic" → her ButterflAI filed them under Saturday;
+ * "not saturday tonight"). With no day in their words: the day they opened the plan from; else, while the plan is
+ * happening today, today (not another of its days); else the model's day.
+ */
+function pickDay({ userId, eventId, modelDay = null, said = '', contextDay = null }) {
+  if (require('./datetime').saysDay(said)) return modelDay || contextDay || null;
+  if (contextDay) return contextDay;
+  const tz = db.getUser(userId)?.timezone || 'America/Los_Angeles';
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+  const p = eventId ? require('./plan').planFor(eventId, userId) : null;
+  // The plan is happening today: another of its days, unnamed, is a guess → today. Otherwise the model's day stands
+  // (it may come from earlier in the conversation).
+  if (p?.days?.includes(today) && (!modelDay || p.days.includes(modelDay))) return today;
+  return modelDay || null;
+}
+
 function planDay(userId, eventId, day) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))) return null;
   const p = require('./plan').planFor(eventId, userId);
@@ -352,4 +370,4 @@ async function together(userId, todoId) {
   return { ok: true, event_id: eventId, with: people.slice(0, 6).map((p) => first(p.name)) };
 }
 
-module.exports = { shortName, together, list, add, update, remove, join, leave, team, onTeam, mine, forHome, members, progressFor, repeats, keyWords, STATUSES };
+module.exports = { pickDay, shortName, together, list, add, update, remove, join, leave, team, onTeam, mine, forHome, members, progressFor, repeats, keyWords, STATUSES };

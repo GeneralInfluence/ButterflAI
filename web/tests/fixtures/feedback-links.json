@@ -291,5 +291,9 @@
   "88": {
     "note_starts": "I need to be able to give feedback that it got changed to another day",
     "test": "tests/integration/attendance.test.js › the host moves it to Thursday 6pm: the plan's date changes, nothing is recorded as attended, it's asked again after"
+  },
+  "89": {
+    "note_starts": "not saturday tonight",
+    "test": "tests/integration/no-invented-day.test.js › Melanie's exact words on the weekend's first day: the items are today, not tomorrow"
   }
 }

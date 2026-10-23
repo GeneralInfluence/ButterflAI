@@ -196,6 +196,13 @@ function resolveDateOnly(whenText, timezone, now = new Date()) {
 // Words that give a time of day — the agent may only pass a time its user actually said.
 const TIME_WORDS = /\b\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)|\b\d{1,2}:\d{2}\b|\b(noon|midnight|morning|afternoon|evening|tonight|night|lunch|dinner|brunch|breakfast|o'?clock)\b|\bat \d{1,2}\b/i;
 function saysTime(text) { return TIME_WORDS.test(String(text || '')); }
+// A day in someone's words: a weekday, today / tonight / tomorrow, a date ("Oct 23", "the 30th", 10/23).
+const DAY_WORDS = /\b(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?\b|\b(tonight|tomorrow|today)\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}\b|\b\d{1,2}(st|nd|rd|th)\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\b/i;
+function saysDay(text) { return DAY_WORDS.test(String(text || '')); }
+/** Text without its day words ("Saturday 5pm" → "5pm"). */
+function withoutDay(text) {
+  return String(text || '').replace(new RegExp(DAY_WORDS.source, 'gi'), ' ').replace(/\b(on|this|next)\s+(?=\s|$)/gi, ' ').replace(/\s{2,}/g, ' ').replace(/^[\s,–-]+|[\s,–-]+$/g, '').trim();
+}
 
 // The night "ends" at 4am, so "tonight" covers a late night out.
 const NIGHT_END_HOUR = 4;
@@ -251,4 +258,4 @@ function resolveUntil(phrase, timezone, now = new Date()) {
   };
 }
 
-module.exports = { resolveRange, resolveDateOnly, saysTime, TIME_WORDS, resolveEventDateTime, resolveUntil, parseTime, parseDate, zonedWallTimeToUTC };
+module.exports = { saysDay, withoutDay, DAY_WORDS, resolveRange, resolveDateOnly, saysTime, TIME_WORDS, resolveEventDateTime, resolveUntil, parseTime, parseDate, zonedWallTimeToUTC };

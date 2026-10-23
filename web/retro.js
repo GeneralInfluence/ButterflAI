@@ -939,6 +939,33 @@ const TASKS = [
       return `deleted ${a} notes, ${b} private messages`;
     },
   },
+  {
+    id: '2026-10-23-no-invented-day',
+    added: Date.UTC(2026, 9, 23) / 1000,
+    kind: 'internal',
+    about: '🐛 #89: Creating items they added in a plan\'s discussion on one of its days, with no day in their words, that were filed under another of the plan\'s days (Melanie\'s Friday plans filed as Saturday) are moved to the day they were said.',
+    run(user) {
+      const raw = db._raw(); const dt = require('./datetime');
+      const tz = user.timezone || 'America/Los_Angeles';
+      const dayAt = (ts) => new Date(ts * 1000).toLocaleDateString('en-CA', { timeZone: tz });
+      let n = 0;
+      for (const t of raw.prepare("SELECT * FROM event_todos WHERE created_by = ? AND created_at > strftime('%s','now') - 14 * 86400").all(user.id)) {
+        const said = raw.prepare("SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND event_id = ? AND created_at BETWEEN ? AND ? AND text NOT LIKE '[%' ORDER BY created_at DESC LIMIT 1")
+          .get(user.id, t.event_id, t.created_at - 180, t.created_at);
+        if (!said || dt.saysDay(said.text)) continue;
+        const days = require('./plan').planFor(t.event_id, user.id)?.days || [];
+        const then = dayAt(t.created_at);
+        if (!days.includes(then)) continue;
+        const whenDay = t.when_text && dt.saysDay(t.when_text) ? dt.resolveDateOnly(t.when_text, tz, new Date(t.created_at * 1000))?.date : null;
+        const wrongDay = t.day && t.day !== then && days.includes(t.day);
+        const wrongWhen = whenDay && whenDay !== then && days.includes(whenDay);
+        if (!wrongDay && !wrongWhen) continue;
+        raw.prepare('UPDATE event_todos SET day = ?, when_text = ? WHERE id = ?').run(then, wrongWhen ? (dt.withoutDay(t.when_text) || null) : t.when_text, t.id);
+        n++;
+      }
+      return `moved ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */
