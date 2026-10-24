@@ -110,7 +110,8 @@ function card(userId, eventId, text, ref) {
   const id = require('uuid').v4();
   db._raw().prepare("INSERT INTO conversation_history (id, user_id, role, text, kind, event_id, ref) VALUES (?, ?, 'assistant', ?, 'ask', ?, ?)").run(id, userId, text, eventId, ref);
   const online = require('./sse').push(userId, { id, role: 'assistant', kind: 'ask', text, ref, ts: now() });
-  if (!online) require('./push').notifyUser(db, userId, { title: 'ButterflAI', body: text, url: `/app/chat?event=${encodeURIComponent(eventId)}` }).catch(() => {});
+  // The tap opens the plan with the question asked up front (asks-prompt.js — 🐛 #91).
+  if (!online) require('./push').notifyUser(db, userId, { title: 'ButterflAI', body: text, url: `/app/chat?event=${encodeURIComponent(eventId)}&ask_todo=${encodeURIComponent(String(ref).replace(/^todo:/, ''))}` }).catch(() => {});
 }
 function tell(userId, eventId, text) { require('./ripples/notice').inApp(userId, eventId, text); }
 

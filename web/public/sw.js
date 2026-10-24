@@ -31,16 +31,23 @@ self.addEventListener('push', event => {
   );
 });
 
+// 🐛 #91 (Sean: "I clicked on the notification, it didn't even bring me to butterfly or any part of it"): navigate()
+// fails on a window this worker doesn't control, and the old code didn't catch it — nothing happened. Now: focus an
+// open ButterflAI window and tell it where to go (it navigates itself), else open a new one; never nothing.
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const url = event.notification.data?.url || '/app/chat';
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
-      const existing = cs.find(c => c.url.includes(self.location.origin));
-      if (existing) { existing.focus(); existing.navigate(url); }
-      else clients.openWindow(url);
-    })
-  );
+  const target = new URL(event.notification.data?.url || '/app/chat', self.location.origin).href;
+  event.waitUntil((async () => {
+    const cs = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = cs.find(c => c.url.startsWith(self.location.origin));
+    if (existing) {
+      try { await existing.focus(); } catch (_) {}
+      existing.postMessage({ type: 'OPEN', url: target });
+      try { await existing.navigate(target); return; } catch (_) {}
+      return;
+    }
+    return clients.openWindow(target);
+  })().catch(() => clients.openWindow(target)));
 });
 
 self.addEventListener('fetch', event => {

@@ -1152,6 +1152,12 @@ The plan, in four pieces — 1 and 2 built:
 4. **Who knows** (built 2026-10-23): opening a plan (discussion, Creating, Details) records it (`plan_seen`); each recent
    change shows "✓ Seen: Sean · Not yet: Allie" — for everyone in the plan now (undo stays the host's / co-hosts'). A message
    you sent shows "✓ Seen" / "Not seen yet" / "Texted" (`conversation_history.ref` → deliveries). Test: `notify-loop.test.js`.
+5. **Asked up front; taps land (🐛 #91, 2026-10-24 — Sean tapped Melanie's question notification and "it didn't even bring
+   me to butterfly"; "a big modal asking me the question and then bring me to the rest of the app"):** the notification
+   tap focuses ButterflAI and tells it where to go (sw.js posts OPEN; `navigate()` on an uncontrolled window had failed
+   silently), else opens a window. On any screen, an unanswered question to you is asked first in a modal — I'm on it /
+   Can't / Not now (`public/asks-prompt.js`, loaded by feedback.js; `GET /api/asks`); the push opens the plan with
+   `?ask_todo=` so that one comes first.
 **Their choice (owner, same day: "the person might just be in another event, hit plus, and be thinking about a general
 event … they should be able to switch"):** ＋ inside a plan shows 🧩 Part of <plan> / ✨ Separate plan (separate also stops
 the read from guessing a parent); a part can later be made separate from its Details (`PATCH part_of: null`, host).

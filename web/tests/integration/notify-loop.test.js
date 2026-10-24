@@ -132,3 +132,36 @@ describe('retro: items already on someone become questions to them', () => {
     assert.match(lastOf(sean, 'ask').text, /Melanie put you down for: Take the boys/);
   });
 });
+
+// 🐛 #91 (Sean, 2026-10-24): "I got a notification on my phone that Melanie had said are you in … I clicked on the
+// notification it didn't even bring me to butterfly or any part of it … frankly there would be just a big modal asking
+// me the question and then bring me to the rest of the app."
+describe('🐛 #91: a question is asked up front; a notification tap always opens ButterflAI', () => {
+  test('Melanie\'s question to Sean: listed for the prompt on any screen; the push opens the plan with it', async () => {
+    const { mel, sean, e } = await setup();
+    let pushed = null;
+    const push = require('../../push'); const keep = push.notifyUser;
+    push.notifyUser = async (_db, uid, p) => { if (uid === sean.id) pushed = p; };
+    const t = todos.add(mel.id, e, { text: 'Kids at Press Start', assignee: 'Sean', when_text: '5pm' }).todo;
+    push.notifyUser = keep;
+    assert.equal(pushed.url, `/app/chat?event=${encodeURIComponent(e)}&ask_todo=${encodeURIComponent(t.id)}`);
+    const cs = await cookieFor(sean);
+    const asks = (await request.get('/api/asks').set('Cookie', cs)).body.asks;
+    assert.equal(asks.length, 1);
+    assert.deepEqual([asks[0].todo_id, asks[0].what, asks[0].from], [t.id, 'Kids at Press Start · 5pm', 'Melanie']);
+    assert.match(asks[0].plan, /^Friday evening/);
+    await request.post(`/api/todos/${t.id}/answer`).set('Cookie', cs).send({ answer: 'on_it' });
+    assert.deepEqual((await request.get('/api/asks').set('Cookie', cs)).body.asks, [], 'answered: not asked again');
+  });
+  test('every screen gets the prompt (via feedback.js); the tap is handled even when the open window can\'t be moved', () => {
+    const fs = require('fs'); const path = require('path');
+    const fb = fs.readFileSync(path.join(__dirname, '../../public/feedback.js'), 'utf8');
+    assert.match(fb, /s\.src = '\/asks-prompt\.js'/);
+    const ap = fs.readFileSync(path.join(__dirname, '../../public/asks-prompt.js'), 'utf8');
+    assert.match(ap, /I'm on it<\/button><button class="no" data-a="cant">Can't<\/button><button class="later" data-a="later">Not now/);
+    assert.match(ap, /e\.data\.type === 'OPEN'/);
+    const sw = fs.readFileSync(path.join(__dirname, '../../public/sw.js'), 'utf8');
+    assert.match(sw, /existing\.postMessage\(\{ type: 'OPEN', url: target \}\);\n\s+try \{ await existing\.navigate\(target\); return; \} catch \(_\) \{\}/);
+    assert.match(sw, /return clients\.openWindow\(target\);\n\s+\}\)\(\)\.catch\(\(\) => clients\.openWindow\(target\)\)\);/);
+  });
+});

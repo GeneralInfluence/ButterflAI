@@ -186,3 +186,5 @@
     } catch (_) { send.disabled = false; send.textContent = 'Try again'; }
   });
 })();
+// Questions put to you are asked up front, and notification taps land where they point (🐛 #91).
+(function () { if (document.querySelector('script[src="/asks-prompt.js"]')) return; const s = document.createElement('script'); s.src = '/asks-prompt.js'; s.defer = true; document.head.appendChild(s); })();

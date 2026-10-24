@@ -1625,6 +1625,14 @@ function refState(ref) {
   if (kind === 'delivery') { const d = db._raw().prepare('SELECT status, seen_at FROM deliveries WHERE id = ?').get(id); return { seen: !!d?.seen_at, texted: d?.status === 'texted' }; }
   return {};
 }
+// Questions put to you that you haven't answered (asks-prompt.js asks them up front — 🐛 #91).
+app.get('/api/asks', webAuth.requireAuth, (req, res) => {
+  const people = require('./people');
+  const rows = db._raw().prepare(`SELECT t.id, t.text, t.when_text, t.place, t.asked_by, se.title FROM event_todos t JOIN social_events se ON se.id = t.event_id
+    WHERE t.assignee_phone = ? AND t.ask_status = 'asked' AND t.done_at IS NULL AND COALESCE(se.status, 'open') = 'open' ORDER BY t.asked_at`).all(req.user.phone);
+  res.json({ asks: rows.map((t) => ({ todo_id: t.id, what: [t.text, t.when_text, t.place && `at ${t.place}`].filter(Boolean).join(' · '),
+    from: people.nameFor(req.user.id, t.asked_by, { first: true }), plan: t.title })) });
+});
 // Answer a question put to you: I'm on it / Can't (todos.answer — only you can).
 app.post('/api/todos/:id/answer', webAuth.requireAuth, express.json(), (req, res) => {
   const r = require('./todos').answer(req.user.id, String(req.params.id), String(req.body?.answer || ''));
