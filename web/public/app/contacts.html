@@ -383,9 +383,15 @@
   <!-- Action buttons -->
   <!-- Bring in your phone's contacts (🐛 #90 — Melanie: "connect my Apple contacts list through my iCloud. Where can I do that?") -->
   <div class="toolbar">
-    <a class="import-btn btn-primary" id="icloud-btn" href="/auth/apple/calendar" style="text-decoration:none;text-align:center">🍎 Bring in iCloud contacts</a>
+    <a class="import-btn btn-secondary" id="icloud-btn" href="/auth/apple/calendar" style="text-decoration:none;text-align:center">🍎 Bring in iCloud contacts</a>
     <a class="import-btn btn-secondary" id="google-contacts-btn" href="/auth/google" style="text-decoration:none;text-align:center">Bring in Google contacts</a>
   </div>
+  <!-- No password (owner, 2026-10-23: "making them remember something none of my friends have been able to remember"):
+       the iPhone's Contacts app exports a list as one file; pick it here. -->
+  <div class="toolbar">
+    <label class="import-btn btn-primary" id="vcf-file-btn" style="text-align:center;cursor:pointer">📇 From my iPhone — no password<input type="file" accept=".vcf,text/vcard,text/x-vcard" hidden onchange="importVcfFile(this)"></label>
+  </div>
+  <div id="vcf-how" style="font-size:13px;color:#8e8e93;line-height:1.5;margin:-4px 16px 12px">On your iPhone: open <b>Contacts</b> → <b>Lists</b> (top left) → touch and hold <b>All Contacts</b> → <b>Export</b> → <b>Save to Files</b>. Then tap the button above and pick that file. Nothing is sent to anyone.</div>
   <div class="toolbar">
     <button class="import-btn btn-primary" id="picker-btn" onclick="openContactPicker()" style="display:none">
       👥 Import from phone
@@ -666,12 +672,15 @@
 
       const toImport = [...selected].map(i => pickerCandidates[i]);
       try {
-        const res = await fetch('/api/contacts/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contacts: toImport }),
-        });
-        const data = await res.json();
+        // A whole iPhone list can be thousands: sent in batches of 400 (the server takes 500 at a time).
+        let res, data = { imported: 0, skipped: 0 };
+        for (let i = 0; i < toImport.length; i += 400) {
+          res = await fetch('/api/contacts/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contacts: toImport.slice(i, i + 400) }) });
+          const d = await res.json();
+          if (!res.ok) { data = d; break; }
+          data.imported += d.imported || 0; data.skipped += d.skipped || 0;
+          btn.textContent = `Importing… ${Math.min(i + 400, toImport.length)}/${toImport.length}`;
+        }
         closeModal();
         if (res.ok) {
           showToast(`✓ Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''}${data.skipped ? ` (${data.skipped} skipped)` : ''}`);
@@ -721,19 +730,30 @@
 
     // ── vCard file upload (iOS + universal fallback) ──────────────────────────
 
+    // A contacts file from the iPhone (Contacts → Lists → All Contacts → Export) — read here, then pick who to bring in.
+    async function importVcfFile(input) {
+      const f = input.files && input.files[0]; input.value = '';
+      if (!f) return;
+      pickerCandidates = parseVCards(await f.text());
+      if (pickerCandidates.length) openModal(); else showToast('No contacts found in that file');
+    }
+
     function parseVCards(text) {
       // Split on BEGIN:VCARD boundaries, handle CRLF and LF
-      const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      // Unfold wrapped lines (a line break + one space continues the line — iPhone exports wrap long ones).
+      const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n[ \t]/g, '');
       const cards = normalized.split(/BEGIN:VCARD/i).slice(1); // drop empty first element
       const results = [];
       for (const card of cards) {
-        // Full name: FN field
-        const fnMatch = card.match(/^FN:(.+)$/mi);
-        const name = fnMatch ? fnMatch[1].trim() : null;
+        // Full name: FN, else N (Last;First). iPhone exports put "item1." before some fields.
+        const fnMatch = card.match(/^(?:item\d+\.)?FN[^:]*:(.+)$/mi);
+        const nMatch = card.match(/^(?:item\d+\.)?N[;:][^\n]*?:?([^\n]*)$/mi);
+        let name = fnMatch ? fnMatch[1].trim() : null;
+        if (!name && nMatch) { const [last, first] = nMatch[1].split(';'); name = [first, last].filter(Boolean).join(' ').trim() || null; }
         if (!name) continue;
 
-        // Phone: first TEL field found (may be TEL;TYPE=CELL: or TEL:)
-        const telMatch = card.match(/^TEL[^:]*:(.+)$/mi);
+        // Phone: first TEL field found (TEL;TYPE=CELL:, TEL:, or item1.TEL;type=pref:)
+        const telMatch = card.match(/^(?:item\d+\.)?TEL[^:]*:(.+)$/mi);
         const phone = telMatch ? telMatch[1].trim().replace(/\s+/g, '') : '';
 
         results.push({ name, phone });

@@ -221,6 +221,12 @@
         <div class="conn-info"><div class="conn-status"><label><input type="checkbox" id="gcal-mirror" onchange="setCalendarMirror(this.checked)"> Show my ButterflAI plans on my calendar</label></div>
           <div class="conn-status" id="gcal-mirror-status" style="font-size:12px">Plans you're in appear there and stay up to date; proposed dates and invites show as tentative.</div></div>
       </div>
+      <!-- No password (owner, 2026-10-23): subscribe once, plans show on the iPhone's (or any) calendar. -->
+      <div class="conn-row">
+        <div class="conn-info"><div class="conn-name">📅 My plans on my phone's calendar — no password</div>
+          <div class="conn-status" id="calfeed-status">Tap Add on your iPhone, then Subscribe. Your plans show in the Calendar app and stay up to date. Private to you.</div></div>
+        <a class="btn btn-secondary" id="calfeed-btn" href="#" onclick="calFeed(event)">Add</a>
+      </div>
       <div class="conn-row">
         <div class="conn-info"><div class="conn-name">Apple (iCloud) — Calendar &amp; Contacts</div><div class="conn-status" id="apple-status">Checking…</div></div>
         <a class="btn btn-secondary" id="apple-btn" href="/auth/apple/calendar">Connect</a>
@@ -1007,6 +1013,19 @@
         document.getElementById('google-status').textContent = 'Couldn’t check — try again later';
       }
     }
+    // The subscription link: on the phone, webcal:// opens Calendar's "Subscribe" (calfeed.js).
+    window.calFeed = async function (e) {
+      e.preventDefault();
+      const r = await fetch('/api/user/cal-feed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((x) => x.json()).catch(() => ({}));
+      if (!r.link) return;
+      document.getElementById('calfeed-status').innerHTML = 'Added? If Calendar didn’t open, copy this into Calendar → Add Subscription Calendar (or Google Calendar → From URL):<br><code style="word-break:break-all;font-size:12px">' + r.link.https.replace(/</g, '&lt;') + '</code><br><a href="#" onclick="calFeedOff(event)" style="color:#ef4444">Turn off this link</a>';
+      location.href = r.link.webcal;
+    };
+    window.calFeedOff = async function (e) {
+      e.preventDefault();
+      await fetch('/api/user/cal-feed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ off: true }) }).catch(() => {});
+      document.getElementById('calfeed-status').textContent = 'Turned off — the old link no longer works. Remove "ButterflAI plans" from your calendar app.';
+    };
     window.setCalendarMirror = async function (on) {
       const st = document.getElementById('gcal-mirror-status');
       try {

@@ -1391,6 +1391,14 @@ Tests: `tests/integration/ideafeed.test.js`.
   iCloud. People → 🍎 Bring in iCloud contacts / Bring in Google contacts; Settings → Apple (iCloud) — Calendar & Contacts;
   the agent's import link offers it. Retro told Melanie where it is. Test: `apple-contacts.test.js`.
 
+- **No password (owner, 2026-10-23: "making them remember something none of my friends have been able to remember"):**
+  Apple gives websites no sign-in for contacts or calendars, so two paths need none: **contacts** — People → 📇 From my
+  iPhone — no password: the Contacts app exports a list (Lists → hold All Contacts → Export → Save to Files) and the file
+  is read in the page (iPhone vCards: item1.TEL, wrapped lines; big lists in batches); **calendar** — Settings → 📅 My plans
+  on my phone's calendar: a private subscription link (`calfeed.js`, `users.cal_feed_token` migration 086, `GET
+  /cal/<token>.ics`, webcal://) with what the calendar mirror shows; can be turned off / replaced. It's read-only — for
+  ButterflAI to see free/busy they still connect Google or iCloud. Test: `no-password.test.js`.
+
 ## 26. Rate limits are per person `[2026-10-19]`
 
 The app went "completely unresponsive": every request reached us from Fly's proxy address, so

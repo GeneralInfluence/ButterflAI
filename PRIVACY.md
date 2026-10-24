@@ -484,6 +484,13 @@ contacts — never shown to anyone else, and importing is not consent to message
 app-specific password are stored encrypted (`apple_contacts`, crypto.js); ButterflAI only reads (CardDAV), never writes.
 Disconnecting = revoking the app-specific password at appleid.apple.com.
 
+## Calendar subscription link `[2026-10-23]`
+
+Settings → "My plans on my phone's calendar" makes a private link (`/cal/<random>.ics`) the person's calendar app
+subscribes to. It holds exactly what the calendar mirror shares (plan name, dates, place, "You're hosting" / "With <host>",
+a link) — no guest list, notes or private data. Anyone with the link can read it, like a calendar's "secret address": it's
+random, shown only to its owner, and can be turned off (the old link stops working).
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

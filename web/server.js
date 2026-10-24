@@ -2759,6 +2759,20 @@ app.get('/api/user/connections', webAuth.requireAuth, (req, res) => {
   });
 });
 
+// Plans as a calendar to subscribe to — no password (calfeed.js, owner 2026-10-23). The link is the key: no login.
+app.get('/cal/:token.ics', (req, res) => {
+  const ics = require('./calfeed').feed(String(req.params.token));
+  if (!ics) return res.status(404).send('Not found');
+  res.set('Content-Type', 'text/calendar; charset=utf-8').set('Cache-Control', 'private, max-age=900').send(ics);
+});
+app.get('/api/user/cal-feed', webAuth.requireAuth, (req, res) => res.json({ link: require('./calfeed').linkFor(req.user.id) }));
+app.post('/api/user/cal-feed', webAuth.requireAuth, express.json(), (req, res) => {
+  const f = require('./calfeed');
+  if (req.body?.off) { f.off(req.user.id); return res.json({ link: null }); }
+  if (req.body?.renew) f.off(req.user.id);   // a new link; the old one stops working
+  res.json({ link: f.linkFor(req.user.id, { create: true }) });
+});
+
 // Google Calendar mirror on/off (Settings). Off removes ButterflAI's entries; on adds them.
 app.patch('/api/user/calendar-mirror', webAuth.requireAuth, express.json(), (req, res) => {
   const on = req.body?.on !== false;
