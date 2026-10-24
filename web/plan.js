@@ -228,4 +228,27 @@ function existingByName(hostUserId, title) {
   return rows.find((r) => sameName(r.title, title)) || null;
 }
 
-module.exports = { planFor, plansFor, existingByName, sameName, inCircle, canEdit, roleOf, forWhom };
+/**
+ * "Who knows" (owner, 2026-10-23: "everybody can verify that everybody else is aware of the changes"; "they know that I
+ * see the message, and then I know they see that I've responded"). Opening a plan — its discussion, Creating or Details —
+ * counts as having seen it as it is now.
+ */
+function markSeen(eventId, userId) {
+  if (!eventId || !userId) return;
+  db._raw().prepare(`INSERT INTO plan_seen (event_id, user_id, seen_at) VALUES (?, ?, strftime('%s','now'))
+    ON CONFLICT(event_id, user_id) DO UPDATE SET seen_at = excluded.seen_at`).run(eventId, userId);
+}
+/** For a change made at `at` by `actorId`: who in the plan has seen it since, and who hasn't (ButterflAI users only). */
+function whoKnows(eventId, at, actorId, viewerId) {
+  const people = require('./people');
+  const seen = new Map(db._raw().prepare('SELECT user_id, seen_at FROM plan_seen WHERE event_id = ?').all(eventId).map((r) => [r.user_id, r.seen_at]));
+  const out = { seen: [], not_yet: [] };
+  for (const u of people.inPlan(eventId)) {
+    if (u.id === actorId) continue;
+    const name = u.id === viewerId ? 'You' : people.nameFor(viewerId, u.id, { first: true });
+    ((seen.get(u.id) || 0) >= at ? out.seen : out.not_yet).push(name);
+  }
+  return out;
+}
+
+module.exports = { markSeen, whoKnows, planFor, plansFor, existingByName, sameName, inCircle, canEdit, roleOf, forWhom };

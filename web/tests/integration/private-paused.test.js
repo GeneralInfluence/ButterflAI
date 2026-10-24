@@ -80,7 +80,7 @@ describe('🐛 #87: private information is paused', () => {
   });
   test('the app shows it honestly: no 🔒 Private button, Settings says why', () => {
     const chat = fs.readFileSync(path.join(__dirname, '../../public/app/chat.html'), 'utf8');
-    assert.match(chat, /if \(d && d\.paused\) \{ const b = document\.getElementById\('private-btn'\); if \(b\) b\.hidden = true; \}/);
+    assert.match(chat, /if \(d && d\.paused\) \{ const b = document\.getElementById\('private-btn'\); if \(b\) \{ b\.hidden = true; b\.style\.display = 'none'; \} \}/);   // the pill's own display overrode hidden
     const settings = fs.readFileSync(path.join(__dirname, '../../public/app/settings.html'), 'utf8');
     assert.match(settings, /ButterflAI isn’t keeping sensitive information right now[\s\S]*Avoid list<\/strong> still works/);
     assert.match(settings, /\['health-block', 'sharing-section'\]/);

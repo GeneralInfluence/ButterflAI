@@ -1565,7 +1565,7 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const since = parseInt(req.query.since) || 0;
   let msgs;
-  const cols = 'id, role, text, created_at, private_ct, private_iv, private_tag, kind, about_user_id';
+  const cols = 'id, role, text, created_at, private_ct, private_iv, private_tag, kind, about_user_id, ref';
   // Never another agent's words or system notices (kind 'internal' — owner, 2026-10-23); only what your own ButterflAI said.
   const visible = "AND COALESCE(kind, '') != 'internal'";
   // ?event=<id>: only that plan's discussion (2026-10-09). Host or invitee only.
@@ -1576,6 +1576,7 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
     if (!topics.canSee(req.user.id, eventId)) return res.status(403).json({ error: 'Not your event' });
     await topics.backfill(req.user.id, eventId);   // sort older messages in, once
     eventInfo = db._raw().prepare('SELECT id, title, scheduled_at, tentative FROM social_events WHERE id = ?').get(eventId);
+    plan.markSeen(eventId, req.user.id);   // "who knows" (2026-10-23)
   }
   // Opening the chat counts as seeing messages delivered in the app — no SMS fallback.
   deliver.markSeen(req.user.id);
@@ -1608,11 +1609,26 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
     messages: msgs.map(({ private_ct, private_iv, private_tag, about_user_id, ...m }) => {
       if (chips.has(m.id)) m.understood = chips.get(m.id);
       if (about_user_id) { m.can_react = true; if (reacted.has(m.id)) m.reaction = reacted.get(m.id); }   // 🐛 #81
+      // A question to you (I'm on it / Can't) shows its current answer; a message you sent shows "Seen" (2026-10-23).
+      if (m.ref) Object.assign(m, refState(m.ref));
       if (!private_ct) return m;
       try { return { ...m, text: sensitive.decrypt(private_ct, private_iv, private_tag), private: true }; }
       catch (_) { return { ...m, private: true }; }
     }),
   });
+});
+
+/** The live state behind a chat card's ref. */
+function refState(ref) {
+  const [kind, id] = String(ref).split(':');
+  if (kind === 'todo') { const t = db._raw().prepare('SELECT ask_status, event_id FROM event_todos WHERE id = ?').get(id); return { todo_id: id, ask: t ? t.ask_status : 'gone' }; }
+  if (kind === 'delivery') { const d = db._raw().prepare('SELECT status, seen_at FROM deliveries WHERE id = ?').get(id); return { seen: !!d?.seen_at, texted: d?.status === 'texted' }; }
+  return {};
+}
+// Answer a question put to you: I'm on it / Can't (todos.answer — only you can).
+app.post('/api/todos/:id/answer', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = require('./todos').answer(req.user.id, String(req.params.id), String(req.body?.answer || ''));
+  return r.error ? res.status(r.error === 'NOT_YOURS' ? 403 : 400).json(r) : res.json(r);
 });
 
 // ❤️ React to a message from or about a friend (🐛 #81): it reaches them once, in the app. { emoji } ('' removes).
@@ -1837,6 +1853,7 @@ app.get('/api/plans', webAuth.requireAuth, (req, res) => {
 const todoStatus = (r) => (r.error === 'NOT_IN_PLAN' || r.error === 'NOT_FOUND' ? 404 : 400);
 app.get('/api/events/:id/todos', webAuth.requireAuth, (req, res) => {
   const r = todos.list(req.user.id, req.params.id);
+  if (!r.error) plan.markSeen(req.params.id, req.user.id);   // "who knows" (2026-10-23)
   return r.error ? res.status(todoStatus(r)).json(r) : res.json(r);
 });
 app.post('/api/events/:id/todos', webAuth.requireAuth, express.json(), (req, res) => {
@@ -2569,7 +2586,9 @@ app.get('/api/events/:id/changed/:changeId', webAuth.requireAuth, (req, res) => 
 });
 app.get('/api/events/:id/changes', webAuth.requireAuth, (req, res) => {
   const e = multiparty.getEvent(req.params.id);
-  if (!e || !plan.canEdit(e.id, req.user.id)) return res.status(403).json({ error: 'Not your event' });
+  // Everyone in the plan can see what changed and who knows (2026-10-23 — was hosts / co-hosts only); undo stays theirs.
+  if (!e || !topics.canSee(req.user.id, e.id)) return res.status(403).json({ error: 'Not your event' });
+  plan.markSeen(e.id, req.user.id);
   // Plans are made together: say who ("Melanie's ButterflAI changed the notes"), not just how.
   const label = (c) => {
     if (!c.actor_id || ['undo', 'retro', 'ripple', 'negotiation'].includes(c.via)) return c.by;
@@ -2578,7 +2597,8 @@ app.get('/api/events/:id/changes', webAuth.requireAuth, (req, res) => {
     const name = String(db.getUser(c.actor_id)?.name || 'Someone').split(/\s+/)[0];
     return viaAgent ? `${name}'s ButterflAI` : name;
   };
-  res.json({ changes: planops.recentChanges(req.params.id).map(({ actor_id, ...c }) => ({ ...c, who: label({ ...c, actor_id }) })) });
+  res.json({ can_undo: plan.canEdit(e.id, req.user.id),
+    changes: planops.recentChanges(req.params.id).map(({ actor_id, ...c }) => ({ ...c, who: label({ ...c, actor_id }), knows: plan.whoKnows(e.id, c.at, actor_id, req.user.id) })) });
 });
 app.post('/api/events/:id/undo', webAuth.requireAuth, (req, res) => {
   const r = planops.undoLast(req.user.id, req.params.id);

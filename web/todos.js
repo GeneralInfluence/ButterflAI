@@ -84,7 +84,55 @@ function view(t, viewerId = null) {
     when_text: t.when_text || null, place: t.place || null, status: t.status || 'idea', notes: t.notes || null,
     // Can this viewer edit it? (on its team) — otherwise their changes are suggestions.
     yours: !!me && crew.some((m) => m.phone === me),
-    suggested: !!t.suggested, done: !!t.done_at, together_event_id: t.together_event_id || null };
+    suggested: !!t.suggested, done: !!t.done_at, together_event_id: t.together_event_id || null,
+    // Put on someone by someone else: asked (waiting on them) / on_it / cant — only they answer (2026-10-23).
+    ask: t.ask_status || null, asked_by: t.asked_by ? first(db.getUser(t.asked_by)?.name) : null };
+}
+
+/**
+ * Put on someone else = a question to them (owner, 2026-10-23: only the person can accept something they're put down
+ * for; "they know that I see the message, and then I know they see that I've responded"). They get a card — I'm on it /
+ * Can't / Suggest a change — and the one who asked hears their answer. People without ButterflAI aren't asked here.
+ */
+function askIfSomeoneElse(todoId, actorId) {
+  const t = db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(todoId);
+  const actor = db.getUser(actorId);
+  if (!t || !t.assignee_phone || !actor || t.assignee_phone === actor.phone || t.suggested) return false;
+  const them = db.getUserByPhone(t.assignee_phone);
+  if (!them) return false;
+  db._raw().prepare("UPDATE event_todos SET ask_status = 'asked', asked_by = ?, asked_at = ?, answered_at = NULL WHERE id = ?").run(actorId, now(), t.id);
+  const e = db._raw().prepare('SELECT title FROM social_events WHERE id = ?').get(t.event_id);
+  const what = [t.text, t.when_text, t.place && `at ${t.place}`].filter(Boolean).join(' · ');
+  card(them.id, t.event_id, `🙋 ${first(require('./people').nameFor(them.id, actorId))} put you down for: ${what} (${e?.title || 'a plan'}). Are you on it?`, `todo:${t.id}`);
+  return true;
+}
+function card(userId, eventId, text, ref) {
+  const id = require('uuid').v4();
+  db._raw().prepare("INSERT INTO conversation_history (id, user_id, role, text, kind, event_id, ref) VALUES (?, ?, 'assistant', ?, 'ask', ?, ?)").run(id, userId, text, eventId, ref);
+  const online = require('./sse').push(userId, { id, role: 'assistant', kind: 'ask', text, ref, ts: now() });
+  if (!online) require('./push').notifyUser(db, userId, { title: 'ButterflAI', body: text, url: `/app/chat?event=${encodeURIComponent(eventId)}` }).catch(() => {});
+}
+function tell(userId, eventId, text) { require('./ripples/notice').inApp(userId, eventId, text); }
+
+/** Their answer: on_it | cant. Only the person it's on. The one who asked is told. */
+function answer(userId, todoId, ans) {
+  const t = db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(todoId);
+  const me = db.getUser(userId);
+  if (!t || !me || t.assignee_phone !== me.phone) return { error: 'NOT_YOURS', message: 'Only the person it\'s on can answer.' };
+  if (!['on_it', 'cant'].includes(ans)) return { error: 'BAD_ANSWER' };
+  const what = t.text;
+  if (ans === 'on_it') {
+    db._raw().prepare("UPDATE event_todos SET ask_status = 'on_it', answered_at = ? WHERE id = ?").run(now(), t.id);
+    db._raw().prepare('INSERT OR IGNORE INTO todo_team (todo_id, phone, name) VALUES (?, ?, ?)').run(t.id, me.phone, t.assignee_name || me.name);
+  } else {
+    db._raw().prepare("UPDATE event_todos SET ask_status = 'cant', answered_at = ?, assignee_phone = NULL, assignee_name = NULL WHERE id = ?").run(now(), t.id);
+    db._raw().prepare('DELETE FROM todo_team WHERE todo_id = ? AND phone = ?').run(t.id, me.phone);
+  }
+  if (t.asked_by && t.asked_by !== userId) {
+    const who = first(require('./people').nameFor(t.asked_by, userId));
+    tell(t.asked_by, t.event_id, ans === 'on_it' ? `✅ ${who}'s on it: ${what}` : `${who} can't do “${what}” — it's open again; anyone in the plan can take it.`);
+  }
+  return { ok: true, ask: ans, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(t.id), userId) };
 }
 
 // A day the plan covers, or null (to-dos can't be for a day outside the plan).
@@ -190,6 +238,7 @@ function join(userId, todoId) {
   try { require('./planops').inferInterested(t.event_id, userId, 'you took on part of it'); } catch (_) {}
   const me = members(t.event_id).find((m) => m.phone === db.getUser(userId)?.phone);
   if (!me) return { error: 'NOT_IN_PLAN' };
+  if (t.ask_status === 'asked' && t.assignee_phone === me.phone) return answer(userId, t.id, 'on_it');   // "I'm on it", in their own words
   if (!t.assignee_phone) db._raw().prepare('UPDATE event_todos SET assignee_phone = ?, assignee_name = ?, suggested = 0 WHERE id = ?').run(me.phone, me.name, t.id);
   else if (t.assignee_phone !== me.phone) db._raw().prepare('INSERT OR IGNORE INTO todo_team (todo_id, phone, name) VALUES (?, ?, ?)').run(t.id, me.phone, me.name);
   return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(t.id), userId) };
@@ -224,6 +273,7 @@ function add(userId, eventId, { text, assignee, suggested = false, day = null, w
   const id = uuidv4();
   db._raw().prepare(`INSERT INTO event_todos (id, event_id, text, assignee_phone, assignee_name, suggested, created_by, day, when_text, place, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, eventId, t, lead.phone, lead.name, suggested ? 1 : 0, userId, planDay(userId, eventId, day), clip(when_text), clip(place), clip(notes, 500));
+  if (!suggested) askIfSomeoneElse(id, userId);   // put on someone else: they're asked (2026-10-23)
   return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(id), userId) };
 }
 const clip = (v, n = 120) => (v == null || String(v).trim() === '' ? null : String(v).replace(/\s+/g, ' ').trim().slice(0, n));
@@ -276,7 +326,8 @@ function update(userId, todoId, changes, { join: taking = false, decided = false
   if (changes.assignee !== undefined) {
     const a = resolveAssignee(t.event_id, changes.assignee, userId);
     if (a.error) return a;
-    db._raw().prepare('UPDATE event_todos SET assignee_phone = ?, assignee_name = ? WHERE id = ?').run(a.phone, a.name, t.id);
+    db._raw().prepare('UPDATE event_todos SET assignee_phone = ?, assignee_name = ?, ask_status = NULL WHERE id = ?').run(a.phone, a.name, t.id);
+    askIfSomeoneElse(t.id, userId);
   }
   return { ok: true, todo: view(db._raw().prepare('SELECT * FROM event_todos WHERE id = ?').get(t.id), userId) };
 }
@@ -370,4 +421,4 @@ async function together(userId, todoId) {
   return { ok: true, event_id: eventId, with: people.slice(0, 6).map((p) => first(p.name)) };
 }
 
-module.exports = { pickDay, shortName, together, list, add, update, remove, join, leave, team, onTeam, mine, forHome, members, progressFor, repeats, keyWords, STATUSES };
+module.exports = { answer, askIfSomeoneElse, pickDay, shortName, together, list, add, update, remove, join, leave, team, onTeam, mine, forHome, members, progressFor, repeats, keyWords, STATUSES };

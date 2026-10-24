@@ -759,7 +759,8 @@ describe('Chat messages can be copied; notices are shown (2026-10-08)', () => {
     assert.ok(html.includes("box.scrollIntoView({ block: 'nearest'"));
   });
   test('system notices render as their own kind', () => {
-    assert.ok(html.includes("['incoming', 'outgoing', 'notice'].includes(kind)"));
+    // + 'ask' (a question put to you — I'm on it / Can't, 2026-10-23).
+    assert.ok(html.includes("['incoming', 'outgoing', 'notice', 'ask'].includes(kind)"));
   });
 });
 

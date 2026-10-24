@@ -52,9 +52,13 @@ function addCard(userId, kind, text, about = null) {
   return sse.push(userId, { id, role: 'assistant', kind, text, ts: now(), can_react: !!about });
 }
 
-function senderCard(fromUser, contact, body, via) {
+function senderCard(fromUser, contact, body, via, deliveryId = null) {
   const how = via === 'app' ? 'in ButterflAI' : 'by text';
-  addCard(fromUser.id, 'outgoing', `📤 To ${contact.nickname || contact.name} (${how}): ${body}`);
+  const text = `📤 To ${contact.nickname || contact.name} (${how}): ${body}`;
+  const id = db.appendConversation(fromUser.id, 'assistant', text, null, 'outgoing');
+  // "Seen" on it once they've opened ButterflAI (owner, 2026-10-23: "they know that I see the message").
+  if (deliveryId) db._raw().prepare('UPDATE conversation_history SET ref = ? WHERE id = ?').run(`delivery:${deliveryId}`, id);
+  return sse.push(fromUser.id, { id, role: 'assistant', kind: 'outgoing', text, ts: now(), ref: deliveryId ? `delivery:${deliveryId}` : null });
 }
 
 function canPushTo(userId) {
@@ -92,7 +96,7 @@ async function deliverToContact({ fromUser, contact, message, forceText = false 
       try {
         await sms.send(recipient.phone, withSender(fromUser, body));
         const id = recordDelivery({ fromId: fromUser.id, toUser: recipient, body, status: 'texted', smsSentAt: now() });
-        senderCard(fromUser, contact, body, 'sms');
+        senderCard(fromUser, contact, body, 'sms', id);
         return {
           action_status: 'MESSAGE_SENT', sent: true, delivered_via: 'sms', delivery_id: id, contact_name: contact.name,
           note: forceText ? `Texted to ${contact.name} now, as asked.` : `Texted to ${contact.name} now — they don't have ButterflAI notifications on. It's in their app too.`,
@@ -119,7 +123,7 @@ async function deliverToContact({ fromUser, contact, message, forceText = false 
       smsDueAt: online ? null : now() + SMS_FALLBACK_PUSH_SECS,
       seenAt: online ? now() : null,
     });
-    senderCard(fromUser, contact, body, 'app');
+    senderCard(fromUser, contact, body, 'app', id);
     const wait = '30 minutes';
     return {
       action_status: 'MESSAGE_SENT', sent: true, delivered_via: 'app', delivery_id: id,

@@ -989,6 +989,22 @@ const TASKS = [
       return `hid ${n}`;
     },
   },
+  {
+    id: '2026-10-23-ask-whoever-its-on',
+    added: Date.UTC(2026, 9, 23) / 1000,
+    kind: 'propose',
+    about: 'Owner, 2026-10-23 (only the person says yes): open items someone else put on this person, in plans still ahead, become a question to them — I\'m on it / Can\'t — and whoever put them down hears the answer.',
+    run(user) {
+      const todos = require('./todos'); const plan = require('./plan');
+      let n = 0;
+      for (const t of db._raw().prepare("SELECT id, event_id, created_by FROM event_todos WHERE assignee_phone = ? AND done_at IS NULL AND suggested = 0 AND ask_status IS NULL AND created_by IS NOT NULL AND created_by != ?").all(user.phone, user.id)) {
+        const p = plan.planFor(t.event_id, user.id);
+        if (!p || ['past', 'cancelled'].includes(p.stage)) continue;
+        if (todos.askIfSomeoneElse(t.id, t.created_by)) n++;
+      }
+      return `asked ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

@@ -94,7 +94,7 @@
     return `<li class="${t.done ? 'done' : ''}" data-id="${esc(t.id)}">
       ${t.yours ? `<input type="checkbox" ${t.done ? 'checked' : ''} aria-label="Done">` : ''}
       <span class="t">${esc(t.shown || t.text)}${det ? `<span class="det">${esc(det)}</span>` : ''}${t.notes ? `<span class="det">${esc(t.notes)}</span>` : ''}</span>
-      ${(t.team || []).length ? `<span class="who">${esc(t.team.join(', '))}</span>` : ''}
+      ${t.ask === 'asked' ? `<span class="who" style="color:#f59e0b">asked ${esc(t.assignee || '')} — waiting</span>` : (t.team || []).length ? `<span class="who">${esc(t.team.join(', '))}${t.ask === 'on_it' ? ' ✓' : ''}</span>` : ''}
       ${t.done ? '' : `<button type="button" class="btn together" title="Make it its own little plan — figure it out together over a drink, coffee or a call">${t.together_event_id ? '🍻 Plan ›' : '🍻 Together'}</button>`}
       ${t.yours ? '<button type="button" class="x remove" aria-label="Remove">✕</button>' : '<button type="button" class="btn onit">I’m on it</button>'}</li>`;
   }

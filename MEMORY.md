@@ -1143,9 +1143,15 @@ The plan, in four pieces — 1 and 2 built:
    ignore hidden contacts; saving the person makes it real). People added to / removed from the bigger plan follow into its
    parts (ripple reaction `parts`). The agent's `create_social_event` in a plan's discussion is part of it (`part_of`,
    "none" to opt out). `lookup_contact` finds plan-mates by name (no number). Details shows "Part of …" and "Parts of it".
-3. *(next)* **Assignments go to the person:** "Sean takes the boys at 5" reaches Sean as I'm on it / Can't / Suggest a
-   change — owner's choice: **only the person can accept**; agents never accept for them or report "confirmed".
-4. *(next)* **"Who knows"** under each recent change: per person, seen / on it.
+3. **Only they say yes** (built 2026-10-23): an item put on someone else is a question to them — a 🙋 card "Melanie put
+   you down for: … Are you on it?" with I'm on it / Can't / Suggest a change (`todos.askIfSomeoneElse` / `answer`,
+   `event_todos.ask_status` asked → on_it / cant, migration 087); the one who asked hears "✅ Sean's on it" / "can't — it's
+   open again"; saying it themselves (taking it on) answers too. Answering another agent, an agent can't take anything on
+   for its user (ONLY_THEY_CAN_SAY). Creating shows "asked Sean — waiting". Prompt ONLY THEY SAY YES. Retro asked people
+   about items already on them.
+4. **Who knows** (built 2026-10-23): opening a plan (discussion, Creating, Details) records it (`plan_seen`); each recent
+   change shows "✓ Seen: Sean · Not yet: Allie" — for everyone in the plan now (undo stays the host's / co-hosts'). A message
+   you sent shows "✓ Seen" / "Not seen yet" / "Texted" (`conversation_history.ref` → deliveries). Test: `notify-loop.test.js`.
 **Their choice (owner, same day: "the person might just be in another event, hit plus, and be thinking about a general
 event … they should be able to switch"):** ＋ inside a plan shows 🧩 Part of <plan> / ✨ Separate plan (separate also stops
 the read from guessing a parent); a part can later be made separate from its Details (`PATCH part_of: null`, host).

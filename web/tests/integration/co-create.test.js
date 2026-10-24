@@ -131,7 +131,10 @@ describe('🐛 #20: guests suggest, hosts and co-hosts decide', () => {
     assert.equal(seenBySean[0].who, 'Melanie', 'the host sees who changed it');
     assert.equal((await request.post(`/api/events/${w.weekend}/undo`).set('Cookie', cookie)).status, 200);
     assert.equal(db._raw().prepare('SELECT venue_name FROM social_events WHERE id = ?').get(w.weekend).venue_name, null);
-    assert.equal((await request.get(`/api/events/${w.weekend}/changes`).set('Cookie', bam)).status, 403, 'guests suggest; the log is for deciders');
+    // Was 403 ("the log is for deciders"). Changed 2026-10-23 — owner: "everybody can verify that everybody else is aware
+    // of the changes": everyone in the plan sees what changed and who's seen it; only deciders undo.
+    const forBam = await request.get(`/api/events/${w.weekend}/changes`).set('Cookie', bam);
+    assert.equal(forBam.status, 200); assert.equal(forBam.body.can_undo, false, 'guests suggest; deciders undo');
     const out = mkUser('Outside API');
     assert.equal((await request.patch(`/api/events/${w.weekend}`).set('Cookie', await cookieFor(out)).send({ venue_name: 'x' })).status, 403);
     const cohost = await request.post(`/api/events/${w.weekend}/cohost`).set('Cookie', await cookieFor(w.sean)).send({ invitation_id: inv(w.weekend, w.bam).id });

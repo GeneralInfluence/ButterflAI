@@ -323,6 +323,12 @@
     .react button { border: none; background: transparent; font-size: 15px; line-height: 1; padding: 3px 4px; border-radius: 999px; cursor: pointer; }
     .react .react-add { color: #8e8e93; font-size: 17px; }
     .react .react-chip, .react .react-pick.on { background: #ede9fe; }
+    .ask-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 6px 0 0; }
+    .ask-row button { border: 1.5px solid #6c47ff; background: #fff; color: #5a38d9; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .ask-row button[data-a="on_it"] { background: #6c47ff; color: #fff; }
+    .ask-row a { font-size: 13px; color: #6c47ff; }
+    .ask-row .ask-done { font-size: 13px; color: #34c759; font-weight: 600; }
+    .seen-mark { font-size: 11px; color: #8e8e93; margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -409,7 +415,7 @@
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         // Paused (🐛 #87): no 🔒 Private button while ButterflAI can't promise sensitive things stay secure.
-        if (d && d.paused) { const b = document.getElementById('private-btn'); if (b) b.hidden = true; }
+        if (d && d.paused) { const b = document.getElementById('private-btn'); if (b) { b.hidden = true; b.style.display = 'none'; } }
         if (d && d.sensitive_mode !== sensitiveMode) applySensitiveUI(d.sensitive_mode);
       })
       .catch(() => {});
@@ -899,6 +905,22 @@
       }
     }
 
+    function renderAsk(div, todoId, state) {
+      let box = div.querySelector('.ask-row');
+      if (!box) { box = document.createElement('div'); box.className = 'ask-row'; div.insertBefore(box, div.querySelector('.msg-foot')); }
+      if (state === 'on_it') { box.innerHTML = '<span class="ask-done">✅ You\'re on it — they know</span>'; return; }
+      if (state === 'cant') { box.innerHTML = '<span class="ask-done">You said you can\'t — they know</span>'; return; }
+      if (state === 'gone') { box.innerHTML = ''; return; }
+      box.innerHTML = '<button type="button" data-a="on_it">I\'m on it</button><button type="button" data-a="cant">Can\'t</button><a href="/app/creating?todo=' + encodeURIComponent(todoId) + '">Suggest a change</a>';
+      box.onclick = async (e) => {
+        const b = e.target.closest('button'); if (!b) return;
+        box.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+        const r = await fetch('/api/todos/' + encodeURIComponent(todoId) + '/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: b.dataset.a }) }).catch(() => null);
+        renderAsk(div, todoId, r && r.ok ? b.dataset.a : 'asked');
+        if (typeof loadTodos === 'function') loadTodos();
+      };
+    }
+
     function appendMessage(role, text, ts, updateTs = true, kind = null, understood = null, react = null) {
       if (role === 'bot' && updateTs && alreadyShown(text, ts)) return;
       // Strip and handle {"action":"REQUEST_LOCATION"} anywhere in bot messages
@@ -911,7 +933,7 @@
       }
       if (!text) return; // nothing left to show
       const div  = document.createElement('div');
-      div.className = `msg ${role}${['incoming', 'outgoing', 'notice'].includes(kind) ? ' ' + kind : ''}`;
+      div.className = `msg ${role}${['incoming', 'outgoing', 'notice', 'ask'].includes(kind) ? ' ' + kind : ''}`;
       const time = ts ? fmtMsgTime(ts) : '';
       if (role === 'bot') {
         div.innerHTML = `<div class="msg-row"><div class="bubble">${renderText(text)}</div><div class="msg-side"><button class="copy-btn" type="button" title="Copy" aria-label="Copy message">Copy</button><button class="fb-btn" type="button" title="Ideas &amp; bugs about this reply" aria-label="Ideas and bugs about this reply">🐛</button></div></div><div class="msg-foot"><span class="ts">${time}</span></div>`;
@@ -924,6 +946,12 @@
       if (copyBtn) copyBtn.addEventListener('click', () => copyText(text, copyBtn));
       if (role === 'me' && understood) renderChips(div, understood);
       if (role === 'bot' && react && react.can_react && react.id) renderReaction(div, { id: react.id, reaction: react.reaction || null });
+      // A question put to you (I'm on it / Can't — only you answer), and "Seen" on messages you sent (2026-10-23).
+      if (role === 'bot' && react && kind === 'ask' && (react.todo_id || /^todo:/.test(react.ref || ''))) renderAsk(div, react.todo_id || react.ref.slice(5), react.ask || 'asked');
+      if (role === 'bot' && react && kind === 'outgoing' && (react.seen !== undefined || react.texted !== undefined)) {
+        const st = document.createElement('span'); st.className = 'seen-mark'; st.textContent = react.seen ? '✓ Seen' : react.texted ? 'Texted' : 'Not seen yet';
+        div.querySelector('.msg-foot').appendChild(st);
+      }
       // Insert before typing indicator so anchor stays last
       messagesEl.insertBefore(div, typingEl);
       // Track latest message timestamp for catch-up polling — only from server-sourced messages,
