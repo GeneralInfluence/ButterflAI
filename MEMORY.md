@@ -1013,6 +1013,10 @@ List/Calendar toggle is small and plain so it isn't mistaken for the switcher.
 **Home · Plans · Settings** — Chat, Creating and Events are one place, Plans (it reopens where you
 last were, `bfly-plans-last`); People & groups is in Settings. Plans pages have no page header:
 just the plan pills and the switcher (location sharing is in Settings).
+**Past plans leave the pills (🐛 #92, 2026-10-24 — "How do I remove this past event from the pills … I hit x, it's still
+there"):** on Chat, Creating and Events the pills show what's ahead; past plans sit behind one "🕘 Past · n" pill (tap to
+show them, faded; "Hide past" tucks them away — remembered per device); a past plan you're looking at keeps its pill
+(`PlanNav.visible`). Test: `past-pills.test.js`.
 **＋ New plan (🐛 #34):** a ＋ shares the right-edge pill with 🐛 on every screen → "What's the
 plan?" (starters: Dinner, Drinks, Hangout, Party, Trip) → `POST /api/plans/new` queues the
 words with `inbound_messages.intent = 'new_plan'` (migration 065); the agent is told the user

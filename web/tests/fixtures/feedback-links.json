@@ -303,5 +303,9 @@
   "91": {
     "note_starts": "I got a notification on my phone that Melanie had said are you in",
     "test": "tests/integration/notify-loop.test.js › Melanie's question to Sean: listed for the prompt on any screen; the push opens the plan with it"
+  },
+  "92": {
+    "note_starts": "How do I remove this past event from the pills at the top",
+    "test": "tests/integration/past-pills.test.js › only what's ahead shows, plus \"🕘 Past · 2\""
   }
 }

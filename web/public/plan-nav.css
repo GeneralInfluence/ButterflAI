@@ -33,3 +33,7 @@
 /* Your AI: a cyborg butterfly (owner, 2026-10-21 — talking to your ButterflAI, not chatting with people) */
 .plan-modes .ai-ico, .mini .ai-ico { width: 20px; height: 20px; vertical-align: -4px; margin-right: 2px; object-fit: contain; }
 .mini .ai-ico { width: 16px; height: 16px; vertical-align: -3px; }
+
+/* Past plans (🐛 #92): their pills are quieter, and tucked behind "🕘 Past". */
+.tpill.past:not(.active) { opacity: .6; }
+.tpill-past { color: #8e8e93; }

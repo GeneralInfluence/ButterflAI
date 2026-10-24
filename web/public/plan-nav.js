@@ -19,11 +19,33 @@
   const real = (id) => id && id !== 'general';
   const href = (page, eventId, day) => BASE[page] + (real(eventId) ? '?event=' + encodeURIComponent(eventId) + (day ? '&day=' + day : '') : '');
 
+  // Past plans drop out of the pills by themselves (🐛 #92 — Sean: "How do I remove this past event from the pills …
+  // I'd like to have the things that are in the past kind of automatically not be my future plans"). They're behind one
+  // "🕘 Past" pill; the one you're looking at keeps its pill.
+  const PAST_KEY = 'bfly-pills-past';
+  const showPast = () => { try { return localStorage.getItem(PAST_KEY) === '1'; } catch (_) { return false; } };
+  function visible(discussions, eventId) {
+    const all = discussions || [];
+    const past = all.filter((d) => d.stage === 'past' && d.event_id !== eventId);
+    return { shown: showPast() ? all : all.filter((d) => !past.includes(d)), past };
+  }
+  function pastPill(past) {
+    if (!past.length) return '';
+    return `<a class="tpill tpill-past" href="#" onclick="PlanNav.togglePast(event)">${showPast() ? '🕘 Hide past' : `🕘 Past · ${past.length}`}</a>`;
+  }
+  function togglePast(e) {
+    e.preventDefault();
+    try { localStorage.setItem(PAST_KEY, showPast() ? '0' : '1'); } catch (_) {}
+    location.reload();
+  }
+  const pillHtml = (page, d, eventId) => `<a class="tpill${d.event_id === eventId ? ' active' : ''}${d.stage === 'past' ? ' past' : ''}" href="${href(page, d.event_id)}" title="${esc(d.title)}">`
+    + `<span>${d.stage === 'past' ? '🕘' : d.tentative ? '🗓️' : '📅'} ${esc(d.title)}</span>${d.tentative && d.stage !== 'past' ? '<span class="tent">tentative</span>' : ''}</a>`;
+
   function pills(el, { page, eventId, discussions }) {
     el.classList.add('plan-pills');
+    const v = visible(discussions, eventId);
     el.innerHTML = `<a class="tpill${real(eventId) ? '' : ' active'}" href="${BASE[page]}">All</a>`
-      + (discussions || []).map((d) => `<a class="tpill${d.event_id === eventId ? ' active' : ''}" href="${href(page, d.event_id)}" title="${esc(d.title)}">`
-        + `<span>${d.tentative ? '🗓️' : '📅'} ${esc(d.title)}</span>${d.tentative ? '<span class="tent">tentative</span>' : ''}</a>`).join('');
+      + v.shown.map((d) => pillHtml(page, d, eventId)).join('') + pastPill(v.past);
     el.hidden = false;
     const a = el.querySelector('.tpill.active');
     if (a) a.scrollIntoView({ inline: 'center', block: 'nearest' });
@@ -58,5 +80,5 @@
   // The bottom bar's "Plans" opens wherever you last were in Plans (chat / creating / details).
   try { localStorage.setItem('bfly-plans-last', location.pathname + location.search); } catch (_) {}
 
-  window.PlanNav = { pills, modes, discussions, href };
+  window.PlanNav = { pills, modes, discussions, href, visible, pastPill, pillHtml, togglePast };
 })();
