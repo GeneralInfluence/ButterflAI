@@ -63,7 +63,7 @@ function contextFor(user) {
     JOIN contacts c ON c.id = ei.contact_id JOIN social_events se ON se.id = ei.event_id
     WHERE se.host_user_id = ? AND ei.status = 'accepted' AND COALESCE(se.status, 'open') != 'cancelled' GROUP BY c.phone ORDER BY last LIMIT 12`).all(user.id)
     .filter((f) => avoided && !avoid.findByPhone(avoided, f.phone));
-  const said = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND private_ct IS NULL
+  const said = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND private_ct IS NULL AND COALESCE(kind, '') != 'internal'
     AND created_at > ? ORDER BY created_at DESC LIMIT 25`).all(user.id, t - 30 * 86400).map((r) => clean(r.text, 200));
   const wishes = db._raw().prepare("SELECT text FROM wishes WHERE user_id = ? AND status = 'active'").all(user.id).map((r) => r.text);
   const dismissed = db._raw().prepare("SELECT title FROM spells WHERE user_id = ? AND status = 'dismissed' ORDER BY created_at DESC LIMIT 12").all(user.id).map((r) => r.title);

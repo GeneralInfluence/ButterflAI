@@ -886,10 +886,14 @@ function todoDay(modelDay, eventId = currentTurn?.eventId) {
   return modelDay;
 }
 
+/** A reply that relays another person's ButterflAI ("Sean's agent says…", "his ButterflAI asked…"). */
+const OTHER_AGENT = /\b[A-Z][\w'’-]*(?:['’]s)\s+(?:agent|butterfl(?:ai|y)|assistant)\b|\b(?:his|her|their)\s+(?:agent|butterfl(?:ai|y)|assistant)\b/i;
+function relaysOtherAgent(text) { return OTHER_AGENT.test(String(text || '').replace(/\byour\s+(?:own\s+)?butterfl(?:ai|y)\b/gi, '')); }
+
 /** The user's own words lately: this message and their last few (not other agents' replies or system lines). */
 function theirWords(userId) {
-  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND created_at > strftime('%s','now') - 3 * 3600
-    ORDER BY created_at DESC LIMIT 6`).all(userId).map((r) => r.text).filter((t) => !/^\s*\[/.test(t));
+  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND COALESCE(kind, '') != 'internal'
+    AND created_at > strftime('%s','now') - 3 * 3600 ORDER BY created_at DESC LIMIT 6`).all(userId).map((r) => r.text).filter((t) => !/^\s*\[/.test(t));
   return `${currentTurn?.userText || ''} ${recent.join(' ')}`;
 }
 
@@ -936,16 +940,16 @@ function noInventedDay(userId, input, keys = ['when']) {
  */
 const ANON = /\b(anonymous(ly)?|without (my|me|her|his) name|don'?t (let (him|her|them) know|tell (him|her|them)) (it'?s|it is|that it'?s) (from )?(me|us)|(not|never) (say|tell|mention) (it'?s|that it'?s) from me|(secret|anonymous) (admirer|message|note)|so (he|she|they) (won'?t|doesn'?t|don'?t) know (it'?s|it was) me)\b/i;
 function asksAnonymous(userId) {
-  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND created_at > strftime('%s','now') - 1800
+  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND COALESCE(kind, '') != 'internal' AND created_at > strftime('%s','now') - 1800
     ORDER BY created_at DESC LIMIT 3`).all(userId).map((r) => r.text).join(' ');
   return ANON.test(`${currentTurn?.userText || ''} ${recent}`);
 }
 
 function noInventedTime(userId, input) {
   if (!input || !currentTurn?.userText) return;
-  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND created_at > strftime('%s','now') - 3 * 3600
-    ORDER BY created_at DESC LIMIT 6`).all(userId).map((r) => r.text).join(' ');
-  if (datetime.saysTime(`${currentTurn.userText} ${recent}`)) return;
+  // Only the user's own words: another agent's reply ("Sean expects to be back around 6:30-7pm") is stored in their
+  // history as a "user" row and made Practical Magic 7pm (Melanie, 2026-10-23).
+  if (datetime.saysTime(theirWords(userId))) return;
   if (input.when && datetime.saysTime(input.when)) input.when = input.when.replace(new RegExp(datetime.TIME_WORDS.source, 'gi'), '').replace(/\s+(at|in the)\s*$/i, '').replace(/[,\s]+$/, '').trim();
   if (input.scheduled_at && !input.when) {
     const tz = db.getUser(userId)?.timezone || 'America/Los_Angeles';
@@ -1115,7 +1119,7 @@ function inventedCount(userId, text) {
     if (n > 1) counts.push({ n, said: m[0] });
   }
   if (!counts.length) return null;
-  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND text NOT LIKE '[Agent %' AND created_at > strftime('%s','now') - 3 * 86400`)
+  const recent = db._raw().prepare(`SELECT text FROM conversation_history WHERE user_id = ? AND role = 'user' AND text NOT LIKE '[%' AND COALESCE(kind, '') != 'internal' AND created_at > strftime('%s','now') - 3 * 86400`)
     .all(userId).map((r) => r.text).join(' ') + ' ' + (USER_CHANNELS.includes(currentTurn?.channel) ? currentTurn.userText || '' : '');
   const words = recent.toLowerCase();
   const said = (n) => new RegExp(`\\b${n}\\b`).test(words) || Object.entries(NUM_WORDS).some(([w, v]) => v === n && new RegExp(`\\b${w}\\b`).test(words));
@@ -2737,6 +2741,7 @@ AGENT-TO-AGENT FIRST — talk to agents before talking to users:
   SCREENSHOTS: "[What was on my screen]" in your user's message is what ButterflAI read from a screenshot they attached (the picture isn't kept) — treat it as what they're showing you and act on it like their own words: dates, times, places and people in it are what to plan with (as written — never invent a missing time), a flyer or event page is something to plan around, and a conversation shows what's been said. If it's unclear what they want done with it, do the obvious thing for the plan being discussed (or ask once). Never describe anyone's looks.
   WHISPERS (anonymous messages): every message ButterflAI passes on says who it's from ("From Allie's ButterflAI") — except a 💌 whisper. When your user wants a friend to get something without their name ("anonymously tell Sean…", "start a rumor", "don't let her know it's from me"), use send_whisper (never send_logistics_sms or message_agent): write it short, kind or playful, with no hint of who sent it. It only reaches friends on ButterflAI who have each other saved; tell your user exactly what happened (sent / not sent and why). When your user got a whisper ("💌 Someone close to you says…") and tells you what to say back, use reply_whisper; if they don't want more from that person, mute_whisper. Never guess or hint who sent a whisper.
   NUMBERS ARE THEIRS: never add how many people ("for 4", "party of 6") that your user didn't say — not to another agent, not in a plan's notes, not on Creating. If it matters, ask. "Booked a massage" is one massage, for them.
+  ONLY YOU TALK TO YOUR USER: never pass on, quote or attribute what another person's ButterflAI said, asked or confirmed ("Sean's agent says…", "his ButterflAI is asking…"). Use it to know what's settled; tell your user only facts about the plan and what people themselves did ("Sean said yes" only when he answered). If your user must decide something, ask it as your own question.
   NO INVENTED DAYS: a day your user didn't say is not yours to pick. "Sean takes the boys at 5pm" with no day, on a weekend plan that started today, is TODAY — never "Saturday". If you truly can't tell, ask once; don't guess (code drops a day they didn't say).
   SURPRISES: a surprise, secret or anonymous gift for someone ("send Sean a mystery playlist", "a surprise party for Mel") — never invite that person or message them about it (code keeps them out); make the plan with the others in on it, or none. Write who it's for in the notes. To give it to them without your user's name, use send_whisper when it's ready. And if your user is asked about or shown a plan that's a surprise for THEM, say only that a friend has something planned — never who, never the notes.
   SCREENSHOTS OF THINGS TO DO GO TO EXPLORE: a screenshot (or list) of events, shows or places they want found, "looked into" or saved for later ("exploration opportunities", "suggest these later") → add_to_explore — never a plan for each one. A plan only for something they say they're going to or want to plan. If you already made plans for them by mistake, pass those ids to add_to_explore (instead_of_plan_ids) and say they're gone — "none of them should stay" means cancel every one.
@@ -3172,7 +3177,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   // Talking in a plan's discussion while still not answered → interested (Allie, 2026-10-21).
   // (From the second message on — a first "sounds fun" gets the going-or-interested question instead.)
   if (USER_CHANNELS.includes(msg.channel) && msg.event_id && msg.event_id !== topics.GENERAL
-    && db._raw().prepare("SELECT 1 FROM conversation_history WHERE user_id = ? AND event_id = ? AND role = 'user'").get(userId, msg.event_id)) {
+    && db._raw().prepare("SELECT 1 FROM conversation_history WHERE user_id = ? AND event_id = ? AND role = 'user' AND COALESCE(kind, '') != 'internal'").get(userId, msg.event_id)) {
     try { planops.inferInterested(msg.event_id, userId, 'you’re talking about it with me'); } catch (_) {}
   }
   if (msg.channel === 'agent_query') {
@@ -3187,7 +3192,12 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
     // An agent_query is NOT kept in the user's chat: it showed up there as if they'd typed
     // "[Agent query from Sean Gonzalez's agent | thread=…]" (2026-10-09). What the user
     // needs to see arrives via tell_my_user.
-    currentTurn.historyId = appendHistory(userId, 'user', msg.text, isPrivate);
+    // Only the user's own words are theirs to see in their chat. Another agent's reply and system notices
+    // ("[Agent reply from Sean's agent …] Sean expects to be back around 6:30-7pm…") were stored as if the user had
+    // typed them and showed in their chat — another person's ButterflAI talking to them (owner, 2026-10-23: "they
+    // should never hear what my butterfly said, ever"). Kept for this agent's context, never shown: kind 'internal'.
+    currentTurn.historyId = USER_CHANNELS.includes(msg.channel) ? appendHistory(userId, 'user', msg.text, isPrivate)
+      : db.appendConversation(userId, 'user', msg.text, null, 'internal');
   }
   if (isPrivate) db.scrubInboundMessageText(msg.id, PRIVATE_PLACEHOLDER);
 
@@ -3203,6 +3213,7 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
   const failedSends = [];
   let sentClaimChallenged = false;
   let agentQueryChallenged = false;
+  let otherAgentChallenged = false;
   const claimsChallenged = new Set();
   let ideaChallenged = false;
   const toolLog = [];   // { name, input, result } for every tool run this turn
@@ -3290,6 +3301,17 @@ async function _processMessageContinue({ msg, user, userId, userPhone, systemPro
         }
         turnTrace.event('guard', `replaced repeated unverified "sent" claim: ${replyText.slice(0, 200)}`);
         replyText = NOT_SENT_FALLBACK;
+      }
+
+      // Guard: only your user's own ButterflAI talks to them (owner, 2026-10-23: "Nobody should ever get that … my
+      // butterfly said this or my butterfly said that … They should never hear what my butterfly said, ever"). A reply
+      // that relays another person's ButterflAI ("Sean's agent says…", "Sean's ButterflAI is asking…") goes back once.
+      if (msg.channel !== 'agent_query' && replyText && !otherAgentChallenged && relaysOtherAgent(replyText)) {
+        otherAgentChallenged = true;
+        turnTrace.event('guard', `relayed another agent: ${replyText.slice(0, 200)}`);
+        messages.push({ role: 'user', content: '[System check — not from the user] Never mention another person\'s ButterflAI / agent / assistant or what it said, asked or confirmed. '
+          + 'Say only what is settled (on the plan, or what that person themselves did — "Sean said yes" only if HE answered), and if your user needs to decide something, ask it as your own question. Rewrite your reply. Don\'t mention this check.' });
+        continue;
       }
 
       // Guard: a reply that says something was done (e.g. added to a group) when no tool did it.
@@ -3546,6 +3568,6 @@ function startAgentLoop() {
   tick(); // run immediately on start
 }
 
-module.exports = {
+module.exports = { relaysOtherAgent,
   ANON,
   planNamedIn, _relayProblem: relayProblem, startAgentLoop, processMessage, tick, buildSystemPrompt, buildPrefsSection, buildDateContext, eventRecency, executeTool, _safeForSms, resolveContactRelay, _setAnthropic, _setToolObserver, _unverifiedSentClaim: unverifiedSentClaim, NOT_SENT_FALLBACK, _unbackedActionClaim: unbackedActionClaim, NOT_DONE_FALLBACK };

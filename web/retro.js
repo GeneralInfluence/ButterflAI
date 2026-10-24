@@ -978,6 +978,17 @@ const TASKS = [
       return 'told';
     },
   },
+  {
+    id: '2026-10-23-hide-other-agents-words',
+    added: Date.UTC(2026, 9, 23) / 1000,
+    kind: 'internal',
+    about: 'Owner, 2026-10-23 ("they should never hear what my butterfly said, ever"): other agents\' replies and questions and system notices that were stored in a person\'s chat as if they\'d typed them are hidden from their chat (kept for their own agent).',
+    run(user) {
+      const n = db._raw().prepare(`UPDATE conversation_history SET kind = 'internal' WHERE user_id = ? AND role = 'user' AND kind IS NULL
+        AND (text LIKE '[Agent reply from%' OR text LIKE '[Agent query from%' OR text LIKE '[System notification%' OR text LIKE '[Agent-to-Agent%')`).run(user.id).changes;
+      return `hid ${n}`;
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

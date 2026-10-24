@@ -59,7 +59,7 @@ function contextFor(userId, { eventId, contextDay }) {
   const plans = plan.plansFor(userId).slice(0, 12);
   const here = eventId ? plans.find((p) => p.id === eventId) || plan.planFor(eventId, userId) : null;
   const line = (p) => `- eventId="${p.id}" "${p.title}" — you're ${p.role === 'host' ? 'the host' : p.my_role === 'cohost' ? 'a co-host' : `a guest (${p.invitation?.going ? 'going' : p.invitation?.status === 'accepted' ? 'interested' : p.invitation?.status || 'invited'})`}; ${p.dates?.label || 'date TBD'}${p.days?.length ? ` (days: ${p.days.join(', ')})` : ''}${p.place ? `; at ${p.place}` : ''}${p.tentative ? '; tentative' : ''}`;
-  const recent = db._raw().prepare(`SELECT role, text FROM conversation_history WHERE user_id = ? AND private_ct IS NULL ${eventId ? 'AND event_id = ?' : ''}
+  const recent = db._raw().prepare(`SELECT role, text FROM conversation_history WHERE user_id = ? AND private_ct IS NULL AND COALESCE(kind, '') != 'internal' ${eventId ? 'AND event_id = ?' : ''}
     ORDER BY created_at DESC, rowid DESC LIMIT 6`).all(...(eventId ? [userId, eventId] : [userId])).reverse()
     .map((m) => `${m.role === 'user' ? 'Them' : 'ButterflAI'}: ${String(m.text).slice(0, 300)}`);
   let creating = [];

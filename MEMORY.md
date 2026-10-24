@@ -1110,6 +1110,21 @@ scheduled_at moves to today (`agent.noInventedDay`), an item's day is today and 
 date) are left alone. Prompt NO INVENTED DAYS. Retro moved such items to the day they were said. Test:
 `no-invented-day.test.js`.
 
+## 24m. Only your own ButterflAI talks to you `[LOCKED 2026-10-23]`
+
+Owner: "there was also a whole lot of back and forth about, like, my butterfly said this or my butterfly said that.
+Nobody should ever get that. It should only be that person's butterfly talking to them. They should never hear what my
+butterfly said, ever. The fact that it did is a security breach." Melanie's chat showed Sean's agent's replies
+("[Agent reply from Sean Gonzalez's agent | …] Sean expects to be back around 6:30-7pm…") as if she'd typed them — every
+message that isn't the user's own words (agent replies, system notices) was stored as a "user" row and shown. Now:
+- Those rows are `kind = 'internal'`: in the agent's history, never in `/api/chat/messages` (retro hid the old ones).
+- A reply that relays another person's ButterflAI/agent/assistant ("Sean's agent says…", "his ButterflAI asked…") goes
+  back once to be rewritten (`agent.relaysOtherAgent`): only what's settled, what people themselves did, and your own
+  questions. Prompt ONLY YOU TALK TO YOUR USER.
+- "The user's own words" (invented times, numbers, anonymity, understand.js context, ideas) exclude those rows — Sean's
+  agent's "6:30-7pm" had made Practical Magic 7pm.
+Test: `own-butterfly-only.test.js`.
+
 ## 24l. ＋ makes the plan; plans inside plans `[LOCKED 2026-10-23]`
 
 Owner, after Melanie and Allie's Friday lunch ("they had trouble using the + button … had to tell their butterflai to let

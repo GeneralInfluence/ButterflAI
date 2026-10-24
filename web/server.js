@@ -1566,6 +1566,8 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   const since = parseInt(req.query.since) || 0;
   let msgs;
   const cols = 'id, role, text, created_at, private_ct, private_iv, private_tag, kind, about_user_id';
+  // Never another agent's words or system notices (kind 'internal' — owner, 2026-10-23); only what your own ButterflAI said.
+  const visible = "AND COALESCE(kind, '') != 'internal'";
   // ?event=<id>: only that plan's discussion (2026-10-09). Host or invitee only.
   let eventInfo = null;
   const eventId = req.query.event ? String(req.query.event) : null;
@@ -1579,21 +1581,21 @@ app.get('/api/chat/messages', webAuth.requireAuth, async (req, res) => {
   deliver.markSeen(req.user.id);
   if (general) {
     msgs = db._raw().prepare(
-      `SELECT ${cols} FROM conversation_history WHERE user_id = ? AND event_id IS NULL AND created_at > ?
+      `SELECT ${cols} FROM conversation_history WHERE user_id = ? AND event_id IS NULL AND created_at > ? ${visible}
        ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(req.user.id, since, limit).reverse();
   } else if (eventId) {
     msgs = db._raw().prepare(
-      `SELECT ${cols} FROM conversation_history WHERE user_id = ? AND event_id = ? AND created_at > ?
+      `SELECT ${cols} FROM conversation_history WHERE user_id = ? AND event_id = ? AND created_at > ? ${visible}
        ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(req.user.id, eventId, since, limit).reverse();
   } else if (since > 0) {
     msgs = db._raw().prepare(
       `SELECT ${cols} FROM conversation_history
-       WHERE user_id = ? AND created_at > ? ORDER BY created_at ASC, rowid ASC LIMIT ?`
+       WHERE user_id = ? AND created_at > ? ${visible} ORDER BY created_at ASC, rowid ASC LIMIT ?`
     ).all(req.user.id, since, limit);
   } else {
     msgs = db._raw().prepare(
       `SELECT ${cols} FROM conversation_history
-       WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`
+       WHERE user_id = ? ${visible} ORDER BY created_at DESC, rowid DESC LIMIT ?`
     ).all(req.user.id, limit).reverse();
   }
   // What each of their messages was understood as and done (understand.js): chips.
