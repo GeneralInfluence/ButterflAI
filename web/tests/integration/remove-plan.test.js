@@ -39,49 +39,61 @@ async function cookieFor(u) {
 }
 const ids = (list) => list.map((p) => p.id || p.event_id);
 
-describe('throw a plan away', () => {
-  test('a past plan: gone from your pills, lists and calendar — still there for everyone else', async () => {
+// Then (2026-10-24): "the modal that came up looked like some kind of error … I just wanted to archive it. There should
+// be options when I go to remove an event … I also can't swipe left on the event, which is supposed to bring up the modal."
+describe('throw a plan away — with choices', () => {
+  const opts = async (c, id) => (await request.get(`/api/plans/${id}/remove-options`).set('Cookie', c)).body.options.map((o) => o.action);
+  test('a past plan: 📦 Archive — gone from your pills, lists and calendar, still there for everyone else, and it comes back', async () => {
     const sean = mkUser('Sean X'), mel = mkUser('Melanie X');
     const pm = multiparty.createEvent(mel.id, { title: 'Practical Magic', activity_type: 'movie', scheduled_at: Math.floor(Date.now() / 1000) - 86400 });
     db._raw().prepare("INSERT INTO event_invitations (id, event_id, contact_id, status) VALUES (?, ?, ?, 'accepted')").run(uuidv4(), pm, db.upsertContact({ invited_by_user_id: mel.id, name: 'Sean', phone: sean.phone, tier: 1 }));
     db.appendConversation(sean.id, 'user', 'pizza after'); db._raw().prepare("UPDATE conversation_history SET event_id = ? WHERE text = 'pizza after'").run(pm);
     const c = await cookieFor(sean);
-    assert.ok(ids((await request.get('/api/chat/discussions').set('Cookie', c)).body.discussions).includes(pm));
-    const r = await request.post(`/api/plans/${pm}/remove`).set('Cookie', c).send({});
-    assert.deepEqual(r.body, { ok: true, done: 'hidden' });
+    assert.deepEqual(await opts(c, pm), ['archive'], 'nothing else to do with a past plan');
+    assert.deepEqual((await request.post(`/api/plans/${pm}/remove`).set('Cookie', c).send({ action: 'archive' })).body, { ok: true, done: 'archived' });
     assert.ok(!ids((await request.get('/api/chat/discussions').set('Cookie', c)).body.discussions).includes(pm), 'not in the pills');
     assert.ok(!ids((await request.get('/api/plans').set('Cookie', c)).body.plans).includes(pm), 'not on the calendar');
     assert.ok(!ids((await request.get('/api/events/invited/me').set('Cookie', c)).body.events).includes(pm), 'not in the list');
     assert.ok(plan.plansFor(mel.id, { includePast: true }).some((p) => p.id === pm), 'Melanie still has it');
+    assert.deepEqual((await request.get('/api/plans/archived').set('Cookie', c)).body.plans.map((p) => p.title), ['Practical Magic']);
+    await request.post(`/api/plans/${pm}/unarchive`).set('Cookie', c);
+    assert.ok(ids((await request.get('/api/plans').set('Cookie', c)).body.plans).includes(pm), 'brought back');
   });
-  test('a plan you host, still ahead: asks first, then cancels it for everyone', async () => {
+  test('a plan you host, still ahead: Archive (just for you) or Cancel it for everyone', async () => {
     const sean = mkUser('Sean H');
     const { eventId } = await planops.create(sean.id, { title: 'Dinner H', activity_type: 'dinner', when: 'tomorrow 7pm' }, { via: 'app' });
     const c = await cookieFor(sean);
-    const ask = await request.post(`/api/plans/${eventId}/remove`).set('Cookie', c).send({});
-    assert.deepEqual(ask.body, { needs_confirm: 'cancel', message: 'Cancel “Dinner H” for everyone?' });
-    assert.equal(db._raw().prepare('SELECT status FROM social_events WHERE id = ?').get(eventId).status, 'open', 'nothing yet');
-    assert.equal((await request.post(`/api/plans/${eventId}/remove`).set('Cookie', c).send({ confirm: true })).body.done, 'cancelled');
+    assert.deepEqual(await opts(c, eventId), ['archive', 'cancel']);
+    await request.post(`/api/plans/${eventId}/remove`).set('Cookie', c).send({ action: 'archive' });
+    assert.equal(db._raw().prepare('SELECT status FROM social_events WHERE id = ?').get(eventId).status, 'open', 'archiving changes nothing for anyone');
+    await request.post(`/api/plans/${eventId}/unarchive`).set('Cookie', c);
+    assert.equal((await request.post(`/api/plans/${eventId}/remove`).set('Cookie', c).send({ action: 'cancel' })).body.done, 'cancelled');
     assert.equal(db._raw().prepare('SELECT status FROM social_events WHERE id = ?').get(eventId).status, 'cancelled');
   });
-  test('a plan you\'re invited to, still ahead: asks first, then you\'re not going and it leaves your lists', async () => {
+  test('a plan you\'re invited to, still ahead: Archive or I\'m not going (no cancelling someone else\'s plan)', async () => {
     const sean = mkUser('Sean G'), allie = mkUser('Allie G');
     const { eventId } = await planops.create(allie.id, { title: 'Brunch G', activity_type: 'brunch', when: 'tomorrow 11am', contact_ids: [db.upsertContact({ invited_by_user_id: allie.id, name: 'Sean', phone: sean.phone, tier: 1 })] }, { via: 'app' });
     const c = await cookieFor(sean);
-    assert.equal((await request.post(`/api/plans/${eventId}/remove`).set('Cookie', c).send({})).body.needs_confirm, 'decline');
-    assert.equal((await request.post(`/api/plans/${eventId}/remove`).set('Cookie', c).send({ confirm: true })).body.done, 'removed');
+    assert.deepEqual(await opts(c, eventId), ['archive', 'not_going']);
+    assert.equal((await request.post(`/api/plans/${eventId}/remove`).set('Cookie', c).send({ action: 'cancel' })).status, 400);
+    assert.equal((await request.post(`/api/plans/${eventId}/remove`).set('Cookie', c).send({ action: 'not_going' })).body.done, 'not_going');
     assert.equal(db._raw().prepare("SELECT ei.status FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id WHERE ei.event_id = ? AND c.phone = ?").get(eventId, sean.phone).status, 'declined');
     assert.ok(!plan.plansFor(sean.id, { includePast: true }).some((p) => p.id === eventId));
   });
   test('someone else\'s plan can\'t be removed', async () => {
     const a = mkUser('A R'), b = mkUser('B R');
     const { eventId } = await planops.create(a.id, { title: 'Private R', activity_type: 'x' }, { via: 'app' });
-    assert.equal((await request.post(`/api/plans/${eventId}/remove`).set('Cookie', await cookieFor(b)).send({ confirm: true })).status, 404);
+    assert.equal((await request.post(`/api/plans/${eventId}/remove`).set('Cookie', await cookieFor(b)).send({ action: 'archive' })).status, 404);
   });
-  test('the screens: cards and pills carry the plan; swipe left on cards, press and hold on pills', () => {
-    const sr = fs.readFileSync(path.join(__dirname, '../../public/swipe-remove.js'), 'utf8');
-    assert.match(sr, /🗑 Remove/); assert.match(sr, /\.tpill\[data-plan-id\]/); assert.match(sr, /needs_confirm/);
-    assert.match(fs.readFileSync(path.join(__dirname, '../../public/plan-nav.js'), 'utf8'), /data-plan-id="\$\{esc\(d\.event_id\)\}"[\s\S]*s\.src = '\/swipe-remove\.js'/);
-    assert.equal((fs.readFileSync(path.join(__dirname, '../../public/app/events.html'), 'utf8').match(/data-plan-id=/g) || []).length, 4);   // list (yours, past invites, invited) + calendar day
+  test('the screens: an app-styled sheet (no browser pop-up); swipe or hold on Home cards, Events lists, calendar days, Details and pills; Archived list', () => {
+    const read = (f) => fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8');
+    const sr = read('swipe-remove.js');
+    assert.doesNotMatch(sr, /window\.confirm|alert\(/, 'no browser dialogs');
+    assert.match(sr, /id = 'bfly-rm'[\s\S]*Never mind/);
+    assert.match(read('feedback.js'), /s\.src = '\/swipe-remove\.js'/, 'on every screen');
+    assert.match(read('app/dashboard.html'), /needs-you" data-plan-id=[\s\S]*data-plan-id="\$\{esc\(i\.event_id\)\}" href="\$\{href\}"/);
+    const ev = read('app/events.html');
+    assert.match(ev, /el\.dataset\.planId = p\.id;/);
+    assert.match(ev, /📦 Archived[\s\S]*Bring back/);
   });
 });

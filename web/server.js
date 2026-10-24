@@ -1626,10 +1626,19 @@ function refState(ref) {
   return {};
 }
 const hiddenFor = (userId) => new Set(db._raw().prepare('SELECT event_id FROM plan_hidden WHERE user_id = ?').all(userId).map((r) => r.event_id));
-// Throw a plan away — swipe left / press and hold (swipe-remove.js, Sean 2026-10-24). { confirm } for plans still ahead.
+// Throw a plan away — swipe left / press and hold (swipe-remove.js, Sean 2026-10-24): the choices, then the one picked.
+app.get('/api/plans/:id/remove-options', webAuth.requireAuth, (req, res) => {
+  const o = plan.removeOptions(req.user.id, String(req.params.id));
+  return o ? res.json(o) : res.status(404).json({ error: 'NOT_FOUND' });
+});
 app.post('/api/plans/:id/remove', webAuth.requireAuth, express.json(), (req, res) => {
-  const r = plan.remove(req.user.id, String(req.params.id), { confirm: req.body?.confirm === true });
+  const r = plan.remove(req.user.id, String(req.params.id), { action: String(req.body?.action || 'archive') });
   return r.error ? res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r) : res.json(r);
+});
+app.get('/api/plans/archived', webAuth.requireAuth, (req, res) => res.json({ plans: plan.archived(req.user.id) }));
+app.post('/api/plans/:id/unarchive', webAuth.requireAuth, (req, res) => {
+  const r = plan.unarchive(req.user.id, String(req.params.id));
+  return r.error ? res.status(404).json(r) : res.json(r);
 });
 
 // Questions put to you that you haven't answered (asks-prompt.js asks them up front — 🐛 #91).

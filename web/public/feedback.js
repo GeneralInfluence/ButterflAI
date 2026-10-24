@@ -188,3 +188,5 @@
 })();
 // Questions put to you are asked up front, and notification taps land where they point (🐛 #91).
 (function () { if (document.querySelector('script[src="/asks-prompt.js"]')) return; const s = document.createElement('script'); s.src = '/asks-prompt.js'; s.defer = true; document.head.appendChild(s); })();
+// Swipe a plan left / press and hold → Archive, not going, cancel (swipe-remove.js, 2026-10-24) — on every screen.
+(function () { if (document.querySelector('script[src="/swipe-remove.js"]')) return; const s = document.createElement('script'); s.src = '/swipe-remove.js'; s.defer = true; document.head.appendChild(s); })();

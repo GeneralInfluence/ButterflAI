@@ -1017,11 +1017,15 @@ just the plan pills and the switcher (location sharing is in Settings).
 there"):** on Chat, Creating and Events the pills show what's ahead; past plans sit behind one "🕘 Past · n" pill (tap to
 show them, faded; "Hide past" tucks them away — remembered per device); a past plan you're looking at keeps its pill
 (`PlanNav.visible`). Test: `past-pills.test.js`.
-**Throw a plan away (Sean, 2026-10-24: "I can't remove past events. I want to be able to swipe left to throw an event
-away"):** swipe a plan's card left (Events list / Invited / Past / a calendar day) → 🗑 Remove; press and hold a plan pill
-(pills slide sideways, so no swipe there) → Remove (`public/swipe-remove.js`, loaded by plan-nav.js; `POST
-/api/plans/:id/remove`, `plan.remove`). Past plan → hidden for you only (`plan_hidden`, migration 088 — out of pills, lists,
-calendar). Still ahead → asks first: the host cancels it for everyone; a guest says they're not going. Test:
+**Throw a plan away (Sean, 2026-10-24: "swipe left to throw an event away"; then "the modal … looked like some kind of
+error … I just wanted to archive it. There should be options … I also can't swipe left on the event"):** swipe a plan left
+or press and hold it — Home's plan cards, Events lists (Upcoming / Invited / Past), a calendar day, its Details card, its
+pill — and an app-styled sheet offers what fits (`plan.removeOptions`): **📦 Archive** (off your lists only — pills, Home,
+Events, calendar; restorable from Events → 📦 Archived; `plan_hidden`, migration 088), **🙅 I'm not going** (invited, still
+ahead), **🚫 Cancel it for everyone** (host, still ahead), Never mind. No browser dialogs; a toast with Undo after
+archiving (`public/swipe-remove.js`, loaded on every screen by feedback.js). Gotchas found on a touch screen: phones send
+"mouseleave"/mousemove around a touch (cancelled every hold — a hold now listens only to its own kind of input), and
+lifting the finger taps the sheet's backdrop (closed it at once — taps are ignored for 0.7 s after it opens). Test:
 `remove-plan.test.js`.
 **＋ New plan (🐛 #34):** a ＋ shares the right-edge pill with 🐛 on every screen → "What's the
 plan?" (starters: Dinner, Drinks, Hangout, Party, Trip) → `POST /api/plans/new` queues the

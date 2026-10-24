@@ -306,6 +306,7 @@
       <button class="tab active" id="tab-upcoming" onclick="showTab('upcoming')">Upcoming</button>
       <button class="tab" id="tab-invited" onclick="showTab('invited')">Invited</button>
       <button class="tab" id="tab-past" onclick="showTab('past')">Past</button>
+      <button class="tab" id="tab-archived" onclick="showTab('archived')">📦 Archived</button>
     </div>
     <div id="events-list"><div class="empty-state">Loading…</div></div>
   </div>
@@ -586,6 +587,8 @@
     document.getElementById('tab-upcoming').classList.toggle('active', tab === 'upcoming');
     document.getElementById('tab-invited').classList.toggle('active', tab === 'invited');
     document.getElementById('tab-past').classList.toggle('active',    tab === 'past');
+    document.getElementById('tab-archived').classList.toggle('active', tab === 'archived');
+    if (tab === 'archived') { renderArchived(); return; }
     if (tab === 'invited') {
       // Invited tab: pending invites + upcoming accepted invites
       renderInvited(invitedEvents.filter(e =>
@@ -605,6 +608,19 @@
     ];
     filtered.sort((a, b) => tab === 'upcoming' ? (a.scheduled_at||0) - (b.scheduled_at||0) : (b.scheduled_at||0) - (a.scheduled_at||0));
     renderList(filtered);
+  }
+
+  // Plans you archived (swipe → 📦 Archive, 2026-10-24) — bring one back.
+  async function renderArchived() {
+    const el = document.getElementById('events-list');
+    const { plans } = await fetch('/api/plans/archived').then((r) => r.json()).catch(() => ({ plans: [] }));
+    el.innerHTML = plans.length ? plans.map((p) => `<div class="card"><div class="card-header"><div><div class="card-title">${escHtml(p.title)}</div><div class="card-sub">${escHtml(p.dates)}</div></div>
+        <button class="ps-secondary" style="padding:8px 14px;border-radius:10px;border:none;font-weight:600;cursor:pointer;background:#ede9fe;color:#5a38d9" onclick="unarchive('${escHtml(p.id)}')">Bring back</button></div></div>`).join('')
+      : '<div class="empty-state">Nothing archived. Swipe a plan left (or press and hold it) to archive it.</div>';
+  }
+  async function unarchive(id) {
+    await fetch('/api/plans/' + encodeURIComponent(id) + '/unarchive', { method: 'POST' }).catch(() => {});
+    location.reload();
   }
 
   function renderInvited(events) {
@@ -784,6 +800,7 @@
       // Interested in a tentative plan → can say they're going (2026-10-13).
       : inv && inv.status === 'accepted' && !inv.going
       ? `<button class="ps-primary" onclick="summaryRsvp('${escHtml(inv.id)}','accepted',true)">✅ I’m going</button>` : '';
+    el.dataset.planId = p.id;   // swipe left / press and hold → Remove (swipe-remove.js)
     el.innerHTML = (summaryId && changeCard ? changeCard : '') + `<div class="ps-head"><div class="ps-title">${escHtml(p.title)}</div>
         <span class="cal-chip stage-${p.stage}" style="width:auto;font-size:11px;line-height:20px;padding:0 8px;flex-shrink:0">${STAGE_LABEL[p.stage] || p.stage}</span>
         <button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>

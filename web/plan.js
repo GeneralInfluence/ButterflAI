@@ -158,31 +158,40 @@ function plansFor(userId, { includePast = false, includeDeclined = false } = {})
 }
 
 /**
- * Throw a plan away (Sean, 2026-10-24: "I want to be able to swipe left to throw an event away"). A past plan is hidden
- * from this person's pills, lists and calendar (it stays for everyone else). A plan still ahead needs `confirm`: the host
- * cancels it for everyone; a guest says they're not going and it leaves their lists.
+ * Throw a plan away (Sean, 2026-10-24: "swipe left to throw an event away"; then: "I just wanted to archive it. There
+ * should be options when I go to remove an event"). The choices for this person and plan:
+ *   archive   — off their own lists (pills, Home, Events, calendar); nothing changes for anyone else; can be restored
+ *   not_going — invited to a plan still ahead: they say no, and it's archived
+ *   cancel    — they host a plan still ahead: cancelled for everyone
  */
-function remove(userId, eventId, { confirm = false } = {}) {
+function removeOptions(userId, eventId) {
   const p = planFor(eventId, userId);
-  if (!p) return { error: 'NOT_FOUND' };
-  if (['past', 'cancelled'].includes(p.stage) || p.done) {
-    db._raw().prepare('INSERT OR IGNORE INTO plan_hidden (event_id, user_id) VALUES (?, ?)').run(eventId, userId);
-    return { ok: true, done: 'hidden' };
-  }
+  if (!p) return null;
+  const ahead = !['past', 'cancelled'].includes(p.stage) && !p.done;
+  const opts = [{ action: 'archive', label: '📦 Archive', note: 'Off your lists — nothing changes for anyone else. You can bring it back.' }];
+  if (ahead && p.role !== 'host' && p.invitation?.status !== 'declined') opts.push({ action: 'not_going', label: '🙅 I’m not going', note: `${p.host?.name || 'The host'} sees you can’t make it; it leaves your lists.` });
+  if (ahead && p.role === 'host') opts.push({ action: 'cancel', label: '🚫 Cancel it for everyone', note: 'Everyone in it is told it’s off.', danger: true });
+  return { id: p.id, title: p.title, options: opts };
+}
+function archived(userId) {
+  return db._raw().prepare('SELECT event_id FROM plan_hidden WHERE user_id = ? ORDER BY created_at DESC').all(userId)
+    .map((r) => planFor(r.event_id, userId)).filter(Boolean).map((p) => ({ id: p.id, title: p.title, dates: p.dates.label, stage: p.stage }));
+}
+function unarchive(userId, eventId) {
+  return db._raw().prepare('DELETE FROM plan_hidden WHERE event_id = ? AND user_id = ?').run(eventId, userId).changes ? { ok: true } : { error: 'NOT_FOUND' };
+}
+function remove(userId, eventId, { action = 'archive' } = {}) {
+  const o = removeOptions(userId, eventId);
+  if (!o) return { error: 'NOT_FOUND' };
+  if (!o.options.some((x) => x.action === action)) return { error: 'NOT_AN_OPTION', message: 'That isn’t an option for this plan.' };
+  const hide = () => db._raw().prepare('INSERT OR IGNORE INTO plan_hidden (event_id, user_id) VALUES (?, ?)').run(eventId, userId);
   const planops = require('./planops');
-  if (p.role === 'host') {
-    if (!confirm) return { needs_confirm: 'cancel', message: `Cancel “${p.title}” for everyone?` };
-    const r = planops.update(userId, eventId, { cancel: true }, { via: 'app' });
-    return r.error ? r : { ok: true, done: 'cancelled' };
-  }
-  if (!confirm) return { needs_confirm: 'decline', message: `Say you're not going to “${p.title}” and remove it?` };
-  const u = db.getUser(userId);
-  if (p.invitation?.id) {
-    if (p.invitation.status !== 'declined') planops.respond(p.invitation.id, 'declined', { by: 'guest', phone: u.phone, userId, via: 'app' });
-    planops.dismiss(p.invitation.id, u.phone, { via: 'app' });
-  }
-  db._raw().prepare('INSERT OR IGNORE INTO plan_hidden (event_id, user_id) VALUES (?, ?)').run(eventId, userId);
-  return { ok: true, done: 'removed' };
+  if (action === 'archive') { hide(); return { ok: true, done: 'archived' }; }
+  if (action === 'cancel') { const r = planops.update(userId, eventId, { cancel: true }, { via: 'app' }); return r.error ? r : { ok: true, done: 'cancelled' }; }
+  const p = planFor(eventId, userId); const u = db.getUser(userId);
+  if (p.invitation?.id) planops.respond(p.invitation.id, 'declined', { by: 'guest', phone: u.phone, userId, via: 'app' });
+  hide();
+  return { ok: true, done: 'not_going' };
 }
 
 /**
@@ -281,4 +290,4 @@ function whoKnows(eventId, at, actorId, viewerId) {
   return out;
 }
 
-module.exports = { remove, markSeen, whoKnows, planFor, plansFor, existingByName, sameName, inCircle, canEdit, roleOf, forWhom };
+module.exports = { remove, removeOptions, archived, unarchive, markSeen, whoKnows, planFor, plansFor, existingByName, sameName, inCircle, canEdit, roleOf, forWhom };
