@@ -966,6 +966,18 @@ const TASKS = [
       return `moved ${n}`;
     },
   },
+  {
+    id: '2026-10-23-icloud-contacts-answer',
+    added: Date.UTC(2026, 9, 23) / 1000,
+    kind: 'propose',
+    about: '🐛 #90: whoever asked how to bring in their iCloud/Apple contacts (Melanie) is told where it is now, once, in the app.',
+    run(user) {
+      const asked = db._raw().prepare("SELECT 1 FROM feedback WHERE user_id = ? AND (lower(user_note) LIKE '%icloud%' OR (lower(user_note) LIKE '%apple%' AND lower(user_note) LIKE '%contact%'))").get(user.id);
+      if (!asked || require('./apple-contacts').connected(user.id)) return 'not asked';
+      db.appendConversation(user.id, 'assistant', 'You asked where to bring in your iCloud contacts — it’s here now: Settings → People & groups → 🍎 Bring in iCloud contacts. It uses an app-specific password from appleid.apple.com (not your Apple ID password), and keeps them in sync. ButterflAI never changes your contacts or messages anyone in them.', null, 'notice');
+      return 'told';
+    },
+  },
 ];
 
 /** Run pending tasks for existing users (coord loop). Proposals only in daytime. */

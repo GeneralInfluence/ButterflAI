@@ -110,6 +110,32 @@ function makeGooglePeopleClient() {
  * @param {object} googleTokens  - OAuth tokens from callback
  * @returns {{ imported: number, skipped: number }}
  */
+/**
+ * Add one imported person — Google or iCloud (🐛 #90). Two-gate rule: importing is not consent to message anyone.
+ * Without a number they're kept by name (one row per name). Returns { imported, skipped }.
+ */
+function addImported(userId, name, phones, source) {
+  if (!name) return { imported: 0, skipped: 1 };
+  const from = source === 'apple' ? 'apple_contacts' : 'google_contacts';
+  if (!phones.length) {
+    if (db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND lower(name) = lower(?)').get(userId, name)) return { imported: 0, skipped: 1 };
+    const id = uuidv4();
+    db.createContact({ id, invited_by_user_id: userId, name, phone: null, tier: 0 });
+    db._raw().prepare('UPDATE contacts SET imported_from = ?, import_source = ? WHERE id = ?').run(from, source, id);
+    return { imported: 1, skipped: 0 };
+  }
+  let imported = 0, skipped = 0;
+  for (const raw of phones) {
+    const phone = normalisePhone(raw);
+    if (!phone || db._raw().prepare('SELECT 1 FROM contacts WHERE invited_by_user_id = ? AND phone = ?').get(userId, phone)) { skipped++; continue; }
+    const id = uuidv4();
+    db.createContact({ id, invited_by_user_id: userId, name, phone, tier: 0 });
+    db._raw().prepare('UPDATE contacts SET imported_from = ?, import_source = ? WHERE id = ?').run(from, source, id);
+    imported++;
+  }
+  return { imported, skipped };
+}
+
 async function importFromGoogle(userId, googleTokens, { onTokens } = {}) {
   const client = makeGooglePeopleClient();
   client.setCredentials(googleTokens);
@@ -230,6 +256,8 @@ function startSyncLoop(intervalMs = 6 * 3600 * 1000) {
   const run = async () => {
     const due = db._raw().prepare("SELECT user_id FROM contact_sync_tokens WHERE COALESCE(last_sync_at, 0) < strftime('%s','now') - 86400").all();
     for (const { user_id } of due) await syncGoogle(user_id, { force: true });
+    // iCloud too (🐛 #90)
+    for (const { user_id } of db._raw().prepare("SELECT user_id FROM apple_contacts WHERE COALESCE(last_sync_at, 0) < strftime('%s','now') - 86400").all()) await require('./apple-contacts').sync(user_id, { force: true });
   };
   return setInterval(() => run().catch((err) => console.error('[contacts-import] sync loop:', err.message)), intervalMs);
 }
@@ -344,7 +372,7 @@ function normalisePhone(raw) {
 
 ensureImportColumns();
 
-module.exports = { loadGoogleTokens,
+module.exports = { addImported, loadGoogleTokens,
   addManualContact,
   getGoogleContactsAuthUrl,
   importFromGoogle,

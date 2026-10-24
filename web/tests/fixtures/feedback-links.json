@@ -295,5 +295,9 @@
   "89": {
     "note_starts": "not saturday tonight",
     "test": "tests/integration/no-invented-day.test.js › Melanie's exact words on the weekend's first day: the items are today, not tomorrow"
+  },
+  "90": {
+    "note_starts": "I wanna be able to connect my Apple contacts list through my iCloud",
+    "test": "tests/integration/apple-contacts.test.js › Melanie connects iCloud: contacts come in (calendar too — she has no Google Calendar), and Settings says so"
   }
 }

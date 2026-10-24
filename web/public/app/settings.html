@@ -222,7 +222,7 @@
           <div class="conn-status" id="gcal-mirror-status" style="font-size:12px">Plans you're in appear there and stay up to date; proposed dates and invites show as tentative.</div></div>
       </div>
       <div class="conn-row">
-        <div class="conn-info"><div class="conn-name">Apple Calendar</div><div class="conn-status" id="apple-status">Checking…</div></div>
+        <div class="conn-info"><div class="conn-name">Apple (iCloud) — Calendar &amp; Contacts</div><div class="conn-status" id="apple-status">Checking…</div></div>
         <a class="btn btn-secondary" id="apple-btn" href="/auth/apple/calendar">Connect</a>
       </div>
     </div>
@@ -996,11 +996,13 @@
         document.getElementById('gcal-mirror').checked = c.calendar_mirror !== false;
         if (g.contacts) document.getElementById('contacts-sync-status').textContent = 'New contacts sync automatically' + (g.contacts_synced_at ? ` · last synced ${day(g.contacts_synced_at)}` : '');
         const a = c.apple || {};
-        document.getElementById('apple-status').textContent = a.broken ? `⚠️ Stopped working${since(a.broken)} — ${a.broken.error || 'login refused'}. Reconnect with a new app-specific password.` : a.calendar ? 'Connected ✓' : 'Not connected';
+        // One Apple connection: calendar and contacts (🐛 #90).
+        const appleParts = [a.calendar && 'Calendar ✓', a.contacts && `Contacts ✓${a.contacts_synced_at ? ` · synced ${day(a.contacts_synced_at)}` : ''}`].filter(Boolean);
+        document.getElementById('apple-status').textContent = a.broken ? `⚠️ Stopped working${since(a.broken)} — ${a.broken.error || 'login refused'}. Reconnect with a new app-specific password.` : appleParts.length ? appleParts.join(' · ') : 'Not connected';
         document.getElementById('apple-status').style.color = a.broken ? '#ef4444' : '';
         const ab = document.getElementById('apple-btn');
-        ab.textContent = a.broken ? 'Reconnect' : a.calendar ? 'reconnect' : 'Connect';
-        ab.classList.toggle('conn-quiet', !!a.calendar && !a.broken);
+        ab.textContent = a.broken ? 'Reconnect' : (a.calendar || a.contacts) ? 'reconnect' : 'Connect';
+        ab.classList.toggle('conn-quiet', !!(a.calendar || a.contacts) && !a.broken);
       } catch (_) {
         document.getElementById('google-status').textContent = 'Couldn’t check — try again later';
       }

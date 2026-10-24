@@ -1308,6 +1308,8 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
       let synced = null;
       if (!scored.length || scored[0]._score < 80) {
         synced = await contactsImport.syncGoogle(userId);
+        const icloud = await require('./apple-contacts').sync(userId);   // iCloud contacts too (🐛 #90)
+        if (icloud.synced) synced = synced.synced ? { synced: true, imported: synced.imported + icloud.imported } : icloud;
         if (synced.synced) scored = rank(db.getContactsByUser(userId));
       }
       // The people the user means are usually in the group they named or the plan they're
@@ -1384,7 +1386,7 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
           : strong
           ? 'Results ranked by match quality.'
           : `No exact match for "${toolInput.query}"${scored.length ? ' — these are only partial matches; do NOT assume one of them is the person. Ask your user, or for their number.' : '.'}`
-            + (status.connected ? '' : ` Their Google contacts aren't kept in sync${lastImport ? ` (last imported ${new Date(lastImport * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})` : ''} — offer the contacts import link (get_contact_import_url) to turn on syncing, or ask for the person's number.`),
+            + (status.connected || require('./apple-contacts').connected(userId) ? '' : ` Their Google contacts aren't kept in sync${lastImport ? ` (last imported ${new Date(lastImport * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})` : ''} — offer the contacts import link (get_contact_import_url) to turn on syncing, or ask for the person's number.`),
       };
     }
 
@@ -1995,10 +1997,16 @@ async function executeTool(toolName, toolInput, userId, userPhone) {
         const r = await contactsImport.syncGoogle(userId, { force: true });
         return { google_contacts: 'connected — they stay in sync', synced_now: r.synced ? `${r.imported} new` : undefined };
       }
+      if (require('./apple-contacts').connected(userId)) {
+        const r = await require('./apple-contacts').sync(userId, { force: true });
+        return { icloud_contacts: 'connected — they stay in sync', synced_now: r.synced ? `${r.imported} new` : undefined };
+      }
       return {
         url: `${baseUrl}/auth/google?t=${linktoken.sign(userId, 'google', linktoken.TTL.link)}`,
+        // iPhone people (🐛 #90 — Melanie: "connect my Apple contacts list through my iCloud. Where can I do that?").
+        icloud_url: `${baseUrl}/auth/apple/calendar?t=${linktoken.sign(userId, 'calendar', linktoken.TTL.link)}`,
         other_ways: `${baseUrl}/contacts-import.html?t=${linktoken.sign(userId, 'contacts', linktoken.TTL.link)}`,
-        message: 'The url connects Google (Calendar and Contacts in one step) and keeps contacts in sync. other_ways is for contacts not in Google (paste or a .vcf file).',
+        message: 'url connects Google (Calendar and Contacts in one step); icloud_url connects iCloud (Contacts, and Calendar if they don\'t use Google Calendar) with an app-specific password — give the one that fits (an iPhone person: iCloud). Both stay in sync. In the app it\'s Settings → People & groups → 🍎 Bring in iCloud contacts. other_ways is for paste or a .vcf file.',
       };
     }
 

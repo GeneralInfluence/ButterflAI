@@ -91,6 +91,7 @@ describe('connect links', () => {
   test('Apple: the form needs its signed token; a posted userId does nothing', async () => {
     const saved = [];
     calendar.saveAppleCredentials = async (uid, creds) => { saved.push(uid); };
+    require('../../apple-contacts').save = async () => {};   // one Apple connection: contacts too (🐛 #90)
     calendar.getCalendarTimezone = async () => null;
     const bad = await request.post('/auth/apple/calendar').type('form').send({ userId: victim.id, appleId: 'a@b.c', appPassword: 'x' });
     assert.equal(bad.status, 401);
@@ -129,7 +130,8 @@ describe('one Google connection; Settings shows what is connected', () => {
     // calendar_mirror added 2026-10-13 (Google Calendar shows ButterflAI plans; on by default).
     // Top-level calendar_mirror since 2026-10-13: the mirror covers Google or Apple.
     // broken added 2026-10-19 (connections that stopped working — connections.js).
-    assert.deepEqual(r.body, { broken: {}, calendar_mirror: true, google: { calendar: false, calendar_mirror: true, contacts: false, contacts_synced_at: null }, apple: { calendar: false } });
+    // apple.contacts added 2026-10-23 (iCloud contacts — 🐛 #90).
+    assert.deepEqual(r.body, { broken: {}, calendar_mirror: true, google: { calendar: false, calendar_mirror: true, contacts: false, contacts_synced_at: null }, apple: { calendar: false, contacts: false, contacts_synced_at: null } });
   });
 
   test('the callback stores Calendar AND Contacts, syncs contacts, and says so', async () => {

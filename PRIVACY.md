@@ -477,6 +477,13 @@ once, in the app only ("❤️ Sean loved your yes for …"); it says only the e
 and what it was about. The person tapped it, so it's theirs to send. Never delivered to someone with the reactor on their
 avoid list (the reactor isn't told).
 
+## iCloud contacts `[2026-10-23]`
+
+Connecting Apple (iCloud) brings a person's iCloud contacts in, like Google's: names and phone numbers only, into their own
+contacts — never shown to anyone else, and importing is not consent to message anyone (the two-gate rule). The Apple ID and
+app-specific password are stored encrypted (`apple_contacts`, crypto.js); ButterflAI only reads (CardDAV), never writes.
+Disconnecting = revoking the app-specific password at appleid.apple.com.
+
 ## Rules for contributors (including the agent)
 
 1. **Any migration that adds a column to `user_preferences` must be reviewed against Invariant 1.** If the column could hold sensitive data, it belongs in `user_private_data` instead.

@@ -87,7 +87,7 @@ describe('＋ makes the plan; a part has everyone in the bigger plan', () => {
     db.storeInboundMessage({ from_phone: mel.phone, from_type: 'user', from_id: mel.id, channel: 'webchat', text: `${WORDS} make this a separate event`, event_id: weekendId });
     let i = 0;
     agent._setAnthropic({ messages: { create: async () => (i++ === 0
-      ? { id: 'a', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'create_social_event', input: { title: 'Practical Magic', activity_type: 'movie', when: 'today 5pm' } }] }
+      ? { id: 'a', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'create_social_event', input: { title: 'Practical Magic', activity_type: 'movie', when: 'tomorrow 5pm' } }] }
       : { id: 'b', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Made it.' }] }) } });
     await agent.tick();
     const pm = db._raw().prepare("SELECT id, parent_id FROM social_events WHERE host_user_id = ? AND title = 'Practical Magic'").get(mel.id);

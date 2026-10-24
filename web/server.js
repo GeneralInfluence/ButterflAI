@@ -2672,8 +2672,9 @@ app.get('/auth/apple/calendar', (req, res) => {
 </head><body>
   <div class="card">
     <div style="font-size:2.5rem;margin-bottom:1rem">🦋🍎</div>
-    <h2>Connect Apple Calendar</h2>
-    <p>ButterflAI needs an <strong>app-specific password</strong> (not your regular Apple ID password).<br>
+    <h2>Connect Apple (iCloud)</h2>
+    <p>Your iCloud <strong>contacts</strong>${calendar.hasCalendarConnected(userId) ? '' : ' and <strong>calendar</strong>'} in ButterflAI — so your ButterflAI knows who you mean${calendar.hasCalendarConnected(userId) ? '' : ' and your plans show on your calendar'}. ButterflAI never changes your contacts or messages anyone in them.</p>
+    <p>It needs an <strong>app-specific password</strong> (not your regular Apple ID password).<br>
     Generate one at <a href="https://appleid.apple.com" target="_blank">appleid.apple.com</a> → Sign-In and Security → App-Specific Passwords.</p>
     <form method="POST" action="/auth/apple/calendar">
       <input type="hidden" name="t" value="${formToken}">
@@ -2681,7 +2682,7 @@ app.get('/auth/apple/calendar', (req, res) => {
       <input type="email" name="appleId" placeholder="you@icloud.com" required autocomplete="username">
       <label>App-Specific Password</label>
       <input type="password" name="appPassword" placeholder="xxxx-xxxx-xxxx-xxxx" required autocomplete="current-password">
-      <button type="submit">Connect Calendar 🗓️</button>
+      <button type="submit">Connect iCloud</button>
     </form>
     <p class="note">Your password is encrypted and never stored in plain text.</p>
   </div>
@@ -2696,20 +2697,23 @@ app.post('/auth/apple/calendar', async (req, res) => {
   const user = db.getUser(userId);
 
   try {
-    await calendar.saveAppleCredentials(userId, { appleId, appPassword });
-
-    // Try to get timezone from iCloud
-    const tz = await calendar.getCalendarTimezone(userId).catch(() => null);
-    if (tz) db.updateUser(userId, { timezone: tz });
-
-    db.appendConversation(userId, 'assistant',
-      `[System] Apple Calendar connected${tz ? ` (timezone: ${tz})` : ''}. You can now check availability; the user's plans now show on their iCloud Calendar automatically.`
-    );
-    calmirror.markAllFor(userId); calmirror.flushSoon();   // their plans go on the calendar they just connected
-
-    if (user.phone) {
-      await sms.notifyUser(user.phone, `📅 Your Apple Calendar is connected! I can now check your availability and add events.`).catch(() => {});
+    // One Apple connection, like Google's (🐛 #90): contacts always; the calendar too unless Google Calendar is the one
+    // they use (one calendar per person — saving Apple there would replace it).
+    const appleContacts = require('./apple-contacts');
+    await appleContacts.save(userId, { appleId, appPassword });
+    const withCalendar = !calendar.hasCalendarConnected(userId);
+    let tz = null;
+    if (withCalendar) {
+      await calendar.saveAppleCredentials(userId, { appleId, appPassword });
+      tz = await calendar.getCalendarTimezone(userId).catch(() => null);
+      if (tz) db.updateUser(userId, { timezone: tz });
+      calmirror.markAllFor(userId); calmirror.flushSoon();   // their plans go on the calendar they just connected
     }
+    const synced = await appleContacts.sync(userId, { force: true });
+    if (!synced.synced && synced.reason === 'error' && !withCalendar) throw new Error(synced.error || 'iCloud login failed');
+    db.appendConversation(userId, 'assistant',
+      `[System] Apple (iCloud) connected: contacts${synced.synced ? ` (${synced.imported} new)` : ''}${withCalendar ? `, calendar${tz ? ` (timezone: ${tz})` : ''} — you can check availability and their plans show on their iCloud Calendar` : ''}.`);
+    if (user.phone) await sms.notifyUser(user.phone, `🍎 iCloud is connected — ${withCalendar ? 'your calendar and ' : ''}your contacts are in ButterflAI.`).catch(() => {});
 
     res.send(`<!DOCTYPE html><html lang="en"><head>
       <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2720,8 +2724,8 @@ app.post('/auth/apple/calendar', async (req, res) => {
     </head><body>
       <div class="card">
         <div style="font-size:3rem">🦋✅</div>
-        <h2>Apple Calendar Connected!</h2>
-        <p style="color:#aaa">ButterflAI can now check your availability and add events to your iCloud Calendar.</p>
+        <h2>iCloud connected!</h2>
+        <p style="color:#aaa">${synced.synced ? `${synced.imported} contacts brought in.` : 'Your contacts are on their way.'}${withCalendar ? ' Your plans will show on your iCloud Calendar.' : ''}</p>
         <a href="/app/settings" style="display:inline-block;margin-top:20px;padding:12px 28px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;font-size:15px;font-weight:600;border-radius:12px;text-decoration:none;">← Back to settings</a>
       </div>
     </body></html>`);
@@ -2748,7 +2752,8 @@ app.get('/api/user/connections', webAuth.requireAuth, (req, res) => {
     calendar_mirror: db.getUser(req.user.id)?.gcal_mirror !== 0,
     google: { calendar: calendar.hasCalendarConnected(req.user.id), calendar_mirror: db.getUser(req.user.id)?.gcal_mirror !== 0,
       contacts: sync.connected, contacts_synced_at: sync.last_sync_at, broken: health.google || undefined },
-    apple: { calendar: !!calendar.hasAppleCalendarConnected(req.user.id), broken: health.apple || undefined },
+    apple: { calendar: !!calendar.hasAppleCalendarConnected(req.user.id), contacts: !!require('./apple-contacts').connected(req.user.id),
+      contacts_synced_at: require('./apple-contacts').connected(req.user.id)?.last_sync_at || null, broken: health.apple || undefined },
   });
 });
 

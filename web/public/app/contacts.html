@@ -381,6 +381,11 @@
   </header>
 
   <!-- Action buttons -->
+  <!-- Bring in your phone's contacts (🐛 #90 — Melanie: "connect my Apple contacts list through my iCloud. Where can I do that?") -->
+  <div class="toolbar">
+    <a class="import-btn btn-primary" id="icloud-btn" href="/auth/apple/calendar" style="text-decoration:none;text-align:center">🍎 Bring in iCloud contacts</a>
+    <a class="import-btn btn-secondary" id="google-contacts-btn" href="/auth/google" style="text-decoration:none;text-align:center">Bring in Google contacts</a>
+  </div>
   <div class="toolbar">
     <button class="import-btn btn-primary" id="picker-btn" onclick="openContactPicker()" style="display:none">
       👥 Import from phone

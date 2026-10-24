@@ -1366,6 +1366,13 @@ the bottom: 😍 Into it · 🤷 Meh · 👎 Not for me + "What do you think?" (
   going out clears it.
 Tests: `tests/integration/ideafeed.test.js`.
 
+- **iCloud contacts (🐛 #90, 2026-10-23 — Melanie: "connect my Apple contacts list through my iCloud. Where can I do
+  that?"):** one Apple connection, like Google's — the same app-specific password brings in iCloud contacts over CardDAV
+  (`apple-contacts.js`, `apple_contacts` migration 085, encrypted) and the calendar too unless they use Google Calendar (one
+  calendar per person; saving Apple there would replace Google). Synced daily and when a lookup misses; never writes to
+  iCloud. People → 🍎 Bring in iCloud contacts / Bring in Google contacts; Settings → Apple (iCloud) — Calendar & Contacts;
+  the agent's import link offers it. Retro told Melanie where it is. Test: `apple-contacts.test.js`.
+
 ## 26. Rate limits are per person `[2026-10-19]`
 
 The app went "completely unresponsive": every request reached us from Fly's proxy address, so
