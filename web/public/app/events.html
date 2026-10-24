@@ -589,21 +589,30 @@
     document.getElementById('tab-past').classList.toggle('active',    tab === 'past');
     document.getElementById('tab-archived').classList.toggle('active', tab === 'archived');
     if (tab === 'archived') { renderArchived(); return; }
+    // 🐛 #93 (Sean: "I created this and it's upcoming. Why isn't it over there in the upcoming area?"): Upcoming is every
+    // plan you're in that's still ahead — hosting or going — not just the ones you host; Invited is only what's waiting on
+    // your answer. "Ahead" is the plan's stage (a weekend still running today is upcoming), not just its start time.
+    const ahead = (e) => (e.plan ? e.plan.stage !== 'past' && e.plan.stage !== 'cancelled' : (e.scheduled_at || 0) >= now);
     if (tab === 'invited') {
-      // Invited tab: pending invites + upcoming accepted invites
-      renderInvited(invitedEvents.filter(e =>
-        e.rsvp_status === 'invited' || (e.scheduled_at||0) >= now
-      ));
+      renderInvited(invitedEvents.filter(e => e.rsvp_status === 'invited' && ahead(e)));
+      return;
+    }
+    if (tab === 'upcoming') {
+      const mine = allEvents.filter(e => e.status !== 'cancelled' && ahead(e));
+      const going = invitedEvents.filter(e => e.rsvp_status === 'accepted' && ahead(e));
+      const at = (e) => (e.plan && e.plan.days && e.plan.days[0]) || new Date((e.scheduled_at || 0) * 1000).toISOString().slice(0, 10);
+      renderList(mine.sort((a, b) => at(a).localeCompare(at(b))));
+      if (going.length) renderInvited(going.sort((a, b) => at(a).localeCompare(at(b))), { append: true });
       return;
     }
     // Past tab: hosted past events + past accepted/declined invitations
     const pastInvites = tab === 'past'
       ? invitedEvents
-          .filter(e => !e.flexible_time && (e.scheduled_at||0) < now)
+          .filter(e => !ahead(e))
           .map(e => ({ ...e, _isInvite: true, title: e.title, status: e.rsvp_status }))
       : [];
     const filtered = [
-      ...allEvents.filter(e => e.status !== 'cancelled').filter(e => tab === 'upcoming' ? (e.scheduled_at||0) >= now : (e.scheduled_at||0) < now),
+      ...allEvents.filter(e => e.status !== 'cancelled').filter(e => !ahead(e)),
       ...pastInvites,
     ];
     filtered.sort((a, b) => tab === 'upcoming' ? (a.scheduled_at||0) - (b.scheduled_at||0) : (b.scheduled_at||0) - (a.scheduled_at||0));
@@ -623,13 +632,15 @@
     location.reload();
   }
 
-  function renderInvited(events) {
+  function renderInvited(events, { append = false } = {}) {
     const el = document.getElementById('events-list');
     if (!events || !events.length) {
-      el.innerHTML = '<div class="empty-state">No pending invites.</div>';
+      if (!append) el.innerHTML = '<div class="empty-state">No pending invites.</div>';
       return;
     }
-    el.innerHTML = events.map(e => {
+    // Upcoming lists plans you host, then ones you're going to (🐛 #93).
+    if (append && el.querySelector('.empty-state')) el.innerHTML = '';
+    el.innerHTML = (append ? el.innerHTML : '') + events.map(e => {
       const dt = new Date((e.scheduled_at||0) * 1000);
       // Tentative plans (2026-10-09): date only, "Interested" rather than "Going".
       const whenStr = e.plan ? e.plan.dates.label : e.date_tbd ? 'Date TBD' : e.flexible_time

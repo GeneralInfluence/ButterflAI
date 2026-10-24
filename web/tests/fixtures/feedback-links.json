@@ -307,5 +307,17 @@
   "92": {
     "note_starts": "How do I remove this past event from the pills at the top",
     "test": "tests/integration/past-pills.test.js › only what's ahead shows, plus \"🕘 Past · 2\""
+  },
+  "93": {
+    "note_starts": "I created this and it's upcoming",
+    "test": "tests/integration/remove-plan.test.js › Upcoming = plans you host + plans you're going to, still ahead; Invited = waiting on your answer"
+  },
+  "94": {
+    "note_starts": "I can't scroll the pills at the very top",
+    "test": "tests/integration/remove-plan.test.js › pills keep normal sideways scrolling and aren't swiped — press and hold only"
+  },
+  "95": {
+    "note_starts": "When I try and scroll the pills at the top it opens up the modal",
+    "test": "tests/integration/remove-plan.test.js › pills keep normal sideways scrolling and aren't swiped — press and hold only"
   }
 }

@@ -1025,7 +1025,11 @@ Events, calendar; restorable from Events → 📦 Archived; `plan_hidden`, migra
 ahead), **🚫 Cancel it for everyone** (host, still ahead), Never mind. No browser dialogs; a toast with Undo after
 archiving (`public/swipe-remove.js`, loaded on every screen by feedback.js). Gotchas found on a touch screen: phones send
 "mouseleave"/mousemove around a touch (cancelled every hold — a hold now listens only to its own kind of input), and
-lifting the finger taps the sheet's backdrop (closed it at once — taps are ignored for 0.7 s after it opens). Test:
+lifting the finger taps the sheet's backdrop (closed it at once — taps are ignored for 0.7 s after it opens). Pills are NOT
+swiped (🐛 #94/#95 — making every plan element pan-y stopped the pill row scrolling and turned a scroll into the sheet):
+pills scroll normally and only press-and-hold opens it (moving > 10 px cancels a hold). Events → Upcoming lists every plan
+you're in that's still ahead — hosting or going (🐛 #93: Allie's plan he was going to sat under Invited) — and Invited only
+what waits on your answer; "ahead" is the plan's stage, so a weekend still running today counts. Test:
 `remove-plan.test.js`.
 **＋ New plan (🐛 #34):** a ＋ shares the right-edge pill with 🐛 on every screen → "What's the
 plan?" (starters: Dinner, Drinks, Hangout, Party, Trip) → `POST /api/plans/new` queues the

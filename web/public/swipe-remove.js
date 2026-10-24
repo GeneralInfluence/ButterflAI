@@ -10,7 +10,10 @@
 (function () {
   if (window.__bflySwipe) return; window.__bflySwipe = true;
   const css = document.createElement('style');
-  css.textContent = `[data-plan-id]{touch-action:pan-y}
+  // Cards hand vertical drags to the page (a sideways drag is the swipe). Pills sit in a row you slide sideways, so they
+  // keep normal scrolling — only press and hold opens the sheet there (🐛 #94/#95: "I can't scroll the pills … when I try
+  // and scroll the pills it opens up the modal"). No iOS link callout on a held pill.
+  css.textContent = `[data-plan-id]:not(.tpill){touch-action:pan-y}.tpill[data-plan-id]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
     #bfly-rm{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:10001;display:flex;align-items:flex-end;justify-content:center}
     #bfly-rm .sheet{background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:520px;padding:18px 16px calc(16px + env(safe-area-inset-bottom));font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;box-shadow:0 -6px 30px rgba(0,0,0,.15)}
     #bfly-rm .k{font-size:13px;font-weight:700;color:#6c47ff;letter-spacing:.04em;text-transform:uppercase;margin:0 4px 4px}
@@ -65,7 +68,7 @@
   let start = null, swipedAt = 0;
   document.addEventListener('touchstart', (e) => {
     const el = e.target.closest('[data-plan-id]');
-    if (!el) return;
+    if (!el || el.classList.contains('tpill')) return;   // pills scroll; hold them instead
     start = { el, x: e.touches[0].clientX, y: e.touches[0].clientY, dx: 0, horiz: null };
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
@@ -73,8 +76,6 @@
     const dx = e.touches[0].clientX - start.x, dy = e.touches[0].clientY - start.y;
     if (start.horiz === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) start.horiz = Math.abs(dx) > Math.abs(dy) * 1.3 && dx < 0;
     if (!start.horiz) { if (start.horiz === false) start = null; return; }
-    // A pill in a row that slides sideways: only a long, deliberate swipe counts, the row still scrolls.
-    if (start.el.classList.contains('tpill')) { start.dx = dx; return; }
     start.dx = Math.min(0, dx);
     start.el.style.transition = 'none'; start.el.style.transform = `translateX(${Math.max(start.dx, -140)}px)`;
   }, { passive: true });
@@ -82,7 +83,7 @@
     if (!start) return;
     const { el, dx } = start; start = null;
     el.style.transition = 'transform .2s'; el.style.transform = '';
-    if (dx < (el.classList.contains('tpill') ? -140 : -70)) { swipedAt = Date.now(); openSheet(el.dataset.planId, el); }
+    if (dx < -70) { swipedAt = Date.now(); openSheet(el.dataset.planId, el); }
   });
 
   // Press and hold (pills and cards) — also with a mouse.

@@ -97,3 +97,23 @@ describe('throw a plan away — with choices', () => {
     assert.match(ev, /📦 Archived[\s\S]*Bring back/);
   });
 });
+
+// 🐛 #94/#95 (Sean, 2026-10-24): "I can't scroll the pills at the very top" / "When I try and scroll the pills at the top it
+// opens up the modal. I should have to long press the pill." Every plan element was made pan-y (a sideways drag = swipe).
+// 🐛 #93: "I created this and it's upcoming. Why isn't it over there in the upcoming area?" — a plan he's going to (Allie
+// hosts it) was under Invited; Upcoming only listed plans he hosts.
+describe('🐛 #93–#95: pills scroll; only holding a pill opens the sheet; Upcoming has every plan you\'re in', () => {
+  const read = (f) => fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8');
+  test('pills keep normal sideways scrolling and aren\'t swiped — press and hold only', () => {
+    const sr = read('swipe-remove.js');
+    assert.match(sr, /\[data-plan-id\]:not\(\.tpill\)\{touch-action:pan-y\}/);
+    assert.match(sr, /if \(!el \|\| el\.classList\.contains\('tpill'\)\) return;   \/\/ pills scroll; hold them instead/);
+    assert.match(sr, /Math\.hypot\(q\.clientX - holdAt\.x, q\.clientY - holdAt\.y\) > 10\) holdEnd\(\)/, 'scrolling cancels a hold');
+  });
+  test('Upcoming = plans you host + plans you\'re going to, still ahead; Invited = waiting on your answer', () => {
+    const ev = read('app/events.html');
+    assert.match(ev, /const going = invitedEvents\.filter\(e => e\.rsvp_status === 'accepted' && ahead\(e\)\);/);
+    assert.match(ev, /renderInvited\(invitedEvents\.filter\(e => e\.rsvp_status === 'invited' && ahead\(e\)\)\);/);
+    assert.match(ev, /e\.plan \? e\.plan\.stage !== 'past'/, 'a weekend still running today is upcoming');
+  });
+});
