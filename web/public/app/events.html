@@ -732,6 +732,11 @@
   const PEOPLE_STATUS = (p, tentative) => p.deferring_to && p.deferring_to.length
     ? `🤝 whatever ${p.deferring_to.join(' & ')} decide${p.deferring_to.length === 1 && p.deferring_to[0] !== 'you' ? 's' : ''}`
     : ({ accepted: p.going ? '✅ going' : '⭐ interested', invited: '⏳ hasn’t answered', declined: '❌ can’t make it' }[p.status] || p.status);
+  // A part of a plan can become its own plan (owner, 2026-10-23); its people stay.
+  async function makeSeparate(id) {
+    const r = await fetch('/api/events/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ part_of: null }) }).catch(() => null);
+    if (r && r.ok) { await load(); openSummary(id); }
+  }
   function renderSummary() {
     const el = document.getElementById('plan-summary');
     if (!summaryId) { el.hidden = true; return; }
@@ -782,7 +787,7 @@
     el.innerHTML = (summaryId && changeCard ? changeCard : '') + `<div class="ps-head"><div class="ps-title">${escHtml(p.title)}</div>
         <span class="cal-chip stage-${p.stage}" style="width:auto;font-size:11px;line-height:20px;padding:0 8px;flex-shrink:0">${STAGE_LABEL[p.stage] || p.stage}</span>
         <button class="ps-close" onclick="closeSummary()" aria-label="Close">✕</button></div>
-      ${p.part_of ? `<div style="font-size:13px;color:#8e8e93;margin:-4px 0 8px">Part of <a href="#" onclick="openSummary('${escHtml(p.part_of.id)}');return false" style="color:#6c47ff">${escHtml(p.part_of.title)}</a></div>` : ''}
+      ${p.part_of ? `<div style="font-size:13px;color:#8e8e93;margin:-4px 0 8px">Part of <a href="#" onclick="openSummary('${escHtml(p.part_of.id)}');return false" style="color:#6c47ff">${escHtml(p.part_of.title)}</a>${p.role === 'host' ? ` · <a href="#" onclick="makeSeparate('${escHtml(p.id)}');return false" style="color:#6c47ff">make it a separate plan</a>` : ''}</div>` : ''}
       <div class="ps-rows">${rows}</div>${(p.parts || []).length ? `<div class="ps-label">Parts of it</div><div class="ps-rows">${p.parts.map((x) => `<a href="#" onclick="openSummary('${escHtml(x.id)}');return false" style="display:block;color:#6c47ff;padding:2px 0">${escHtml(x.title)} ›</a>`).join('')}</div>` : ''}${ideas}${asked}${people}${said}${notes}${creating}
       ${p.next ? `<div class="ps-next">👉 ${escHtml(p.next)}</div>` : ''}
       ${p.can_edit ? hostControls(p) : ''}

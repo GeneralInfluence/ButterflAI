@@ -1706,7 +1706,7 @@ app.post('/api/plans/new', webAuth.requireAuth, express.json(), async (req, res)
   // The plan is made here, in code (newplan.js — 2026-10-23: Melanie's ＋ ended up as items on her weekend plan); their
   // words then go to their ButterflAI in the new plan's discussion to fill in, never to make another.
   const partOf = req.body?.part_of ? String(req.body.part_of) : null;
-  const made = await require('./newplan').make(req.user.id, text, { partOf });
+  const made = await require('./newplan').make(req.user.id, text, { partOf, separate: req.body?.separate === true });
   if (made.error) return res.status(400).json(made);
   db.storeInboundMessage({ from_phone: req.user.phone, from_type: 'user', from_id: req.user.id, channel: 'webchat', text, intent: 'new_plan_made', spell_id: spellId, event_id: made.event_id });
   if (spellId) db._raw().prepare('UPDATE spells SET event_id = ? WHERE id = ? AND event_id IS NULL').run(made.event_id, spellId);
@@ -2547,7 +2547,7 @@ app.get('/api/events/:id/manage', webAuth.requireAuth, (req, res) => {
 app.patch('/api/events/:id', webAuth.requireAuth, express.json(), (req, res) => {
   // Every plan change goes through planops.js — the same rules as the agent's tools.
   // + tentative ("Lock it in") and duration_mins (2026-10-13: hosts fix their plans themselves).
-  const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address', 'host_attending', 'tentative', 'duration_mins', 'proposed_dates'];
+  const allowed = ['event_type', 'status', 'title', 'notes', 'venue_name', 'venue_address', 'host_attending', 'tentative', 'duration_mins', 'proposed_dates', 'part_of'];
   const changes = {};
   for (const k of allowed) if (req.body[k] !== undefined) changes[k] = req.body[k];
   if (!Object.keys(changes).length) return res.status(400).json({ error: 'Nothing to update' });

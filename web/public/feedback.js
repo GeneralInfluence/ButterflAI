@@ -21,6 +21,8 @@
     #bfly-fb-tab { }
     #bfly-new-sheet { position: fixed; inset: 0; z-index: 9500; background: rgba(0,0,0,.35); display: flex; align-items: flex-end; justify-content: center; }
     #bfly-new-sheet[hidden] { display: none; }
+    #bfly-new-where button { flex: 1; border: 1.5px solid #e5e5e5; background: #fff; border-radius: 12px; padding: 8px 10px; font-size: 14px; font-family: inherit; cursor: pointer; text-align: center; }
+    #bfly-new-where button.on { border-color: #6c47ff; background: #ede9fe; color: #5a38d9; font-weight: 600; }
     #bfly-new-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
     #bfly-new-chips button { border: 1px solid #e5e5e5; background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 14px; font-family: inherit; cursor: pointer; }
     #bfly-fb-sheet { position: fixed; inset: 0; z-index: 9500; background: rgba(0,0,0,.35); display: flex; align-items: flex-end; justify-content: center; }
@@ -56,6 +58,7 @@
   newSheet.innerHTML = `<div id="bfly-fb-card" role="dialog" aria-label="New plan">
       <div id="bfly-fb-label">＋ New plan</div>
       <h3>What's the plan?</h3>
+      <div id="bfly-new-where" hidden style="display:flex;gap:6px;margin:0 0 10px"></div>
       <div id="bfly-new-chips">${['🍽️ Dinner', '🍻 Drinks', '🏡 Hangout', '🎉 Party', '🏕️ Trip'].map((c) => `<button type="button">${c}</button>`).join('')}</div>
       <textarea id="bfly-new-text" maxlength="1000" placeholder="e.g. Dinner with Allie and Bam next Friday"></textarea>
       <div id="bfly-fb-actions" style="margin-top:10px"><button type="button" id="bfly-new-cancel">Cancel</button><button type="button" id="bfly-new-go" style="background:#6c47ff;color:#fff">Make it</button></div>
@@ -63,6 +66,7 @@
   const newText = () => newSheet.querySelector('#bfly-new-text');
   // Pages can open it filled in — Explore's "Make it a plan" (🐛 #47: edit it before anything is made).
   let fromSpell = null;
+  let partChoice = null;   // the plan the new one is part of, or null for a plan of its own
   window.bflyNewPlan = (text, { spell = null, about = null } = {}) => {
     fromSpell = spell;
     newSheet.querySelector('h3').textContent = spell ? 'Make it yours, then make it' : "What's the plan?";
@@ -71,7 +75,19 @@
     // Tapped while looking at a plan: the new one will be part of it (2026-10-23).
     const inPlan = !spell && new URLSearchParams(location.search).get('event');
     const inPlanTitle = inPlan && inPlan !== 'general' ? (document.querySelector('.tpill.active')?.getAttribute('title') || '').trim() : '';
-    hint.textContent = about ? `From ButterflAI’s idea: ${about} — change anything before it’s made` : inPlan && inPlan !== 'general' ? `Part of ${inPlanTitle || 'this plan'} — everyone in it will be in this too` : '';
+    hint.textContent = about ? `From ButterflAI’s idea: ${about} — change anything before it’s made` : '';
+    // Tapped inside a plan: part of it, or its own plan — their choice (owner, 2026-10-23: "they might just be in another
+    // event, hit plus, and be thinking about a general event … they should be able to switch between the two").
+    const where = newSheet.querySelector('#bfly-new-where');
+    partChoice = inPlan && inPlan !== 'general' ? inPlan : null;
+    if (partChoice) {
+      const draw = () => {
+        where.innerHTML = `<button type="button" data-w="part" class="${partChoice ? 'on' : ''}">🧩 Part of ${inPlanTitle ? inPlanTitle.replace(/</g, '&lt;') : 'this plan'}</button><button type="button" data-w="own" class="${partChoice ? '' : 'on'}">✨ Separate plan</button>`;
+        where.title = partChoice ? 'Everyone in it will be in this too' : 'A plan of its own';
+      };
+      where.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; partChoice = b.dataset.w === 'part' ? inPlan : null; draw(); };
+      draw(); where.hidden = false; where.style.display = 'flex';
+    } else { where.hidden = true; where.style.display = 'none'; }
     newText().value = text || '';
     newSheet.hidden = false;
     setTimeout(() => { const t = newText(); t.focus(); t.setSelectionRange(t.value.length, t.value.length); }, 50);
@@ -91,8 +107,7 @@
     go.disabled = true; go.textContent = 'Making it…';
     try {
       // Tapped from inside a plan: the new one is part of it (2026-10-23).
-      const partOf = new URLSearchParams(location.search).get('event');
-      const r = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ...(fromSpell ? { spell_id: fromSpell } : {}), ...(partOf && partOf !== 'general' ? { part_of: partOf } : {}) }) });
+      const r = await fetch('/api/plans/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, ...(fromSpell ? { spell_id: fromSpell } : {}), ...(partChoice ? { part_of: partChoice } : { separate: true }) }) });
       if (!r.ok) throw new Error();
       const { ts, event_id: made } = await r.json();
       // The plan exists now (made in code) — open its discussion; ButterflAI fills it in there.

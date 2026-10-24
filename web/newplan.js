@@ -46,7 +46,7 @@ async function read(userId, text, plans) {
 }
 
 /** Make the plan from their words. partOf: the plan they were looking at when they tapped ＋. */
-async function make(userId, text, { partOf = null } = {}) {
+async function make(userId, text, { partOf = null, separate = false } = {}) {
   const words = String(text || '').replace(/\s+/g, ' ').trim();
   if (!words) return { error: 'EMPTY' };
   const plan = require('./plan');
@@ -59,7 +59,8 @@ async function make(userId, text, { partOf = null } = {}) {
   if (when && !datetime.saysTime(words)) when = when.replace(new RegExp(datetime.TIME_WORDS.source, 'gi'), '').replace(/\s+(at|in the)\s*$/i, '').trim();
   if (when && !datetime.saysDay(when) && datetime.saysTime(when)) when = `today ${when}`;   // "5pm" with no day is today's
   if (!when) when = null;
-  const parent = partOf && plans.some((p) => p.id === partOf) ? partOf : (r.part_of && plans.some((p) => p.id === r.part_of) ? r.part_of : null);
+  // Their choice wins: a part of the plan they were in, or (they chose "Separate plan") its own plan.
+  const parent = partOf && plans.some((p) => p.id === partOf) ? partOf : separate ? null : (r.part_of && plans.some((p) => p.id === r.part_of) ? r.part_of : null);
   let name = title;
   for (let i = 2; plan.existingByName(userId, name); i++) name = `${title} (${i})`;   // ＋ is always a new plan
   const made = await require('./planops').create(userId, { title: name, activity_type: String(r.what || 'plan').slice(0, 40), ...(when ? { when } : {}),

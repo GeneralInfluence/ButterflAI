@@ -1146,6 +1146,9 @@ The plan, in four pieces — 1 and 2 built:
 3. *(next)* **Assignments go to the person:** "Sean takes the boys at 5" reaches Sean as I'm on it / Can't / Suggest a
    change — owner's choice: **only the person can accept**; agents never accept for them or report "confirmed".
 4. *(next)* **"Who knows"** under each recent change: per person, seen / on it.
+**Their choice (owner, same day: "the person might just be in another event, hit plus, and be thinking about a general
+event … they should be able to switch"):** ＋ inside a plan shows 🧩 Part of <plan> / ✨ Separate plan (separate also stops
+the read from guessing a parent); a part can later be made separate from its Details (`PATCH part_of: null`, host).
 No retro: parts are new, and linking existing plans as parts would invite people (Melanie asked to keep Practical Magic
 to Sean and her). Tests: `plan-parts.test.js`, `new-plan.test.js`.
 

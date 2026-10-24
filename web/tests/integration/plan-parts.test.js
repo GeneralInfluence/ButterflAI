@@ -130,3 +130,28 @@ describe('＋ makes the plan; a part has everyone in the bigger plan', () => {
     assert.equal((await planops.create(stranger.id, { title: 'Crash it', activity_type: 'x', part_of: weekendId }, { via: 'app' })).error, 'PART_OF_NOT_FOUND');
   });
 });
+
+// Owner, 2026-10-23: "the person might just be in another event, hit plus, and be thinking about a general event. And
+// so they should be able to switch between the two."
+describe('part of the plan, or its own — their choice', () => {
+  test('＋ inside a plan offers both; "Separate plan" makes a plan of its own (no invites from the bigger plan)', async () => {
+    const js = require('fs').readFileSync(require('path').join(__dirname, '../../public/feedback.js'), 'utf8');
+    assert.match(js, /🧩 Part of \$\{inPlanTitle[\s\S]*✨ Separate plan/);
+    assert.match(js, /\.\.\.\(partChoice \? \{ part_of: partChoice \} : \{ separate: true \}\)/);
+    const { mel, weekendId } = await weekend();
+    newplan._setClient({ messages: { create: async () => ({ content: [{ type: 'text', text: JSON.stringify({ title: 'Girls night', what: 'night', when: null, part_of: weekendId }) }] }) } });
+    const r = await request.post('/api/plans/new').set('Cookie', await cookieFor(mel)).send({ text: 'girls night sometime', separate: true });
+    newplan._setClient(null);
+    assert.equal(r.body.part_of, null);
+    assert.deepEqual(invited(r.body.event_id), [], 'nobody from the weekend');
+  });
+  test('a part can be made a separate plan later (its people stay)', async () => {
+    const { sean, mel, allie, weekendId } = await weekend();
+    const part = await planops.create(mel.id, { title: 'Friday evening x', activity_type: 'evening', part_of: weekendId }, { via: 'app' });
+    const r = await request.patch(`/api/events/${part.eventId}`).set('Cookie', await cookieFor(mel)).send({ part_of: null });
+    assert.equal(r.status, 200);
+    assert.equal(plan.planFor(part.eventId, mel.id).part_of, null);
+    assert.deepEqual(invited(part.eventId), [allie.phone, sean.phone].sort());
+    assert.match(require('fs').readFileSync(require('path').join(__dirname, '../../public/app/events.html'), 'utf8'), /make it a separate plan/);
+  });
+});

@@ -32,7 +32,7 @@ const MAX_TITLE = 80;
 // What only the host decides; everyone in the plan can change the rest (plan.canEdit).
 const HOST_ONLY = ['cancel', 'status', 'event_type', 'host_attending', 'group_id'];
 const SET_FIELDS = ['time_tbd', 'title', 'activity_type', 'notes', 'venue_name', 'venue_address', 'scheduled_at', 'date_tbd', 'proposed_dates',
-  'tentative', 'flexible_time', 'duration_mins', 'event_type', 'host_attending', 'status', 'group_id', 'cancelled_at'];
+  'tentative', 'flexible_time', 'duration_mins', 'event_type', 'host_attending', 'status', 'group_id', 'cancelled_at', 'parent_id'];
 
 function log(eventId, actorId, via, field, oldV, newV) {
   db._raw().prepare(`INSERT INTO plan_changes (event_id, actor_id, via, field, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`)
@@ -195,6 +195,9 @@ function update(actorId, eventId, changes, { via = 'agent' } = {}) {
   if (changes.event_type !== undefined) u.event_type = changes.event_type === 'public' ? 'public' : 'private';
   if (changes.host_attending !== undefined) u.host_attending = changes.host_attending ? 1 : 0;
   if (changes.group_id !== undefined && db.getContactGroups(actorId).some((g) => g.id === changes.group_id)) u.group_id = changes.group_id;
+  // Not part of the bigger plan after all — its own plan (owner, 2026-10-23: "they should be able to switch"). Its
+  // people stay; it no longer follows the bigger plan's.
+  if (changes.part_of === null) u.parent_id = null;
   if (changes.cancel === true || changes.status === 'cancelled') { u.status = 'cancelled'; if (e.status !== 'cancelled') u.cancelled_at = Math.floor(Date.now() / 1000); }
   // Done (🐛 #84): an errand or plan that's finished — over, off everyone's list, kept (not cancelled).
   else if (changes.done === true || changes.status === 'completed') u.status = 'completed';
