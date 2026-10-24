@@ -1017,6 +1017,12 @@ just the plan pills and the switcher (location sharing is in Settings).
 there"):** on Chat, Creating and Events the pills show what's ahead; past plans sit behind one "🕘 Past · n" pill (tap to
 show them, faded; "Hide past" tucks them away — remembered per device); a past plan you're looking at keeps its pill
 (`PlanNav.visible`). Test: `past-pills.test.js`.
+**Throw a plan away (Sean, 2026-10-24: "I can't remove past events. I want to be able to swipe left to throw an event
+away"):** swipe a plan's card left (Events list / Invited / Past / a calendar day) → 🗑 Remove; press and hold a plan pill
+(pills slide sideways, so no swipe there) → Remove (`public/swipe-remove.js`, loaded by plan-nav.js; `POST
+/api/plans/:id/remove`, `plan.remove`). Past plan → hidden for you only (`plan_hidden`, migration 088 — out of pills, lists,
+calendar). Still ahead → asks first: the host cancels it for everyone; a guest says they're not going. Test:
+`remove-plan.test.js`.
 **＋ New plan (🐛 #34):** a ＋ shares the right-edge pill with 🐛 on every screen → "What's the
 plan?" (starters: Dinner, Drinks, Hangout, Party, Trip) → `POST /api/plans/new` queues the
 words with `inbound_messages.intent = 'new_plan'` (migration 065); the agent is told the user

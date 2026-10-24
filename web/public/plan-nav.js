@@ -38,7 +38,7 @@
     try { localStorage.setItem(PAST_KEY, showPast() ? '0' : '1'); } catch (_) {}
     location.reload();
   }
-  const pillHtml = (page, d, eventId) => `<a class="tpill${d.event_id === eventId ? ' active' : ''}${d.stage === 'past' ? ' past' : ''}" href="${href(page, d.event_id)}" title="${esc(d.title)}">`
+  const pillHtml = (page, d, eventId) => `<a class="tpill${d.event_id === eventId ? ' active' : ''}${d.stage === 'past' ? ' past' : ''}" data-plan-id="${esc(d.event_id)}" href="${href(page, d.event_id)}" title="${esc(d.title)}">`
     + `<span>${d.stage === 'past' ? '🕘' : d.tentative ? '🗓️' : '📅'} ${esc(d.title)}</span>${d.tentative && d.stage !== 'past' ? '<span class="tent">tentative</span>' : ''}</a>`;
 
   function pills(el, { page, eventId, discussions }) {
@@ -82,3 +82,5 @@
 
   window.PlanNav = { pills, modes, discussions, href, visible, pastPill, pillHtml, togglePast };
 })();
+// Swipe left / press and hold to throw a plan away (swipe-remove.js, 2026-10-24).
+(function () { if (document.querySelector('script[src="/swipe-remove.js"]')) return; const s = document.createElement('script'); s.src = '/swipe-remove.js'; s.defer = true; document.head.appendChild(s); })();

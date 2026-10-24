@@ -54,7 +54,7 @@ function discussionsFor(userId) {
   const t = now();
   const talked = new Map(db._raw().prepare(`SELECT event_id, count(*) n, max(created_at) last_at FROM conversation_history
     WHERE user_id = ? AND event_id IS NOT NULL AND created_at > ? GROUP BY event_id`).all(userId, t - 30 * 86400).map((r) => [r.event_id, r]));
-  return require('./plan').plansFor(userId, { includePast: true })
+  return require('./plan').plansFor(userId, { includePast: true })   // (leaves out plans they removed)
     .filter((p) => p.stage !== 'past' || talked.has(p.id))
     .map((p) => ({ event_id: p.id, title: p.title, stage: p.stage, dates: p.dates.label, tentative: p.tentative, created_at: p.created_at, mine: p.role === 'host',
       messages: talked.get(p.id)?.n || 0, last_at: talked.get(p.id)?.last_at || null, scheduled_at: p.at || Infinity,

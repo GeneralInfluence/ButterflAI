@@ -15,7 +15,7 @@ const vm = require('vm');
 const src = fs.readFileSync(path.join(__dirname, '../../public/plan-nav.js'), 'utf8');
 function nav(stored = null) {
   const store = new Map(stored ? [['bfly-pills-past', stored]] : []);
-  const ctx = { window: {}, localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) }, location: { reload() {} }, document: {} };
+  const ctx = { window: {}, localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) }, location: { reload() {} }, document: { querySelector: () => null, createElement: () => ({}), head: { appendChild() {} } } };   // plan-nav also loads swipe-remove.js
   vm.runInNewContext(src, ctx);
   return ctx.window.PlanNav;
 }

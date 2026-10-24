@@ -152,7 +152,37 @@ function plansFor(userId, { includePast = false, includeDeclined = false } = {})
     SELECT se.id FROM event_invitations ei JOIN contacts c ON c.id = ei.contact_id JOIN social_events se ON se.id = ei.event_id
     WHERE c.phone = ? AND se.host_user_id != ? AND (ei.status != 'declined' OR ?) AND ei.dismissed_at IS NULL AND COALESCE(se.status, 'open') != 'cancelled'`)
     .all(userId, u.phone || '', userId, includeDeclined ? 1 : 0).map((r) => r.id);
-  return ids.map((id) => planFor(id, userId)).filter(Boolean).filter((p) => includePast || p.stage !== 'past');
+  // Plans they removed from their own lists (swipe → Remove, 2026-10-24) — gone for them only.
+  const hidden = new Set(db._raw().prepare('SELECT event_id FROM plan_hidden WHERE user_id = ?').all(userId).map((r) => r.event_id));
+  return ids.filter((id) => !hidden.has(id)).map((id) => planFor(id, userId)).filter(Boolean).filter((p) => includePast || p.stage !== 'past');
+}
+
+/**
+ * Throw a plan away (Sean, 2026-10-24: "I want to be able to swipe left to throw an event away"). A past plan is hidden
+ * from this person's pills, lists and calendar (it stays for everyone else). A plan still ahead needs `confirm`: the host
+ * cancels it for everyone; a guest says they're not going and it leaves their lists.
+ */
+function remove(userId, eventId, { confirm = false } = {}) {
+  const p = planFor(eventId, userId);
+  if (!p) return { error: 'NOT_FOUND' };
+  if (['past', 'cancelled'].includes(p.stage) || p.done) {
+    db._raw().prepare('INSERT OR IGNORE INTO plan_hidden (event_id, user_id) VALUES (?, ?)').run(eventId, userId);
+    return { ok: true, done: 'hidden' };
+  }
+  const planops = require('./planops');
+  if (p.role === 'host') {
+    if (!confirm) return { needs_confirm: 'cancel', message: `Cancel “${p.title}” for everyone?` };
+    const r = planops.update(userId, eventId, { cancel: true }, { via: 'app' });
+    return r.error ? r : { ok: true, done: 'cancelled' };
+  }
+  if (!confirm) return { needs_confirm: 'decline', message: `Say you're not going to “${p.title}” and remove it?` };
+  const u = db.getUser(userId);
+  if (p.invitation?.id) {
+    if (p.invitation.status !== 'declined') planops.respond(p.invitation.id, 'declined', { by: 'guest', phone: u.phone, userId, via: 'app' });
+    planops.dismiss(p.invitation.id, u.phone, { via: 'app' });
+  }
+  db._raw().prepare('INSERT OR IGNORE INTO plan_hidden (event_id, user_id) VALUES (?, ?)').run(eventId, userId);
+  return { ok: true, done: 'removed' };
 }
 
 /**
@@ -251,4 +281,4 @@ function whoKnows(eventId, at, actorId, viewerId) {
   return out;
 }
 
-module.exports = { markSeen, whoKnows, planFor, plansFor, existingByName, sameName, inCircle, canEdit, roleOf, forWhom };
+module.exports = { remove, markSeen, whoKnows, planFor, plansFor, existingByName, sameName, inCircle, canEdit, roleOf, forWhom };

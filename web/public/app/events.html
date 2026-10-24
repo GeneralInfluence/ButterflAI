@@ -412,7 +412,7 @@
       // Invited events (past accepted/declined) render as a simpler read-only card
       if (e._isInvite) {
         const statusLabel = { accepted: '✅ Went', declined: '❌ Declined', invited: '⏳ Pending', no_response: '—' }[e.rsvp_status] || e.rsvp_status;
-        return `<div class="card">
+        return `<div class="card" data-plan-id="${escHtml(e.id)}">
           <div class="card-header">
             <div>
               <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}</div>
@@ -432,7 +432,7 @@
         ? `${accepted ? `✅ ${accepted}` : ''}${declined ? ` ❌ ${declined}` : ''}${pending ? ` ⏳ ${pending}` : ''}`.trim()
         : '';
       const isPublic = e.event_type === 'public';
-      return `<div class="card">
+      return `<div class="card" data-plan-id="${escHtml(e.id)}">
         <div class="card-header" onclick="toggleManage('${e.id}', this)" style="cursor:pointer">
           <div>
             <div class="card-title">${escHtml(e.title || e.activity_type || 'Event')}${e.tentative ? ' <span style="display:inline-block;font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px;vertical-align:2px">Tentative</span>' : ''}</div>
@@ -624,7 +624,7 @@
             dt.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
       const isPending = e.rsvp_status === 'invited';
       const statusLabel = { invited: '⏳ Pending', accepted: e.tentative && !e.plan?.invitation?.going ? '⭐ Interested' : '✅ Going', declined: '❌ Declined' }[e.rsvp_status] || e.rsvp_status;
-      return `<div class="card" id="invite-${e.invitation_id}">
+      return `<div class="card" id="invite-${e.invitation_id}" data-plan-id="${escHtml(e.id)}">
         <div class="card-header">
           <div style="flex:1;min-width:0">
             <div class="card-title">${escHtml(e.title)}${e.tentative ? ' <span style="display:inline-block;font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px;vertical-align:2px">Tentative</span>' : ''}</div>
@@ -1025,7 +1025,7 @@
     } else {
       const label = STAGE_LABEL;
       evEl.innerHTML = events.map(p => `
-        <div class="card day-plan" style="border-radius:0;box-shadow:none;border-top:1px solid #f0f0f0;margin:0;"
+        <div class="card day-plan" data-plan-id="${escHtml(p.id)}" style="border-radius:0;box-shadow:none;border-top:1px solid #f0f0f0;margin:0;"
              onclick="openSummary('${escHtml(p.id)}', '${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}')">
           <div class="card-header">
             <div>

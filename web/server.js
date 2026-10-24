@@ -1625,6 +1625,13 @@ function refState(ref) {
   if (kind === 'delivery') { const d = db._raw().prepare('SELECT status, seen_at FROM deliveries WHERE id = ?').get(id); return { seen: !!d?.seen_at, texted: d?.status === 'texted' }; }
   return {};
 }
+const hiddenFor = (userId) => new Set(db._raw().prepare('SELECT event_id FROM plan_hidden WHERE user_id = ?').all(userId).map((r) => r.event_id));
+// Throw a plan away — swipe left / press and hold (swipe-remove.js, Sean 2026-10-24). { confirm } for plans still ahead.
+app.post('/api/plans/:id/remove', webAuth.requireAuth, express.json(), (req, res) => {
+  const r = plan.remove(req.user.id, String(req.params.id), { confirm: req.body?.confirm === true });
+  return r.error ? res.status(r.error === 'NOT_FOUND' ? 404 : 400).json(r) : res.json(r);
+});
+
 // Questions put to you that you haven't answered (asks-prompt.js asks them up front — 🐛 #91).
 app.get('/api/asks', webAuth.requireAuth, (req, res) => {
   const people = require('./people');
@@ -2506,7 +2513,8 @@ app.get('/api/events/:userId', webAuth.requireAuth, (req, res) => {
   if (!sameUser(req, res, req.params.userId)) return;
   // Not cancelled / combined plans (🐛 #28, 2026-10-20: a Liam's Birthday Party folded into the
   // real one on Oct 12 still showed in the Events list, as "two Liam's birthday parties").
-  const events = multiparty.getEventsByHost(req.params.userId).filter((e) => e.status !== 'cancelled');
+  const hidden = hiddenFor(req.user.id);   // plans they removed (swipe → Remove, 2026-10-24)
+  const events = multiparty.getEventsByHost(req.params.userId).filter((e) => e.status !== 'cancelled' && !hidden.has(e.id));
   // Attach RSVP summary to each event so host can see who accepted/declined
   const prog = todos.progressFor(events.map((e) => e.id));
   const withRsvp = events.map(e => ({
@@ -2520,7 +2528,8 @@ app.get('/api/events/:userId', webAuth.requireAuth, (req, res) => {
 
 // GET /api/events/invited — events the logged-in user was invited to
 app.get('/api/events/invited/me', webAuth.requireAuth, (req, res) => {
-  const events = multiparty.getInvitedEvents(req.user.phone);
+  const hidden = hiddenFor(req.user.id);
+  const events = multiparty.getInvitedEvents(req.user.phone).filter((e) => !hidden.has(e.id));
   const prog = todos.progressFor(events.map((e) => e.id));
   res.json({ events: events.map((e) => ({ ...e, todo_progress: prog[e.id], plan: plan.planFor(e.id, req.user.id) })) });
 });
